@@ -1,0 +1,147 @@
+"""Tests for the RS-NEG active checks against correct and deliberately-buggy mocks.
+
+Calibration principle: against a correctly-validating endpoint every active
+check must PASS (zero false positives). Against an endpoint missing a specific
+validation, the corresponding check must FAIL (it catches the bug).
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import time
+
+import httpx
+import pytest
+
+pytest.importorskip("eth_account")
+
+from eth_account import Account
+from eth_account.messages import encode_typed_data
+
+from x402_conformance.active import run_active_checks
+from x402_conformance.checks import Status
+from x402_conformance.payload_builder import EvmSigner, _TRANSFER_WITH_AUTHORIZATION_TYPES
+
+from conftest import VALID_PAYMENT_REQUIRED, encode_header
+
+TARGET = "https://api.example.com/premium-data"
+REQ = VALID_PAYMENT_REQUIRED["accepts"][0]
+CHAIN_ID = 84532
+
+
+def _recovers_to_from(payload: dict) -> bool:
+    auth = payload["payload"]["authorization"]
+    domain = {"name": REQ["extra"]["name"], "version": REQ["extra"]["version"],
+              "chainId": CHAIN_ID, "verifyingContract": REQ["asset"]}
+    message = {"from": auth["from"], "to": auth["to"], "value": int(auth["value"]),
+               "validAfter": int(auth["validAfter"]), "validBefore": int(auth["validBefore"]),
+               "nonce": bytes.fromhex(auth["nonce"].removeprefix("0x"))}
+    signable = encode_typed_data(domain, _TRANSFER_WITH_AUTHORIZATION_TYPES, message)
+    try:
+        recovered = Account.recover_message(signable, signature=payload["payload"]["signature"])
+    except Exception:
+        return False
+    return recovered == auth["from"]
+
+
+def make_server(
+    *, check_signature: bool = True, check_amount: bool = True,
+    check_recipient: bool = True, check_time: bool = True,
+) -> httpx.MockTransport:
+    """A configurable x402 resource server. Defaults = fully correct."""
+
+    def reject(reason: str) -> httpx.Response:
+        body = {"success": False, "errorReason": reason, "transaction": "",
+                "network": REQ["network"]}
+        return httpx.Response(402, headers={"PAYMENT-RESPONSE": encode_header(body)})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sig = request.headers.get("PAYMENT-SIGNATURE")
+        if sig is None:
+            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+        try:
+            decoded = base64.b64decode(sig, validate=True)
+        except Exception:
+            return httpx.Response(400)
+        try:
+            payload = json.loads(decoded)
+            auth = payload["payload"]["authorization"]
+        except Exception:
+            return httpx.Response(400)
+
+        if check_recipient and auth.get("to") != REQ["payTo"]:
+            return reject("invalid_exact_evm_payload_recipient_mismatch")
+        if check_amount and str(auth.get("value")) != str(REQ["amount"]):
+            return reject("invalid_exact_evm_payload_authorization_value_mismatch")
+        now = int(time.time())
+        if check_time and not (int(auth["validAfter"]) <= now <= int(auth["validBefore"])):
+            return reject("invalid_exact_evm_payload_authorization_validity")
+        if check_signature and not _recovers_to_from(payload):
+            return reject("invalid_exact_evm_payload_signature")
+
+        # Valid payment — serve the resource (negative checks never reach here).
+        ok = {"success": True, "transaction": "0x" + "ab" * 32, "network": REQ["network"],
+              "payer": auth["from"]}
+        return httpx.Response(200, headers={"PAYMENT-RESPONSE": encode_header(ok)},
+                              json={"data": "premium"})
+
+    return httpx.MockTransport(handler)
+
+
+SIGNER = EvmSigner.from_key("0x" + "22" * 32)
+
+
+def by_id(results, cid):
+    return next(r for r in results if r.check_id == cid)
+
+
+def test_correct_server_passes_all_active_checks() -> None:
+    results = run_active_checks(TARGET, SIGNER, transport=make_server())
+    bad = [(r.check_id, r.status.value, r.detail) for r in results
+           if r.status not in (Status.PASS, Status.SKIP)]
+    assert bad == [], bad
+    # sanity: we actually ran the group, not skipped everything
+    assert any(r.status == Status.PASS for r in results)
+
+
+def test_server_without_signature_check_is_caught() -> None:
+    results = run_active_checks(TARGET, SIGNER, transport=make_server(check_signature=False))
+    # the tampered-signature case must catch it
+    assert by_id(results, "RS-NEG-003").status == Status.FAIL
+
+
+def test_amount_bug_caught_specifically_by_neg_013() -> None:
+    # Server verifies signatures but forgets to validate the price against its own.
+    results = run_active_checks(
+        TARGET, SIGNER, transport=make_server(check_amount=False)
+    )
+    # 013 pays a valid-signed token amount and claims it is the price → must be caught
+    assert by_id(results, "RS-NEG-013").status == Status.FAIL
+    # post-signing underpayment (005) is still caught by the signature check, so it stays PASS
+    assert by_id(results, "RS-NEG-005").status == Status.PASS
+
+
+def test_recipient_bug_caught() -> None:
+    results = run_active_checks(
+        TARGET, SIGNER, transport=make_server(check_signature=False, check_recipient=False)
+    )
+    assert by_id(results, "RS-NEG-007").status == Status.FAIL
+
+
+def test_no_eip3009_requirement_skips_all() -> None:
+    # An endpoint advertising only a non-eip3009 scheme → nothing to attack.
+    solana_only = {
+        "x402Version": 2,
+        "resource": {"url": TARGET},
+        "accepts": [{"scheme": "exact", "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+                     "amount": "10000", "asset": "So11111111111111111111111111111111111111112",
+                     "payTo": "CKPKJWNdJEqa81x7CkZ14BVPiY6y16Sxs7owznqtWYp5",
+                     "maxTimeoutSeconds": 60}],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(solana_only)})
+
+    results = run_active_checks(TARGET, SIGNER, transport=httpx.MockTransport(handler))
+    assert all(r.status == Status.SKIP for r in results)
