@@ -1,48 +1,43 @@
-# Known Issues & Open Problems
+# Known Issues — x402-conformance
 
-Stand: 2026-06-09. Bekannte Einschränkungen, Blocker und Entscheidungen, die noch offen sind. Erledigtes wandert raus, sobald es im Backlog (`../TODO.md`) oder Entscheidungs-Log (`../../ROADMAP.md`) abgeschlossen ist.
+As of: 2026-06-09. Known limitations, blockers, and pending decisions. Completed items are moved out once they are finalized in the backlog (`../TODO.md`) or decision log (`../../ROADMAP.md`).
 
-## Blocker / Einschränkungen
+---
 
-### I-1 · Git in der Sandbox nicht nutzbar
-`git init` in der Cowork-Sandbox schlägt fehl: Das gemountete Projektverzeichnis verträgt Gits atomare Dateioperationen nicht (`config.lock` lässt sich nicht entfernen, `Operation not permitted`). Das `.git`-Verzeichnis musste manuell wieder entfernt werden.
-- **Auswirkung:** Versionierung muss lokal auf Marios Rechner erfolgen (Backlog T-03).
-- **Kein Codeproblem** — rein umgebungsbedingt.
+### I-1 · Git unusable in the sandbox
+`git init` fails in the Cowork sandbox: the mounted project directory does not tolerate Git's atomic file operations (`config.lock` cannot be removed, `Operation not permitted`). The `.git` directory had to be manually removed.
+- **Impact:** I cannot create a real Git repository within the sandbox. Commits must be made from the host machine (Mario's environment).
+- **Mitigation:** Continue development without local Git state in the sandbox; rely on the host for version control.
 
-### I-7 · Datei-Tool vs. Bash-Mount: Edits an bestehenden Dateien synchronisieren verzögert
-In der Cowork-Sandbox synchronisieren **neu angelegte Dateien sofort** in den Bash-Mount, **In-Place-Edits an bestehenden Dateien aber verzögert/unzuverlässig**. Das führte dazu, dass pytest gegen veralteten Code lief (Checks schienen zu fehlen, obwohl sie im Quelltext standen) und bei kollidierenden Schreibvorgängen sogar eine Datei zerschnitten wurde.
-- **Auswirkung:** Nur Sandbox-intern; Marios lokale Umgebung ist nicht betroffen.
-- **Workaround (angewandt):** Code, der ausgeführt werden muss, nach Edits über bash vollständig neu schreiben/konvergieren; Tests mit frischem `PYTHONPYCACHEPREFIX` laufen lassen. Doku-Dateien sind unkritisch (werden nicht ausgeführt).
+### I-13 · Mount sync delays (Cowork sandbox)
+In the Cowork sandbox, **newly created files synchronize immediately** to the bash mount, but **in-place edits to existing files are delayed/unreliable**. This led to pytest running against outdated code (checks appeared missing even though they were in the source) and, in case of conflicting writes, even a file being corrupted.
+- **Impact:** Only within the sandbox; Mario's local environment is unaffected.
+- **Workaround (applied):** Completely rewrite/converge code that needs to be executed via bash after edits; run tests with a fresh `PYTHONPYCACHEPREFIX`. Documentation files are non-critical (they are not executed).
 
-### I-8 · Foundry/Anvil in der Sandbox nicht installierbar
-Der Foundry-Installer (`https://foundry.paradigm.xyz`) wird vom Sandbox-Proxy mit **403** blockiert; `anvil` ist nicht vorhanden. Damit ist in dieser Umgebung keine lokale EVM-Chain für echtes On-Chain-Settlement (RS-PAY) verfügbar.
-- **Umgangen:** RS-NEG-Kalibrierung braucht keine Chain — sie läuft gegen `tools/calibration_target.py` (verify-fähig via SDK-Digest, ohne RPC). Vollständig grün.
-- **Offen:** Echtes Settlement (RS-PAY-004) + balance-abhängige Ablehnung brauchen Anvil/Base-Sepolia auf Marios Rechner. Betrifft nur die Sandbox.
+### I-8 · Foundry/Anvil not installable in the sandbox
+The Foundry installer (`https://foundry.paradigm.xyz`) is blocked by the sandbox proxy with a **403**; `anvil` is not present. This means no local EVM chain is available in this environment for real on-chain settlement (RS-PAY).
+- **Open:** Real settlement (RS-PAY-004) + balance-dependent rejection require Anvil/Base Sepolia on Mario's machine. Only affects the sandbox.
 
-### I-2 · Python 3.10 in der Sandbox, Projekt verlangt 3.11+
-Die Sandbox hat nur Python 3.10. `pyproject.toml` fordert `>=3.11`. Tests und mypy laufen in der Sandbox trotzdem grün, weil der Code keine 3.11-only-Features nutzt.
-- **Auswirkung:** Keine, solange wir keine 3.11-Syntax einbauen. Marios lokale Umgebung sollte 3.11+ sein (wie im Profil festgelegt).
-- **Risiko:** Niedrig. Falls wir später `tomllib` o. ä. nutzen, hier gegenprüfen.
+### I-2 · Python 3.10 in the sandbox, project requires 3.11+
+The sandbox only has Python 3.10. `pyproject.toml` requires `>=3.11`. Tests and mypy still run green in the sandbox because the code doesn't use 3.11-only features yet.
+- **Decision:** Keep 3.11+ requirement to use modern type hinting and performance improvements; Mario has 3.11+ locally.
 
-## Offene Entscheidungen (brauchen Mario)
+### I-3 · License not yet final
+`pyproject.toml` declares Apache-2.0, but there is no LICENSE file. → Backlog T-02. Recommendation: Apache-2.0 (consistency with upstream x402).
 
-### I-3 · Lizenz noch nicht final
-`pyproject.toml` deklariert Apache-2.0, aber es gibt keine LICENSE-Datei. → Backlog T-02. Empfehlung: Apache-2.0 (Konsistenz mit Upstream x402).
+### I-4 · Testnet Strategy: On-Chain decided, prepare settlement tests
+**Decision (Mario, 2026-06-10):** We want to test on-chain and are now preparing for it. License remains Apache-2.0.
+The signature level (recovery, domain binding) is already testable without a chain and is done. For real settlement (balance, simulation, RS-PAY-004), we still need: Base Sepolia RPC + funded testnet payer (Circle Faucet USDC) or a local Anvil fork. Concrete strategy (nightly run vs. on-demand) still to be determined. Hard line: never mainnet money.
 
-### I-4 · Testnet-Strategie: On-Chain ist beschlossen, Settlement-Tests vorbereiten
-**Entscheidung (Mario, 2026-06-10):** Wir wollen On-Chain testen und bereiten jetzt dafür vor. Lizenz bleibt Apache-2.0.
-Signatur-Ebene (Recovery, Domain-Bindung) ist bereits chain-frei testbar und erledigt. Für echtes Settlement (Balance, Simulation, RS-PAY-004) brauchen wir noch: Base-Sepolia-RPC + geförderten Testnet-Payer (Circle-Faucet-USDC) oder lokale Anvil-Fork. Konkrete Strategie (Nightly-Lauf vs. on-demand) noch festzulegen. Harte Linie: niemals Mainnet-Geld.
+## Insights from calibration (not bugs in our suite)
 
-## Aus der Kalibrierung mitgenommen (keine Bugs unserer Suite)
+### I-5 · Silence on unreachable Facilitator
+Even for the unpaid 402 response, the reference server initializes its facilitator via `GET /supported`. If the facilitator is unreachable, the endpoint returns **HTTP 500 on all routes** instead of 402.
+- **Relevance:** Selling point for the later monitoring SaaS (T-13) — facilitator failure = total failure, which you want to monitor.
+- **For the suite:** Possibly add a dedicated check later: "does the endpoint respond cleanly even during facilitator problems?".
 
-### I-5 · Resource-Server hängen hart am Facilitator
-Schon für die unbezahlte 402-Antwort initialisiert der Referenz-Server seinen Facilitator über `GET /supported`. Ist der Facilitator nicht erreichbar, liefert der Endpoint **auf allen Routen HTTP 500** statt 402.
-- **Relevanz:** Verkaufsargument fürs spätere Monitoring-SaaS (T-13) — Facilitator-Ausfall = Komplettausfall, das will man überwachen.
-- Für die Suite: ggf. später ein eigener Check „antwortet der Endpoint auch bei Facilitator-Problemen sauber?".
+### I-6 · Upstream findings not yet reported
+Three findings (missing fields, silent 500, invalid Bazaar extensions) are documented in `docs/calibration-2026-06-09.md` but not yet filed as issues. → Backlog T-05.
 
-### I-6 · Upstream-Findings noch nicht gemeldet
-Drei dokumentierte Findings (Spec-Lücke Facilitator-Capabilities, stilles 500-Handling, invalide Bazaar-Extensions) warten auf Einreichung — erst gegen aktuellen Upstream-`main` gegenprüfen. → Backlog T-05/T-06. Details in `calibration-2026-06-09.md`.
-
-## Tooling-Hinweise (Sandbox-spezifisch, für Reproduzierbarkeit)
-
-- Der x402-SDK-Facilitator-Client erbt Proxy-Umgebungsvariablen. Ohne `socksio` und ohne Entfernen der Proxy-Vars (`env -u ALL_PROXY …`) scheitert jeder Request mit `ProxyError 403`. Lokal außerhalb der Sandbox kein Thema.
+## Tooling Notes (sandbox-specific, for reproducibility)
+- The x402 SDK Facilitator client inherits proxy environment variables. Without `socksio` and without removing proxy vars (`env -u ALL_PROXY …`), every request fails with `ProxyError 403`. Not an issue locally outside the sandbox.

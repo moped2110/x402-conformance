@@ -14,6 +14,9 @@ venv/
 htmlcov/
 reports/
 
+# Agent configuration
+CLAUDE.md
+
 # Foundry / on-chain artifacts
 onchain/out/
 onchain/cache/

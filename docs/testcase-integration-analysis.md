@@ -1,95 +1,77 @@
-# Integration der x402-Testcases.md — Analyse & Einordnung
+# Integration of x402-Testcases.md — Analysis & Categorization
 
-**Quelle:** `x402-Testcases.md` (Stand 2026-06-10), ~120 Testfälle in 6 Teilen.
-**Frage:** Wie binden wir diese in x402-conformance ein?
-**Kurzantwort:** Nur ein Teil davon gehört in dieses Tool. Der größere Teil testet etwas anderes — und das ist gut so.
+**Question:** How do we integrate these into x402-conformance?
+**Short answer:** Only a part of them belongs in this tool. The larger part tests something else — and that is a good thing.
 
----
+## The central distinction (please take seriously)
+`x402-Testcases.md` is a test catalog for **building and operating an x402 payment system** — i.e., for a server/agent that accepts payments, settles on-chain, queries RPC nodes, maintains a database, and performs reconciliation.
 
-## Die zentrale Unterscheidung (bitte ernst nehmen)
+**x402-conformance is something else:** a **black-box tester** that points to an x402 endpoint from the outside and checks whether its *protocol behavior* complies with the x402 V2 spec. We are an external client, not a payment backend. We have no RPC quorums, no DB, no reconciliation — and we should not have them.
 
-`x402-Testcases.md` ist ein Testkatalog für **den Bau und Betrieb eines x402-Zahlungssystems** — also für einen Server/Agenten, der Zahlungen entgegennimmt, On-Chain settled, RPC-Nodes befragt, eine DB pflegt, Reconciliation fährt.
+**Consequence, plainly stated:** About 60–70% of the document is *principally not testable* with a black-box tester because it concerns the internal state of the system (DB locks, RPC failover, memory leaks, ABI drift). Pulling this into x402-conformance would dilute the product and turn a sharp tool, explainable in a weekend, into a multi-year platform project. Exactly what the portfolio strategy *does not* want (shovel seller, not platform builder).
 
-**x402-conformance ist etwas anderes:** ein **Black-Box-Tester**, der von außen auf einen x402-Endpoint zeigt und prüft, ob dessen *Protokollverhalten* der x402-V2-Spec entspricht. Wir sind ein externer Client, kein Zahlungs-Backend. Wir haben keine RPC-Quoren, keine DB, keine Reconciliation — und sollen die auch nicht haben.
-
-**Konsequenz, direkt gesagt:** Etwa 60–70 % des Dokuments ist mit einem Black-Box-Tester *prinzipiell nicht prüfbar*, weil es internen Zustand des Systems betrifft (DB-Locks, RPC-Failover, Memory-Leaks, ABI-Drift). Das in x402-conformance hineinzuziehen würde das Produkt verwässern und aus einem scharfen, in einem Wochenende erklärbaren Tool ein Mehrjahres-Plattformprojekt machen. Genau das will die Portfolio-Strategie *nicht* (Schaufelverkäufer, kein Plattformbau).
-
-Der disziplinierte Weg: die ~20–30 % Black-Box-prüfbaren Fälle ernten (einige davon sind echte Lücken, die wir noch nicht hatten), den Rest **bewusst an die richtigen Portfolio-Projekte weiterreichen**, damit die Einsicht nicht verloren geht.
+The disciplined path: harvest the ~20–30% black-box testable cases (some of which are real gaps we didn't have yet), and **consciously pass the rest to the correct portfolio projects** so that the insight is not lost.
 
 ---
 
-## Kategorie 1 — IN SCOPE: gehört in x402-conformance
+## 1. Harvest: What goes into x402-conformance?
 
-### 1a) Bestätigt bereits abgedeckt (Validierung unseres Katalogs)
-Diese Upload-Fälle entsprechen vorhandenen Katalog-IDs — schöne Bestätigung, dass `conformance-catalog.md` solide ist:
+### 1a) Confirmation of existing IDs
+These upload cases correspond to existing catalog IDs — a nice confirmation that `conformance-catalog.md` is solid:
+- **Test 1 / RS-PR-001:** `x402Version` check.
+- **Test 3 / RS-NEG-008:** Expiration handling.
+- **N2/N3 / RS-PR-013:** Address format/checksum.
+- **N4 / RS-SEC-011:** Overflow robustness.
+- **N22 / FA-SUP-002:** CAIP-2 network format.
 
-| Upload | Unser Katalog | Thema |
-|--------|---------------|-------|
-| Test 8 Unterzahlung | RS-NEG-005 | value < amount |
-| Test 9 Überzahlung | RS-NEG-006 | exact: muss exakt sein |
-| Test 19 Replay-Angriff | RS-SEC-001 | Replay nach Settlement |
-| Test 20 MITM Adress-Tausch | RS-NEG-007 | Recipient-Mismatch (EIP-712 verteidigt) |
-| Test 13/14 Doppel-/Concurrent-Pay | RS-SEC-001/-002 | Idempotenz, Race |
-| N16 Amount manipuliert | RS-NEG-013 | Server validiert gegen eigene Preisdaten |
-| N17 Resource-ID gespooft | RS-SEC-003 | Cross-Resource-Replay |
-| N15 Expiry clientseitig manipuliert | RS-NEG-008 | Server erzwingt eigenes Timeout |
-| N11/N12 Block-Replay/Nonce-Reuse | RS-SEC-004 | (Signatur-Ebene; Settlement-Teil out) |
+### 1b) Genuinely NEW — Add as checks (the wins from the upload)
+These six are black-box testable and we didn't have them yet. They move to `conformance-catalog.md`:
 
-### 1b) Genuin NEU — als Checks ergänzen (die Gewinne aus dem Upload)
-Diese sechs sind Black-Box-prüfbar und hatten wir noch nicht. Sie wandern in `conformance-catalog.md`:
+| ID | Origin | Test | Mode |
+|----|--------|------|------|
+| **RS-HS-007** | PR1 | 402 with payment details must not be cacheable → check `Cache-Control: no-store`/`private`, no `public`/long `max-age` | passive |
+| **RS-PR-013** | N1/N2 | `payTo`/`asset` must match the CAIP-2 namespace of the `network` (no Solana address on `eip155`) | passive |
+| **RS-PR-014** | N5 | `amount` must be > 0 (not "0", not negative) | passive |
+| **RS-NEG-014** | N10 | Payment with well-formed but **wrong asset contract** → must be rejected (server checks contract address, not symbol) | active |
+| **RS-SEC-010** | C0 (Fable's objection) | **Cross-Chain Signature Replay**: validly signed payload for network A against endpoint B with a different `chainId` → must be rejected (EIP-712 domain binds chainId) | active |
+| **RS-SEC-011** | N4 | Near-2²⁵⁶ amount values in requirements or payload → no crash/overflow | active |
 
-| Neue ID | Quelle | Check | Typ |
-|---------|--------|-------|-----|
-| **RS-HS-007** | PR1 | 402 mit Zahlungsdetails darf nicht cachebar sein → `Cache-Control: no-store`/`private` prüfen, kein `public`/langes `max-age` | passiv |
-| **RS-PR-013** | N1/N2 | `payTo`/`asset` müssen zum CAIP-2-Namespace des `network` passen (keine Solana-Adresse auf `eip155`) | passiv |
-| **RS-PR-014** | N5 | `amount` muss > 0 sein (nicht "0", nicht negativ) | passiv |
-| **RS-NEG-014** | N10 | Zahlung mit gültig-formatiertem, aber **falschem Asset-Contract** → muss abgelehnt werden (Server prüft Contract-Adresse, nicht Symbol) | aktiv |
-| **RS-SEC-010** | C0 (Fables Einwand) | **Cross-Chain-Signature-Replay**: gültig signierte Payload für Netz A gegen Endpoint B mit anderer `chainId` → muss abgelehnt werden (EIP-712-Domain bindet chainId) | aktiv |
-| **RS-SEC-011** | N4/N13 | Extrem große `amount`/Beträge (nahe 2²⁵⁶) → Tooling parst ohne Overflow, Endpoint antwortet sauber | robustness |
-
-**Fables Einwand zu C0 ist berechtigt** und gut erkannt: Der gefährliche Replay bei x402 ist nicht der klassische Netzwerk-Replay, sondern der On-Chain-Signature-Replay über Chains hinweg. Die Verteidigung (EIP-712-Domain-Separator mit chainId) ist genau das, was RS-SEC-010 prüft. Übernommen.
+**Fable's objection to C0 is justified** and well spotted: The dangerous replay in x402 is not the classic network replay, but the on-chain signature replay across chains. The defense (EIP-712 domain separator with chainId) is exactly what RS-SEC-010 tests. Adopted.
 
 ---
 
-## Kategorie 2 — ROUTE ELSEWHERE: gehört zu anderen Portfolio-Projekten
+## 2. Delegation: Where the rest belongs
 
-Wertvoll, aber nicht für einen Black-Box-Conformance-Tester. Diese Notizen wandern in die jeweiligen Projekt-Backlogs, damit die Arbeit nicht verloren geht:
+Valuable, but not for a black-box conformance tester. These notes move to the respective project backlogs so the work is not lost:
 
-### → #09 Agent-Spend-Observability ("Datadog für Agent-Payments")
-Reconciliation (O1–O4, D3 — DB-vs-Chain-Drift), Stuck-Payment-Detection (O2), RPC-Quorum/Health (N20–N23, C10), Provider-Inkonsistenz (D5), Audit-Log-Integrität (O3), verwaiste Settlements (O4). **Das ist exakt das Observability-Produkt** — Sichtbarkeit über Zahlungen, nicht Conformance eines Endpoints.
+### → #09 Agent-Spend-Observability ("Datadog for Agent Payments")
+Reconciliation (O1–O4, D3 — DB-vs-chain drift), Stuck Payment Detection (O2), RPC Quorum/Health (N20–N23, C10), Provider Inconsistency (D5), Audit Log Integrity (O3), Orphaned Settlements (O4). **This is exactly the observability product** — visibility over payments, not conformance of an endpoint.
 
-### → #10 x402-Paywall-Gateway mit DE-Rechnungsstellung
-Currency-Mismatch/Slippage (PR5, T10), Refund-Pfad (R6, G7), Multi-Recipient-Split (PR6), Belegerstellung (R4 — Schnittmenge mit #03), Gebühren-Handling. **Das Gateway-Produkt**, das EUR-Belege und USt abwickelt.
+### → #10 x402 Paywall Gateway with DE Invoicing
+Currency Mismatch/Slippage (PR5, T10), Refund Path (R6, G7), Multi-Recipient Split (PR6), Receipt Generation (R4 — overlap with #03), Fee Handling. **The gateway product** that handles EUR receipts and VAT.
 
-### → #02 Spend-Policy-Engine (Guardrails)
-Agent-Budget-Loop (N24 — LLM in Schleife), Spend-Limit (Test 6), kompromittierter Key/anomales Pattern (N25), Agent lehnt ab (Test 5, N26/N27). **Das ist wörtlich die Domäne der Policy-Engine** — deterministische Limits außerhalb des LLM.
+### → #02 Policy Engine
+Agent Budget Loop (N24 — LLM in loop), Spend Limit (Test 6), Compromised Key/Anomalous Pattern (N25), Agent rejects (Test 5, N26/N27). **This is literally the domain of the policy engine** — deterministic limits outside the LLM.
 
-### → #03 DAC8-Tool
-R4 (DAC8-konformer Beleg pro Settlement), R1 (Travel-Rule-Schwelle, IVMS101).
-
-### → Compliance allgemein (Kategorie R)
-Sanktions-Screening (R2), MiCA-Stablecoin-Status (R3), Geo-Fencing (R5) — relevant für #09/#10 beim Launch, anwaltlich zu prüfen. Nicht Conformance.
+### → Compliance / Legal Module (Generic)
+Sanctions Screening (R2), MiCA Stablecoin Status (R3), Geo-Fencing (R5) — relevant for #09/#10 at launch, to be reviewed by counsel. Not conformance.
 
 ---
 
-## Kategorie 3 — OUT OF SCOPE: andere Werkzeugkategorie
+## 3. Discarded: Out of scope
 
-Gehört in kein einzelnes Conformance-Tool:
-
-- **Teil 6 Last-/Stresstests (ST1–ST11, S1–S6):** k6/Artillery + Anvil. Performance-Testing ist eine eigene Disziplin. Höchstens *sehr* spätes, separates Modul — explizit nicht der Conformance-Kern.
-- **Client-/Wallet-UX (U1–U7):** Browser-Extension-Konflikte, Wallet-Popup-Timeouts, App-Resume. Verhalten des Clients, nicht des Endpoints.
-- **Supply-Chain/Deploy (SC1–SC6):** ABI-Drift, Library-Bumps, Blue/Green, Config-Drift. Das ist die CI/CD-Sorge des *Implementierers* — eine berechtigte, aber interne Disziplin. (SC1 ABI-Drift ist Fables Top-1-Risiko — zu Recht, aber von außen nicht prüfbar; ein Monitoring-Signal in #09 kann es indirekt fangen.)
-- **Token-Quirk-Internals (T1 USDT-void-return, T3 Internal-Tx, T5 Fee-on-Transfer, T6 Rebase, T8 Permit2-Parsing, T9 Multicall):** Das betrifft, *wie ein Settlement-Backend Zahlungen erkennt* — Server-intern. Black-Box sehen wir nur das advertised `asset` (deckt RS-PR ab).
-- **Chain-Settlement-Tiefe (C1 Soft/Hard-Finality, C4–C6 Confirmations, C9 Sequencer, Test 7/11/12 Reorg/RBF):** braucht Zugriff auf die Settlement-Logik des Servers. Out für Black-Box.
+- **Part 6 Load/Stress Tests (ST1–ST11, S1–S6):** k6/Artillery + Anvil. Performance testing is its own discipline. At most a very late, separate module — explicitly not the conformance core.
+- **Client/Wallet UX (U1–U7):** Browser extension conflicts, wallet popup timeouts, app resume. Behavior of the client, not the endpoint.
+- **Supply Chain/Deploy (SC1–SC6):** ABI drift, library bumps, blue/green, config drift. This is the CI/CD concern of the *implementer* — a justified but internal discipline. (SC1 ABI drift is Fable's top 1 risk — rightly so, but not testable from the outside; an observability signal in #09 can catch it indirectly.)
+- **Token Quirk Internals (T1 USDT void return, T3 Internal Tx, T5 Fee-on-Transfer, T6 Rebase, T8 Permit2 Parsing, T9 Multicall):** This concerns *how a settlement backend recognizes payments* — server-internal. From a black-box perspective, we only see the advertised `asset` (covered by RS-PR).
+- **Chain Settlement Depth (C1 Soft/Hard Finality, C4–C6 Confirmations, C9 Sequencer, Test 7/11/12 Reorg/RBF):** Requires access to the server's settlement logic. Out for black-box.
 
 ---
 
-## Konkreter Integrationsplan
+## Next Steps
 
-1. **Sofort (dieser Stand):** Sechs neue Checks (1b) in `conformance-catalog.md` ergänzen. RS-NEG-014 und RS-SEC-010 werden im Zuge von T-01 (Payload-Builder vorhanden) implementiert; die passiven RS-HS-007/RS-PR-013/-014 sind sofort umsetzbar.
-2. **Backlog-Verweise:** In den CLAUDE.md von #02/#09/#10/#03 je eine Zeile „Testideen aus testcase-integration-analysis.md Kategorie 2 prüfen" — sobald diese Projekte starten.
-3. **Bewusst NICHT tun:** Last-/Stress-, UX-, Supply-Chain-, Settlement-Internals in x402-conformance ziehen. Wenn überhaupt, später als getrennte Tools.
+1. **Immediate (this state):** Supplement six new checks (1b) in `conformance-catalog.md`. RS-NEG-014 and RS-SEC-010 are implemented in the course of T-01 (payload builder available); the passive RS-HS-007/RS-PR-013/-014 are immediately implementable.
+2. **Backlog references:** In the CLAUDE.md of #02/#09/#10/#03, add one line each: "Check test ideas from testcase-integration-analysis.md category 2" — as soon as these projects start.
+3. **Consciously NOT do:** load/stress, UX, supply chain, settlement internals in x402-conformance. If at all, later as separate tools.
 
-## Was Mario entscheiden sollte
-- Sind RS-HS-007/RS-PR-013/-014 (drei schnelle passive Checks) okay zur sofortigen Aufnahme? (Empfehlung: ja, kleiner Aufwand, echter Mehrwert.)
-- Soll ich die Backlog-Verweise in #02/#09/#10 schon jetzt setzen, obwohl die Projekte noch nicht laufen? (Empfehlung: ja, eine Zeile pro Projekt, kostet nichts und sichert die Idee.)
+**Decision needed (Mario):** Should I set the backlog references in #02/#09/#10 already, even though the projects are not running yet? (Recommendation: yes, one line per project, costs nothing and secures the idea.)
