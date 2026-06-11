@@ -22,10 +22,16 @@ dependencies = [
 evm = [
     "eth-account>=0.13",
 ]
+# On-chain settlement checks (RS-PAY, FA-SET) additionally need an RPC client.
+onchain = [
+    "eth-account>=0.13",
+    "web3>=6.0",
+]
 dev = [
     "pytest>=8.0",
     "mypy>=1.10",
     "eth-account>=0.13",
+    "web3>=6.0",
 ]
 
 [project.scripts]

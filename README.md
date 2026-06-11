@@ -16,7 +16,10 @@ Working tool, early version. Implemented check groups:
 - **FA** (facilitator `/supported`, `/verify`) — the `facilitator` command.
 - **DI** (discovery / Bazaar) — the `discovery` command.
 
-Calibrated against a verify-capable reference target (`tools/calibration_target.py`): a correct server passes everything; deliberately-buggy variants are caught. Settlement-level checks (RS-PAY, FA-SET, replay/race) need an on-chain testnet and are the next milestone.
+- **RS-PAY** + **RS-SEC-001** (positive settlement + replay) — `check --pay`: signs a valid funded payment, settles it ON-CHAIN, verifies the tx, and confirms a replay is rejected. Confirmed live against Anvil.
+- **FA-SET** (facilitator `/settle`) — `facilitator --settle`: valid settle, invalid settle, double-settle.
+
+Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). See `docs/onchain-2026-06-11.md`. 38 checks across 5 groups; 94 offline tests.
 
 ## Install
 

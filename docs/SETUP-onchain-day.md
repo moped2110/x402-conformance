@@ -42,7 +42,20 @@ pytest -q                          # erwartet: 85 passed
 mypy                               # erwartet: Success
 ```
 
-Wenn `85 passed` steht, ist alles Nötige für die bestehende Suite da.
+Wenn `85 passed` (bzw. `84 passed, 1 skipped`) steht, ist alles da.
+
+**Falls `pytest`/`mypy` als Befehl nicht gefunden werden** (Scripts-Ordner nicht
+im PATH — passiert bei der python.org-Installation ohne venv): einfach über das
+Modul aufrufen, das umgeht den PATH:
+
+```bash
+python -m pytest -q
+python -m mypy
+# Windows-Alternative, falls schon `python` nicht gefunden wird: py -m pytest -q
+```
+
+> Verifiziert am 2026-06-10 auf Windows + Python 3.14.6: `84 passed, 1 skipped`,
+> mypy `Success`. 3.14 hatte fertige Wheels für alle Pakete — kein Compiler nötig.
 
 ---
 

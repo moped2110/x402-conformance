@@ -29,8 +29,10 @@ GOOD_SUPPORTED = {
 
 def make_facilitator(
     *, supported: dict | None = None, verify_buggy: bool = False,
+    settle_no_nonce_check: bool = False,
 ) -> httpx.MockTransport:
     body = GOOD_SUPPORTED if supported is None else supported
+    used_nonces: set = set()
 
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -43,15 +45,29 @@ def make_facilitator(
             auth = payload["paymentPayload"]["payload"]["authorization"]
             req = payload["paymentRequirements"]
             valid = int(auth["value"]) == int(req["amount"])
-            if verify_buggy:
-                return httpx.Response(200, json={"isValid": True, "payer": auth["from"]})
-            if valid:
+            if verify_buggy or valid:
                 return httpx.Response(200, json={"isValid": True, "payer": auth["from"]})
             return httpx.Response(200, json={
                 "isValid": False,
                 "invalidReason": "invalid_exact_evm_payload_authorization_value_mismatch",
                 "payer": auth["from"],
             })
+        if request.method == "POST" and path == "/settle":
+            payload = json.loads(request.content)
+            auth = payload["paymentPayload"]["payload"]["authorization"]
+            req = payload["paymentRequirements"]
+            net = req["network"]
+            if int(auth["value"]) != int(req["amount"]):
+                return httpx.Response(200, json={"success": False, "transaction": "",
+                    "errorReason": "invalid_exact_evm_payload_authorization_value_mismatch",
+                    "network": net, "payer": auth["from"]})
+            nonce = auth["nonce"]
+            if not settle_no_nonce_check and nonce in used_nonces:
+                return httpx.Response(200, json={"success": False, "transaction": "",
+                    "errorReason": "invalid_transaction_state", "network": net, "payer": auth["from"]})
+            used_nonces.add(nonce)
+            return httpx.Response(200, json={"success": True, "transaction": "0x" + "ef" * 32,
+                "network": net, "payer": auth["from"]})
         return httpx.Response(404)
 
     return httpx.MockTransport(handler)
@@ -97,3 +113,26 @@ def test_no_resource_skips_verify_checks() -> None:
     assert by_id(results, "FA-ERR-001").status == Status.SKIP
     # SUP checks still run
     assert by_id(results, "FA-SUP-001").status == Status.PASS
+
+
+# --- FA-SET (direct /settle, opt-in, nonce-aware) ---
+
+def test_settle_group_skipped_without_flag() -> None:
+    results = run_facilitator_checks(FAC, resource_url=RES, signer=SIGNER,
+                                     transport=make_facilitator())
+    for cid in ("FA-SET-001", "FA-SET-002", "FA-SET-003"):
+        assert by_id(results, cid).status == Status.SKIP
+
+
+def test_settle_happy_and_double_settle_blocked() -> None:
+    results = run_facilitator_checks(FAC, resource_url=RES, signer=SIGNER,
+                                     allow_settle=True, transport=make_facilitator())
+    assert by_id(results, "FA-SET-001").status == Status.PASS
+    assert by_id(results, "FA-SET-002").status == Status.PASS
+    assert by_id(results, "FA-SET-003").status == Status.PASS  # double-settle rejected
+
+
+def test_settle_without_nonce_check_is_caught() -> None:
+    results = run_facilitator_checks(FAC, resource_url=RES, signer=SIGNER, allow_settle=True,
+                                     transport=make_facilitator(settle_no_nonce_check=True))
+    assert by_id(results, "FA-SET-003").status == Status.FAIL  # double-settle wrongly accepted

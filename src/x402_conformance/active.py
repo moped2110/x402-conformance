@@ -157,3 +157,23 @@ def run_active_checks(
     ) as client:
         context = build_active_context(client, url, method, signer)
         return evaluate_active(context)
+
+
+def run_payment_checks(
+    url: str,
+    signer: Any,
+    rpc_url: str | None = None,
+    method: str = "GET",
+    timeout: float = 30.0,
+    transport: httpx.BaseTransport | None = None,
+) -> list[Any]:
+    """Run the RS-PAY positive settlement checks. MOVES REAL FUNDS — needs a
+    funded signer. Returns list[CheckResult]."""
+    from .checks.payment import evaluate_payment
+
+    headers = {"User-Agent": "x402-conformance/0.0.1 (pay)"}
+    with httpx.Client(
+        timeout=timeout, transport=transport, follow_redirects=True, headers=headers
+    ) as client:
+        context = build_active_context(client, url, method, signer)
+        return evaluate_payment(context, rpc_url)

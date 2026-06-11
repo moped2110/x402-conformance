@@ -13,3 +13,9 @@ venv/
 .coverage
 htmlcov/
 reports/
+
+# Foundry / on-chain artifacts
+onchain/out/
+onchain/cache/
+onchain/broadcast/
+onchain/lib/

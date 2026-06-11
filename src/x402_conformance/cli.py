@@ -93,6 +93,15 @@ def check(
         None, "--signer-key", help="Testnet throwaway private key for --active "
         "(default: $X402_TESTNET_PAYER_KEY or a random key)",
     ),
+    pay: bool = typer.Option(
+        False, "--pay",
+        help="Run the positive settlement path (RS-PAY): sends ONE valid, funded "
+             "payment that settles ON-CHAIN. MOVES REAL FUNDS — needs a funded "
+             "--signer-key. Use only against a testnet/Anvil.",
+    ),
+    rpc_url: Optional[str] = typer.Option(
+        None, "--rpc-url", help="RPC URL to verify the settlement tx on-chain (RS-PAY-004)",
+    ),
     json_out: Optional[Path] = typer.Option(None, "--json", help="Write JSON report to file"),
     md_out: Optional[Path] = typer.Option(None, "--markdown", help="Write Markdown report to file"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Only print the summary line"),
@@ -114,6 +123,12 @@ def check(
             from .active import run_active_checks
             results = results + run_active_checks(url, signer, method=method, timeout=timeout)
 
+    if pay:
+        signer = _make_signer(signer_key)
+        if signer is not None:
+            from .active import run_payment_checks
+            results = results + run_payment_checks(url, signer, rpc_url=rpc_url, method=method)
+
     raise typer.Exit(_emit(results, url, quiet, json_out, md_out))
 
 
@@ -128,6 +143,11 @@ def facilitator(
         None, "--signer-key", help="Testnet throwaway private key (default: "
         "$X402_TESTNET_PAYER_KEY or random); only used with --resource.",
     ),
+    settle: bool = typer.Option(
+        False, "--settle",
+        help="Also run FA-SET /settle tests (valid settle, invalid settle, "
+             "double-settle). MOVES REAL FUNDS — testnet/Anvil only, needs a funded signer.",
+    ),
     timeout: float = typer.Option(10.0, "--timeout", help="Request timeout in seconds"),
     json_out: Optional[Path] = typer.Option(None, "--json", help="Write JSON report to file"),
     md_out: Optional[Path] = typer.Option(None, "--markdown", help="Write Markdown report to file"),
@@ -138,7 +158,8 @@ def facilitator(
 
     signer = _make_signer(signer_key) if resource else None
     try:
-        results = run_facilitator_checks(url, resource_url=resource, signer=signer, timeout=timeout)
+        results = run_facilitator_checks(url, resource_url=resource, signer=signer,
+                                         allow_settle=settle, timeout=timeout)
     except httpx.HTTPError as exc:
         typer.secho(f"facilitator unreachable: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2)

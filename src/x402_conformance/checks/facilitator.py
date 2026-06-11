@@ -61,6 +61,7 @@ class FacilitatorContext:
     requirements: dict[str, Any] | None  # eip3009 reqs from --resource, if any
     signer: Any | None
     supported: dict[str, Any] | None = None  # cached /supported body
+    allow_settle: bool = False  # FA-SET moves real funds; opt-in only
 
 
 FaFunc = Callable[[FacilitatorContext], "tuple[Status, str]"]
@@ -183,6 +184,77 @@ def fa_err_001(ctx: FacilitatorContext) -> tuple[Status, str]:
     return Status.PASS, f"reason {reason!r} is a known code"
 
 
+def _settle(ctx: FacilitatorContext, payload: dict[str, Any], requirements: dict[str, Any]) -> dict[str, Any] | None:
+    req = {"x402Version": 2, "paymentPayload": payload, "paymentRequirements": requirements}
+    try:
+        resp = ctx.client.post(f"{ctx.base_url.rstrip('/')}/settle", json=req)
+        data: Any = json.loads(resp.text)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
+    """FA-SET: direct /settle tests. Moves REAL funds; runs only when allow_settle."""
+    ids = {
+        "FA-SET-001": ("/settle of a valid payment succeeds with a tx hash", Severity.MAJOR,
+                       f"{_CORE} §7.2"),
+        "FA-SET-002": ("/settle of an invalid payment fails with empty tx", Severity.MAJOR,
+                       f"{_CORE} §7.2"),
+        "FA-SET-003": ("Double-settle of the same payment is rejected (nonce reuse)",
+                       Severity.CRITICAL, f"{_CORE} §10.1"),
+    }
+
+    def mk(cid: str, status: Status, detail: str = "") -> CheckResult:
+        title, sev, ref = ids[cid]
+        return CheckResult(cid, title, sev, ref, status, detail)
+
+    if not ctx.allow_settle:
+        return [mk(c, Status.SKIP, "pass --settle to run /settle tests (moves real funds)") for c in ids]
+    if ctx.requirements is None or ctx.signer is None:
+        return [mk(c, Status.SKIP, "no --resource requirements / signer") for c in ids]
+
+    from ..payload_builder import build_exact_eip3009_payload
+
+    results: list[CheckResult] = []
+
+    # FA-SET-001 — valid settle (a real on-chain settlement)
+    good = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
+    r1 = _settle(ctx, good, ctx.requirements)
+    if r1 is None:
+        results.append(mk("FA-SET-001", Status.FAIL, "/settle did not return JSON"))
+    elif r1.get("success") is True and r1.get("transaction") and r1["transaction"] != "0x":
+        results.append(mk("FA-SET-001", Status.PASS, f"tx {r1['transaction']}"))
+    else:
+        results.append(mk("FA-SET-001", Status.FAIL, f"valid /settle did not succeed: {str(r1)[:160]}"))
+
+    # FA-SET-003 — double-settle the SAME payment must be rejected
+    if r1 and r1.get("success") is True:
+        r3 = _settle(ctx, good, ctx.requirements)
+        if r3 is not None and r3.get("success") is True:
+            results.append(mk("FA-SET-003", Status.FAIL,
+                              "second settle of the same payment succeeded — nonce reuse not prevented"))
+        else:
+            results.append(mk("FA-SET-003", Status.PASS,
+                              f"double-settle rejected (reason {(r3 or {}).get('errorReason')!r})"))
+    else:
+        results.append(mk("FA-SET-003", Status.SKIP, "first settle did not succeed"))
+
+    # FA-SET-002 — invalid settle (value != requirements) must fail with empty tx
+    cheap = build_exact_eip3009_payload({**ctx.requirements, "amount": "1"}, ctx.signer)
+    r2 = _settle(ctx, cheap, ctx.requirements)
+    if r2 is None:
+        results.append(mk("FA-SET-002", Status.FAIL, "/settle did not return JSON"))
+    elif r2.get("success") is True:
+        results.append(mk("FA-SET-002", Status.FAIL, "/settle succeeded for an invalid payment"))
+    elif r2.get("transaction"):
+        results.append(mk("FA-SET-002", Status.FAIL, "failed settle still carries a non-empty tx hash"))
+    else:
+        results.append(mk("FA-SET-002", Status.PASS, f"correctly failed (reason {r2.get('errorReason')!r})"))
+
+    return results
+
+
 def evaluate_facilitator(ctx: FacilitatorContext | None) -> list[CheckResult]:
     results: list[CheckResult] = []
     for check in FA_REGISTRY:
@@ -202,10 +274,12 @@ def run_facilitator_checks(
     base_url: str,
     resource_url: str | None = None,
     signer: Any | None = None,
-    timeout: float = 10.0,
+    allow_settle: bool = False,
+    timeout: float = 30.0,
     transport: httpx.BaseTransport | None = None,
 ) -> list[CheckResult]:
-    """Probe a facilitator. If resource_url is given, also exercise /verify."""
+    """Probe a facilitator. If resource_url is given, also exercise /verify;
+    with allow_settle, also run the FA-SET /settle tests (moves real funds)."""
     headers = {"User-Agent": "x402-conformance/0.0.1 (facilitator)"}
     with httpx.Client(timeout=timeout, transport=transport, headers=headers,
                       follow_redirects=True) as client:
@@ -215,5 +289,6 @@ def run_facilitator_checks(
             probe = build_probe(client.request("GET", resource_url))
             requirements = choose_eip3009_requirement(probe.raw)
         ctx = FacilitatorContext(base_url=base_url, client=client,
-                                 requirements=requirements, signer=signer)
-        return evaluate_facilitator(ctx)
+                                 requirements=requirements, signer=signer,
+                                 allow_settle=allow_settle)
+        return evaluate_facilitator(ctx) + evaluate_settle(ctx)
