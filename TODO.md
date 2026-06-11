@@ -102,6 +102,8 @@ The SaaS angle: continuous checks + alerting (Telegram/Discord). Out of scope fo
 ---
 
 ## Done
+- 2026-06-11 — **v0.1.0 release prep**: catalog implementation-status section, CHANGELOG.md, version bump 0.0.1→0.1.0, GitHub Actions CI (pytest+mypy on 3.11–3.13). 94 tests, mypy clean.
+- 2026-06-11 — On-chain block complete (RS-PAY, RS-SEC-001/002, FA-SET) confirmed live against Anvil; MockUSDC + onchain_facilitator + smoke test. See `docs/onchain-2026-06-11.md`.
 - 2026-06-10 — DI discovery group (DI-001/002) + `discovery` CLI command + tests.
 - 2026-06-10 — Internal infrastructure tests added (models, probe stages, report/exit-codes/JSON, registry integrity, CLI exit codes): 85 tests total, mypy clean across 15 modules. The tool's own scaffolding is now test-covered, not just the checks.
 - 2026-06-09 — Project skeleton, models, probe, check registry, CLI, reports (RS-HS + RS-PR groups), 20 offline tests, mypy strict clean.

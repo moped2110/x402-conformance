@@ -1,14 +1,15 @@
-"""Tests for RS-PAY (positive settlement) + RS-SEC-001 (replay), offline/mocked.
+"""Tests for RS-PAY (positive settlement) + RS-SEC-001/002 (replay/race), offline.
 
 The real on-chain path is proven by tools/onchain_smoke.py and `check --pay`
 against Anvil; here we verify the check LOGIC against a mocked settling server
-that, like the real EIP-3009 token, tracks nonces (so replay is rejected).
+that, like the real EIP-3009 token, tracks nonces (thread-safe).
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import threading
 
 import httpx
 import pytest
@@ -36,8 +37,9 @@ def _enc(obj: dict) -> str:
 
 def settling_server(*, track_nonces: bool = True, settlement: dict | None = None,
                     status: int = 200, body: bytes = b'{"data":"premium"}') -> httpx.MockTransport:
-    """A settling resource server. Tracks nonces like a real EIP-3009 token."""
+    """A settling resource server. Tracks nonces (thread-safe) like a real token."""
     used: set[str] = set()
+    lock = threading.Lock()
 
     def handler(request: httpx.Request) -> httpx.Response:
         sig = request.headers.get("PAYMENT-SIGNATURE")
@@ -45,11 +47,15 @@ def settling_server(*, track_nonces: bool = True, settlement: dict | None = None
             return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
         payload = json.loads(base64.b64decode(sig))
         nonce = payload["payload"]["authorization"]["nonce"]
-        if track_nonces and nonce in used:
-            fail = {"success": False, "errorReason": "invalid_transaction_state",
-                    "transaction": "", "network": REQ["network"]}
-            return httpx.Response(402, headers={"PAYMENT-RESPONSE": _enc(fail)})
-        used.add(nonce)
+        if track_nonces:
+            with lock:
+                fresh = nonce not in used
+                if fresh:
+                    used.add(nonce)
+            if not fresh:
+                fail = {"success": False, "errorReason": "invalid_transaction_state",
+                        "transaction": "", "network": REQ["network"]}
+                return httpx.Response(402, headers={"PAYMENT-RESPONSE": _enc(fail)})
         if settlement is not None:
             return httpx.Response(status, headers={"PAYMENT-RESPONSE": _enc(settlement)}, content=body)
         ok = {"success": True, "transaction": "0x" + "cd" * 32, "network": REQ["network"],
@@ -59,19 +65,21 @@ def settling_server(*, track_nonces: bool = True, settlement: dict | None = None
     return httpx.MockTransport(handler)
 
 
-def test_happy_path_settles_delivers_and_blocks_replay() -> None:
+def test_happy_path_settles_delivers_blocks_replay_and_race() -> None:
     results = run_payment_checks(TARGET, SIGNER, transport=settling_server())
     assert by_id(results, "RS-PAY-001").status == Status.PASS
     assert by_id(results, "RS-PAY-002").status == Status.PASS
     assert by_id(results, "RS-PAY-003").status == Status.PASS
     assert by_id(results, "RS-PAY-004").status == Status.SKIP
     assert by_id(results, "RS-SEC-001").status == Status.PASS
+    assert by_id(results, "RS-SEC-002").status == Status.PASS
 
 
-def test_server_without_nonce_tracking_is_caught_by_replay() -> None:
+def test_no_nonce_tracking_caught_by_replay_and_race() -> None:
     results = run_payment_checks(TARGET, SIGNER, transport=settling_server(track_nonces=False))
     assert by_id(results, "RS-PAY-001").status == Status.PASS
     assert by_id(results, "RS-SEC-001").status == Status.FAIL
+    assert by_id(results, "RS-SEC-002").status == Status.FAIL  # multiple concurrent settles
 
 
 def test_success_but_empty_tx_is_caught() -> None:

@@ -13,6 +13,8 @@ chain-free; on-chain checking is opt-in.
 
 from __future__ import annotations
 
+import concurrent.futures
+
 from typing import Any, cast
 
 from ..active import ActiveContext
@@ -51,6 +53,7 @@ def evaluate_payment(
         "RS-PAY-003": "Settlement network and payer match the payment",
         "RS-PAY-004": "Settlement transaction exists on-chain (status 1)",
         "RS-SEC-001": "Replaying a settled payment is rejected (nonce reuse)",
+        "RS-SEC-002": "Concurrent settle of one payment yields at most one success (race)",
     }
     if context is None:
         return [
@@ -136,5 +139,23 @@ def evaluate_payment(
     else:
         results.append(_result("RS-SEC-001", titles["RS-SEC-001"], sev_c, Status.SKIP,
                                "no successful settlement to replay"))
+
+    # RS-SEC-002 — fire N identical payments concurrently; at most one may settle.
+    if settlement is not None and settlement.success:
+        race = build_exact_eip3009_payload(context.requirements, context.signer)
+        n = 5
+        with concurrent.futures.ThreadPoolExecutor(max_workers=n) as ex:
+            responses = list(ex.map(lambda _: context.send(race), range(n)))
+        settled = sum(1 for r in responses if r.served_resource or r.settled_ok)
+        if settled >= 2:
+            results.append(_result("RS-SEC-002", titles["RS-SEC-002"], sev_c, Status.FAIL,
+                                   f"{settled}/{n} concurrent settles of one payment succeeded "
+                                   f"— nonce reuse under concurrency (double-settle)"))
+        else:
+            results.append(_result("RS-SEC-002", titles["RS-SEC-002"], sev_c, Status.PASS,
+                                   f"{settled}/{n} concurrent settles succeeded (no double-settle)"))
+    else:
+        results.append(_result("RS-SEC-002", titles["RS-SEC-002"], sev_c, Status.SKIP,
+                               "no successful settlement to race"))
 
     return results

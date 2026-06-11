@@ -155,7 +155,7 @@ def run_discovery_checks(
     timeout: float = 10.0,
     transport: httpx.BaseTransport | None = None,
 ) -> list[CheckResult]:
-    headers = {"User-Agent": "x402-conformance/0.0.1 (discovery)"}
+    headers = {"User-Agent": "x402-conformance/0.1.0 (discovery)"}
     with httpx.Client(timeout=timeout, transport=transport, headers=headers,
                       follow_redirects=True) as client:
         return evaluate_discovery(DiscoveryContext(base_url=base_url, client=client))

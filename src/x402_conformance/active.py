@@ -151,7 +151,7 @@ def run_active_checks(
     """Run the RS-NEG active checks against `url`. Returns list[CheckResult]."""
     from .checks.negative import evaluate_active  # late import avoids cycle
 
-    headers = {"User-Agent": "x402-conformance/0.0.1 (active)"}
+    headers = {"User-Agent": "x402-conformance/0.1.0 (active)"}
     with httpx.Client(
         timeout=timeout, transport=transport, follow_redirects=True, headers=headers
     ) as client:
@@ -171,7 +171,7 @@ def run_payment_checks(
     funded signer. Returns list[CheckResult]."""
     from .checks.payment import evaluate_payment
 
-    headers = {"User-Agent": "x402-conformance/0.0.1 (pay)"}
+    headers = {"User-Agent": "x402-conformance/0.1.0 (pay)"}
     with httpx.Client(
         timeout=timeout, transport=transport, follow_redirects=True, headers=headers
     ) as client:

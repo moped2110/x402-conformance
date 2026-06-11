@@ -280,7 +280,7 @@ def run_facilitator_checks(
 ) -> list[CheckResult]:
     """Probe a facilitator. If resource_url is given, also exercise /verify;
     with allow_settle, also run the FA-SET /settle tests (moves real funds)."""
-    headers = {"User-Agent": "x402-conformance/0.0.1 (facilitator)"}
+    headers = {"User-Agent": "x402-conformance/0.1.0 (facilitator)"}
     with httpx.Client(timeout=timeout, transport=transport, headers=headers,
                       follow_redirects=True) as client:
         requirements = None

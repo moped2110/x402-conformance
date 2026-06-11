@@ -7,7 +7,7 @@ import httpx
 from .checks import REGISTRY, CheckResult, Status
 from .probe import ProbeSession, build_probe
 
-USER_AGENT = "x402-conformance/0.0.1 (+https://github.com/x402-conformance)"
+USER_AGENT = "x402-conformance/0.1.0 (+https://github.com/x402-conformance)"
 
 
 def run_checks(

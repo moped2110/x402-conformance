@@ -9,7 +9,7 @@ Point it at any x402-paywalled URL and get a spec-traceable report: does the 402
 
 ## Status
 
-Working tool, early version. Implemented check groups:
+**v0.1.0** — working tool. CI (pytest + mypy on Python 3.11–3.13) in `.github/workflows/ci.yml`; full release notes in [`CHANGELOG.md`](CHANGELOG.md). Implemented check groups:
 
 - **RS-HS** (handshake) and **RS-PR** (PaymentRequired schema) — passive, no payment.
 - **RS-NEG** + **RS-SEC-010** (negative / security) — `--active`: signs deliberately-invalid payments and verifies the endpoint rejects them. Throwaway signer, no funds, no chain needed.
@@ -51,7 +51,7 @@ Exit codes: `0` conformant, `1` not conformant (a major/critical check failed), 
 ## Development
 
 ```bash
-pytest          # the suite's own tests (offline, mocked transport) — 85 tests
+pytest          # the suite's own tests (offline, mocked transport) — 94 tests
 mypy            # strict type checking
 
 # Calibrate the checks against a verify-capable reference server:
