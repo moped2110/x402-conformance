@@ -24,8 +24,10 @@ a different method lands in a different mechanism.
 | Asset | Typical x402 setup | Today | Needs |
 |-------|--------------------|-------|-------|
 | **USDC** (EVM) | `exact` / **EIP-3009** | ✅ full active + settlement | — (happy path) |
+| **EURC** (EVM) | `exact` / **EIP-3009** (same Circle template) | ✅ full active + settlement | — (works today) |
 | **USDC** (Solana) | SVM `exact` | passive ✅, active/pay SKIP | §2 SVM |
 | **USDT** (EVM) | `exact` / **Permit2** (no EIP-3009 on USDT) | passive ✅, active/pay SKIP | §1 permit-style |
+| **EURT / other euro stables w/o EIP-3009** | `exact` / Permit2 (token-dependent) | passive ✅, active/pay SKIP | §1 permit-style |
 | **Other non-USDC ERC-20** | `exact` / Permit2 | passive ✅, active/pay SKIP | §1 permit-style |
 | **WBTC / wrapped BTC** (EVM) | `exact` / Permit2 (plain ERC-20) | passive ✅, active/pay SKIP | §1 permit-style |
 | **XRP via XRPL-EVM sidechain** | `exact` / EIP-3009 or Permit2 | EVM → 3009 ✅ / Permit2 SKIP | — or §1 |
@@ -36,6 +38,11 @@ Key facts driving the priority:
 
 - **USDC implements EIP-3009** (`transferWithAuthorization`) → it's the one asset
   that works fully today, on any EVM chain (chainId is read generically).
+- **Currency is irrelevant** — the amount is an atomic integer and the asset is a
+  contract address; there is no fiat/decimals logic. **EURC** uses the same Circle
+  contract template as USDC and therefore also implements EIP-3009, so it works
+  today unchanged. Euro stablecoins *without* EIP-3009 (e.g. Tether's EURT, and
+  token-by-token others like EURe/agEUR/EURS) route through Permit2 → §1.
 - **USDT does *not* implement EIP-3009** (nor EIP-2612 on Ethereum mainnet), so an
   x402 endpoint accepting USDT must use **Permit2** (which wraps arbitrary ERC-20s
   via a one-time approve + signature). The same is true for most non-USDC ERC-20s.
