@@ -82,6 +82,7 @@ Depends on: T-01 (payload builder), T-09 (race tests need real settlement).
 
 ### T-11 · P3 · M — Extended scheme coverage
 `upto`, `batch-settlement`, Permit2/ERC-7710, SVM exact. Only once ecosystem usage justifies it — check adoption at implementation start.
+Design sketch (mechanism abstraction + EVM permit-style + SVM exact): `docs/design-extended-schemes.md`.
 
 ### T-12 · ☑ DONE (2026-06-12) — EIP-55 checksum validation for asset addresses (RS-PR-008)
 RS-PR-008 now validates the EIP-55 checksum on mixed-case EVM asset addresses
