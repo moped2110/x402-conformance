@@ -32,6 +32,7 @@ dev = [
     "mypy>=1.10",
     "eth-account>=0.13",
     "web3>=6.0",
+    "jsonschema>=4.0",
 ]
 
 [project.scripts]

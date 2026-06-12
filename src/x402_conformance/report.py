@@ -12,6 +12,10 @@ from .checks import CheckResult, Severity, Status
 _GATING = (Severity.CRITICAL, Severity.MAJOR)
 _BAD = (Status.FAIL, Status.ERROR)
 
+#: Schema version of the JSON report. Bump on any breaking shape change; the
+#: contract is pinned in report.schema.json at the repo root.
+REPORT_VERSION = "1.0"
+
 
 def summarize(results: list[CheckResult]) -> dict[str, int]:
     return {
@@ -31,6 +35,7 @@ def exit_code(results: list[CheckResult]) -> int:
 def to_json(results: list[CheckResult], target_url: str) -> str:
     return json.dumps(
         {
+            "reportVersion": REPORT_VERSION,
             "tool": {"name": "x402-conformance", "version": __version__},
             "specBaseline": SPEC_BASELINE,
             "target": target_url,

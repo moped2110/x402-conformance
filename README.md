@@ -19,7 +19,7 @@ Point it at any x402-paywalled URL and get a spec-traceable report: does the 402
 - **RS-PAY** + **RS-SEC-001** (positive settlement + replay) — `check --pay`: signs a valid funded payment, settles it ON-CHAIN, verifies the tx, and confirms a replay is rejected. Confirmed live against Anvil.
 - **FA-SET** (facilitator `/settle`) — `facilitator --settle`: valid settle, invalid settle, double-settle.
 
-Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). See `docs/onchain-2026-06-11.md`. 38 checks across 5 groups; 94 offline tests.
+Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). See `docs/onchain-2026-06-11.md`. 39 checks across 5 groups; 102 offline tests.
 
 ## Install
 
@@ -36,6 +36,9 @@ x402-conformance check https://api.example.com/premium-data
 # Also run active negative checks (sends invalid payments; throwaway signer)
 x402-conformance check https://api.example.com/premium-data --active
 
+# Pass a unique string from the paid resource to also catch content leaked on a rejection
+x402-conformance check https://api.example.com/premium-data --active --resource-marker "SECRET_TOKEN"
+
 # Facilitator checks (+ /verify negatives when a resource is given)
 x402-conformance facilitator https://facilitator.example --resource https://api.example.com/premium-data
 
@@ -51,7 +54,7 @@ Exit codes: `0` conformant, `1` not conformant (a major/critical check failed), 
 ## Development
 
 ```bash
-pytest          # the suite's own tests (offline, mocked transport) — 94 tests
+pytest          # the suite's own tests (offline, mocked transport) — 102 tests
 mypy            # strict type checking
 
 # Calibrate the checks against a verify-capable reference server:

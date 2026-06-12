@@ -53,18 +53,18 @@ DI-001 (schema + pagination) and DI-002 (network filter honored) + `discovery`
 CLI command + offline tests (correct/buggy Bazaar). DI-003 (staleness vs. live
 402) deferred — needs cross-fetching each listed resource.
 
-### T-15 · P3 · S — RS-SEC-009 marker-based content-leak refinement
-The leak guard is already enforced in every active check (`_assert_rejected`
-fails on 2xx or settled-success for an invalid payment). Optional refinement:
-let the operator pass `--resource-marker` so a rejected-but-leaking body is also
-caught. Low priority; needs operator knowledge of the resource.
+### T-15 · ☑ DONE (2026-06-12) — RS-SEC-009 marker-based content-leak refinement
+`check --active --resource-marker <s>` flags a rejected response whose body still
+contains the protected content. Detected at response-build time; enforced in
+every active check via `_assert_rejected`. Tests added.
 
-### T-16 · P3 · S — RS-SEC-011 extreme-amount robustness
-Send a near-2²⁵⁶ amount; endpoint must respond cleanly (no crash). Active-ish.
+### T-16 · ☑ DONE (2026-06-12) — RS-SEC-011 extreme-amount robustness
+Active check: signs a 2²⁵⁶-1 amount; FAILs on a 5xx crash or if the endpoint
+accepts it, PASSes on a clean rejection. Tests added.
 
-### T-07 · P2 · S — Finalize report format (versioned JSON schema)
-Current JSON output is ad-hoc. Define `report.schema.json` so future consumers parse stably.
-Acceptance: schema file present, CLI JSON output validates against it.
+### T-07 · ☑ DONE (2026-06-12) — Finalize report format (versioned JSON schema)
+`report.schema.json` (draft 2020-12) at the repo root; `to_json` emits
+`reportVersion`. CI validates output against the schema. `jsonschema` added to dev.
 
 ### T-08 · ☑ DONE — CI pipeline (GitHub Actions)
 pytest + mypy on every push. Workflow present, runs green.
@@ -83,8 +83,10 @@ Depends on: T-01 (payload builder), T-09 (race tests need real settlement).
 ### T-11 · P3 · M — Extended scheme coverage
 `upto`, `batch-settlement`, Permit2/ERC-7710, SVM exact. Only once ecosystem usage justifies it — check adoption at implementation start.
 
-### T-12 · P3 · S — EIP-55 checksum validation for asset addresses (RS-PR-008)
-Currently format-only. Full checksum validation needs keccak.
+### T-12 · ☑ DONE (2026-06-12) — EIP-55 checksum validation for asset addresses (RS-PR-008)
+RS-PR-008 now validates the EIP-55 checksum on mixed-case EVM asset addresses
+(keccak via eth_utils when `[evm]` is present); all-lowercase stays a valid
+unchecksummed form; format-only fallback without keccak. Tests added.
 
 ### T-13 · P3 · M — Hosted monitoring layer
 Optional future direction: continuous checks + alerting. Out of scope for v0.1.
@@ -98,6 +100,7 @@ Optional future direction: continuous checks + alerting. Out of scope for v0.1.
 ---
 
 ## Done
+- 2026-06-12 — T-07/T-12/T-15/T-16: versioned `report.schema.json` (+`reportVersion`, CI-validated), RS-PR-008 full EIP-55 checksum validation, `--resource-marker` content-leak detection (RS-SEC-009 path), RS-SEC-011 extreme-amount robustness check. 102 offline tests, mypy strict clean.
 - 2026-06-11 — **v0.1.0 release prep**: catalog implementation-status section, CHANGELOG.md, version bump 0.0.1→0.1.0, GitHub Actions CI (pytest+mypy on 3.11–3.13). 94 tests, mypy clean.
 - 2026-06-11 — On-chain block complete (RS-PAY, RS-SEC-001/002, FA-SET) confirmed live against Anvil; MockUSDC + onchain_facilitator + smoke test. See `docs/onchain-2026-06-11.md`.
 - 2026-06-10 — DI discovery group (DI-001/002) + `discovery` CLI command + tests.

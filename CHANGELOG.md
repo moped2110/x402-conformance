@@ -3,6 +3,22 @@
 All notable changes to x402-conformance are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- **RS-SEC-011** (`check --active`): extreme/near-2²⁵⁶ amount robustness — the
+  endpoint must reject a uint256-max amount cleanly without a 5xx crash.
+- **`--resource-marker`** for `check --active`: pass a unique string from the
+  protected resource; a rejected response whose body still contains it is flagged
+  as a content leak (RS-SEC-009 on the rejection path).
+- **`report.schema.json`**: a versioned JSON Schema for the `--json` report
+  output, with a `reportVersion` field; CI validates the output against it.
+
+### Changed
+- **RS-PR-008** now performs full EIP-55 checksum validation on mixed-case EVM
+  asset addresses (via keccak when `[evm]` is installed); all-lowercase
+  addresses remain a valid unchecksummed form. Previously format-only.
+
 ## [0.1.0] — 2026-06-11
 
 First working release. Black-box conformance testing for x402 V2 payment

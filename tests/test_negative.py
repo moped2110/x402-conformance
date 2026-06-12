@@ -129,6 +129,52 @@ def test_recipient_bug_caught() -> None:
     assert by_id(results, "RS-NEG-007").status == Status.FAIL
 
 
+def test_sec_011_extreme_amount_handled_cleanly_passes() -> None:
+    # Correct server rejects the 2²⁵⁶-1 amount (value mismatch) with a clean 402.
+    results = run_active_checks(TARGET, SIGNER, transport=make_server())
+    assert by_id(results, "RS-SEC-011").status == Status.PASS
+
+
+def test_sec_011_extreme_amount_crash_is_caught() -> None:
+    # A naive backend that 5xx-crashes on a huge value must be flagged.
+    def handler(request: httpx.Request) -> httpx.Response:
+        sig = request.headers.get("PAYMENT-SIGNATURE")
+        if sig is None:
+            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+        value = int(json.loads(base64.b64decode(sig))["payload"]["authorization"]["value"])
+        if value > 10**30:
+            return httpx.Response(500)
+        return httpx.Response(402)
+
+    results = run_active_checks(TARGET, SIGNER, transport=httpx.MockTransport(handler))
+    assert by_id(results, "RS-SEC-011").status == Status.FAIL
+
+
+def test_resource_marker_leak_on_rejection_is_caught() -> None:
+    marker = "TOP_SECRET_CAVIAR_RECIPE"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sig = request.headers.get("PAYMENT-SIGNATURE")
+        if sig is None:
+            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+        # Rejects with 402 but leaks the protected content in the error body.
+        return httpx.Response(402, text=f"payment failed, but here it is: {marker}")
+
+    results = run_active_checks(
+        TARGET, SIGNER, transport=httpx.MockTransport(handler), resource_marker=marker
+    )
+    leaked = [r for r in results if r.status == Status.FAIL and "leaked" in r.detail]
+    assert leaked, "marker leak on the rejection path was not caught"
+
+
+def test_resource_marker_absent_no_false_positive() -> None:
+    # Correct server never echoes the marker → passing the flag must not add failures.
+    results = run_active_checks(
+        TARGET, SIGNER, transport=make_server(), resource_marker="NEVER_APPEARS_XYZ"
+    )
+    assert not [r for r in results if r.status == Status.FAIL]
+
+
 def test_no_eip3009_requirement_skips_all() -> None:
     # An endpoint advertising only a non-eip3009 scheme → nothing to attack.
     solana_only = {

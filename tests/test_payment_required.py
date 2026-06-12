@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from x402_conformance.checks import Status
 from x402_conformance.runner import run_checks
 
@@ -25,6 +27,28 @@ def test_resource_url_trailing_slash_tolerated(valid_payload: dict) -> None:
     valid_payload["resource"]["url"] = TARGET_URL + "/"
     results = run_checks(TARGET_URL, transport=transport_with_402(valid_payload))
     assert by_id(results, "RS-PR-003").status == Status.PASS
+
+
+def test_pr_008_valid_eip55_checksum_passes(valid_payload: dict) -> None:
+    # The fixture asset is the canonical (checksummed) Base Sepolia USDC address.
+    results = run_checks(TARGET_URL, transport=transport_with_402(valid_payload))
+    assert by_id(results, "RS-PR-008").status == Status.PASS
+
+
+def test_pr_008_bad_eip55_checksum_caught(valid_payload: dict) -> None:
+    pytest.importorskip("eth_utils")
+    asset = valid_payload["accepts"][0]["asset"]
+    # Flip the case of the final hex nibble → mixed-case but invalid checksum.
+    valid_payload["accepts"][0]["asset"] = asset[:-1] + asset[-1].swapcase()
+    results = run_checks(TARGET_URL, transport=transport_with_402(valid_payload))
+    assert by_id(results, "RS-PR-008").status == Status.FAIL
+
+
+def test_pr_008_lowercase_address_is_format_only_pass(valid_payload: dict) -> None:
+    # All-lowercase = unchecksummed, a legitimate form → no checksum to fail.
+    valid_payload["accepts"][0]["asset"] = valid_payload["accepts"][0]["asset"].lower()
+    results = run_checks(TARGET_URL, transport=transport_with_402(valid_payload))
+    assert by_id(results, "RS-PR-008").status == Status.PASS
 
 
 def test_empty_accepts(valid_payload: dict) -> None:

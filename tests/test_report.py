@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
+import pytest
 
 from x402_conformance.checks import CheckResult, Severity, Status
-from x402_conformance.report import exit_code, summarize, to_json, to_markdown
+from x402_conformance.report import REPORT_VERSION, exit_code, summarize, to_json, to_markdown
+
+_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "report.schema.json"
 
 
 def _r(cid: str, status: Status, sev: Severity) -> CheckResult:
@@ -53,6 +58,28 @@ def test_json_report_is_valid_and_complete() -> None:
     assert doc["summary"]["total"] == 2
     assert {r["check_id"] for r in doc["results"]} == {"A", "B"}
     assert "specBaseline" in doc and doc["tool"]["name"] == "x402-conformance"
+    assert doc["reportVersion"] == REPORT_VERSION
+
+
+def test_json_report_validates_against_published_schema() -> None:
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    results = [
+        _r("A", Status.PASS, Severity.MAJOR),
+        _r("B", Status.FAIL, Severity.CRITICAL),
+        CheckResult("C", "t", Severity.MINOR, "spec", Status.SKIP, "why"),
+    ]
+    doc = json.loads(to_json(results, "https://t.example"))
+    jsonschema.validate(doc, schema)  # raises on any contract drift
+
+
+def test_schema_rejects_unknown_severity() -> None:
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    doc = json.loads(to_json([_r("A", Status.PASS, Severity.MAJOR)], "u"))
+    doc["results"][0]["severity"] = "bogus"
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(doc, schema)
 
 
 def test_markdown_report_has_verdict_and_rows() -> None:

@@ -61,6 +61,11 @@ def _assert_rejected(resp: ActiveResponse) -> tuple[Status, str]:
         )
     if resp.settled_ok:
         return Status.FAIL, "endpoint reported successful settlement for an invalid payment"
+    if resp.marker_leaked:
+        return Status.FAIL, (
+            f"status {resp.status_code} but the response body contained the resource "
+            "marker — protected content leaked on the rejection path (RS-SEC-009)"
+        )
     return Status.PASS, f"correctly rejected (status {resp.status_code})"
 
 
@@ -157,6 +162,21 @@ def neg_006(ctx: ActiveContext) -> tuple[Status, str]:
     dear = {**ctx.requirements, "amount": str(int(ctx.requirements["amount"]) * 2)}
     payload = build_exact_eip3009_payload(dear, ctx.signer)
     return _assert_rejected(ctx.send(payload))
+
+
+@_register("RS-SEC-011", "Extreme (near-2²⁵⁶) amount is handled cleanly, not crashed",
+           Severity.MINOR, f"{_CORE} §5.1.2 + testcase N4")
+def sec_011(ctx: ActiveContext) -> tuple[Status, str]:
+    # uint256 max — the tool must sign it without overflow and the endpoint must
+    # respond cleanly: reject it (not served), never 5xx-crash on a huge value.
+    huge = {**ctx.requirements, "amount": str(2**256 - 1)}
+    payload = build_exact_eip3009_payload(huge, ctx.signer)
+    resp = ctx.send(payload)
+    if resp.status_code >= 500:
+        return Status.FAIL, f"endpoint returned {resp.status_code} — crashed on an extreme amount"
+    if resp.served_resource or resp.settled_ok:
+        return Status.FAIL, f"endpoint accepted a 2²⁵⁶-1 amount (status {resp.status_code})"
+    return Status.PASS, f"handled cleanly (status {resp.status_code})"
 
 
 def evaluate_active(context: ActiveContext | None) -> list[CheckResult]:

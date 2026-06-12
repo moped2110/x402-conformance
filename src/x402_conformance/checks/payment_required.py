@@ -169,8 +169,22 @@ def pr_008(s: ProbeSession) -> tuple[Status, str]:
             bad.append(repr(asset))
     if bad:
         return Status.FAIL, f"malformed EVM asset address(es): {', '.join(bad)}"
-    # NOTE: format check only; EIP-55 checksum validation needs keccak (later).
-    return Status.PASS, "format check only (no EIP-55 checksum validation yet)"
+
+    # EIP-55: a mixed-case address carries a checksum that must verify. An
+    # all-lower/all-upper address is unchecksummed (a legitimate form) — nothing
+    # to validate. Needs keccak (eth_utils); without it, fall back to format-only.
+    assets = [str(e.get("asset")) for e in evm]
+    try:
+        from eth_utils import is_checksum_address  # type: ignore[attr-defined]
+    except Exception:
+        return Status.PASS, "format ok (EIP-55 not checked: install [evm] for keccak)"
+    mixed = [a for a in assets if a[2:] != a[2:].lower() and a[2:] != a[2:].upper()]
+    invalid = [a for a in mixed if not is_checksum_address(a)]
+    if invalid:
+        return Status.FAIL, f"bad EIP-55 checksum: {', '.join(invalid)}"
+    if mixed:
+        return Status.PASS, f"EIP-55 checksum valid ({len(mixed)} mixed-case)"
+    return Status.PASS, "format ok (addresses unchecksummed/lowercase)"
 
 
 @register(

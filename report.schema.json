@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/moped2110/x402-conformance/report.schema.json",
+  "title": "x402-conformance JSON report",
+  "description": "Machine-readable output of `x402-conformance ... --json`. Versioned via reportVersion (semver-ish); consumers should pin a major.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "reportVersion",
+    "tool",
+    "specBaseline",
+    "target",
+    "timestamp",
+    "summary",
+    "conformant",
+    "results"
+  ],
+  "properties": {
+    "reportVersion": {
+      "type": "string",
+      "description": "Schema version of this report shape.",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+    "specBaseline": {
+      "type": "string",
+      "description": "The pinned x402 spec snapshot all checks were written against."
+    },
+    "target": {
+      "type": "string",
+      "description": "The endpoint/base URL that was tested."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC ISO-8601 generation time."
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "passed", "failed", "skipped", "errors"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 },
+        "errors": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "conformant": {
+      "type": "boolean",
+      "description": "True when no critical/major check failed or errored (CI exit code 0)."
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["check_id", "title", "severity", "spec_ref", "status", "detail"],
+        "properties": {
+          "check_id": { "type": "string" },
+          "title": { "type": "string" },
+          "severity": { "type": "string", "enum": ["critical", "major", "minor"] },
+          "spec_ref": { "type": "string" },
+          "status": { "type": "string", "enum": ["pass", "fail", "skip", "error"] },
+          "detail": { "type": "string" }
+        }
+      }
+    }
+  }
+}

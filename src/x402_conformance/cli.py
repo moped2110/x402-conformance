@@ -93,6 +93,11 @@ def check(
         None, "--signer-key", help="Testnet throwaway private key for --active "
         "(default: $X402_TESTNET_PAYER_KEY or a random key)",
     ),
+    resource_marker: Optional[str] = typer.Option(
+        None, "--resource-marker", help="A unique string from the protected resource "
+        "body. With --active, a rejected response that still contains it is flagged "
+        "as a content leak (RS-SEC-009).",
+    ),
     pay: bool = typer.Option(
         False, "--pay",
         help="Run the positive settlement path (RS-PAY): sends ONE valid, funded "
@@ -121,7 +126,9 @@ def check(
         signer = _make_signer(signer_key)
         if signer is not None:
             from .active import run_active_checks
-            results = results + run_active_checks(url, signer, method=method, timeout=timeout)
+            results = results + run_active_checks(
+                url, signer, method=method, timeout=timeout, resource_marker=resource_marker
+            )
 
     if pay:
         signer = _make_signer(signer_key)

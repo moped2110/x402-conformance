@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import base64
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
 import httpx
@@ -33,6 +33,7 @@ class ActiveResponse:
     body: bytes
     settlement: SettlementResponse | None = None
     settlement_error: str | None = None
+    marker_leaked: bool = False  # resource_marker found in body (content leak)
 
     @property
     def served_resource(self) -> bool:
@@ -54,6 +55,7 @@ class ActiveContext:
     signer: Any  # EvmSigner
     send: Callable[[dict[str, Any]], ActiveResponse]
     send_header: Callable[[str], ActiveResponse]  # send a raw PAYMENT-SIGNATURE value
+    resource_marker: str | None = None  # if set, a rejected body must NOT contain it
     notes: list[str] = field(default_factory=list)
 
 
@@ -114,6 +116,7 @@ def build_active_context(
     url: str,
     method: str,
     signer: Any,
+    resource_marker: str | None = None,
 ) -> ActiveContext | None:
     """Probe the endpoint for requirements and wire up payment senders.
 
@@ -124,12 +127,17 @@ def build_active_context(
     if requirements is None:
         return None
 
+    marker_bytes = resource_marker.encode() if resource_marker else None
+
     def send(payload: dict[str, Any]) -> ActiveResponse:
         return send_header(_b64_json(payload))
 
     def send_header(header_value: str) -> ActiveResponse:
         response = client.request(method, url, headers={PAYMENT_SIGNATURE_HEADER: header_value})
-        return _response_from(response)
+        ar = _response_from(response)
+        if marker_bytes and marker_bytes in ar.body:
+            ar = replace(ar, marker_leaked=True)
+        return ar
 
     return ActiveContext(
         resource_url=url,
@@ -138,6 +146,7 @@ def build_active_context(
         signer=signer,
         send=send,
         send_header=send_header,
+        resource_marker=resource_marker,
     )
 
 
@@ -147,6 +156,7 @@ def run_active_checks(
     method: str = "GET",
     timeout: float = 10.0,
     transport: httpx.BaseTransport | None = None,
+    resource_marker: str | None = None,
 ) -> list[Any]:
     """Run the RS-NEG active checks against `url`. Returns list[CheckResult]."""
     from .checks.negative import evaluate_active  # late import avoids cycle
@@ -155,7 +165,7 @@ def run_active_checks(
     with httpx.Client(
         timeout=timeout, transport=transport, follow_redirects=True, headers=headers
     ) as client:
-        context = build_active_context(client, url, method, signer)
+        context = build_active_context(client, url, method, signer, resource_marker)
         return evaluate_active(context)
 
 
