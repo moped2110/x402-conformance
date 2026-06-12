@@ -124,3 +124,38 @@ def test_markdown_escapes_pipes_in_detail() -> None:
     md = to_markdown([r], "u")
     # raw pipes would break the table; they must be escaped
     assert "a \\| b \\| c" in md
+
+
+def test_markdown_neutralizes_html_in_detail() -> None:
+    # a hostile endpoint echoes markup into an error reason
+    r = CheckResult("X", "t", Severity.MAJOR, "spec", Status.FAIL,
+                    "reason <img src=x onerror=alert(1)>")
+    md = to_markdown([r], "u")
+    assert "<img" not in md
+    assert "&lt;img src=x onerror=alert(1)&gt;" in md
+
+
+def test_markdown_collapses_newlines_in_detail() -> None:
+    # a newline in a cell would break the table row
+    r = CheckResult("X", "t", Severity.MAJOR, "spec", Status.FAIL, "line1\nline2\r\nline3")
+    md = to_markdown([r], "u")
+    body = md.splitlines()
+    row = next(line for line in body if line.startswith("| X "))
+    assert "line1 line2 line3" in row
+    assert "\n" not in row  # the row is a single line
+
+
+def test_markdown_escapes_links_and_code_in_detail() -> None:
+    r = CheckResult("X", "t", Severity.MAJOR, "spec", Status.FAIL,
+                    "see [click](javascript:evil) and `code`")
+    md = to_markdown([r], "u")
+    assert "[click]" not in md  # brackets escaped, link not formed
+    assert "\\[click\\]" in md
+    assert "\\`code\\`" in md
+
+
+def test_markdown_sanitizes_backticks_in_target() -> None:
+    # a backtick in the target would break out of the inline-code span
+    md = to_markdown([_r("A", Status.PASS, Severity.MAJOR)], "http://x/`# pwn")
+    assert "`# pwn" not in md
+    assert "**Target:** `http://x/# pwn`" in md

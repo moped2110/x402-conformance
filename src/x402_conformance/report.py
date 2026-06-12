@@ -48,13 +48,39 @@ def to_json(results: list[CheckResult], target_url: str) -> str:
     )
 
 
+def _md_cell(text: str) -> str:
+    """Neutralize a (possibly endpoint-controlled) string for a Markdown table cell.
+
+    `detail` carries error reasons and other content echoed from the target, so a
+    hostile endpoint could otherwise inject raw HTML, links, or table/structure
+    breaks into an operator's report. Collapse line breaks (they'd break the row)
+    and escape the table/Markdown/HTML metacharacters that matter.
+    """
+    text = text.replace("\\", "\\\\")
+    for ws in ("\r\n", "\r", "\n", "\t"):
+        text = text.replace(ws, " ")
+    text = text.replace("|", "\\|")
+    text = text.replace("<", "&lt;").replace(">", "&gt;")
+    text = text.replace("`", "\\`")
+    text = text.replace("[", "\\[").replace("]", "\\]")
+    return text
+
+
+def _md_inline_code(text: str) -> str:
+    """Sanitize a value rendered inside an inline-code span (e.g. the target URL):
+    code spans don't render entities, so just drop backticks and line breaks."""
+    for ws in ("\r\n", "\r", "\n", "\t"):
+        text = text.replace(ws, " ")
+    return text.replace("`", "")
+
+
 def to_markdown(results: list[CheckResult], target_url: str) -> str:
     s = summarize(results)
     verdict = "✅ CONFORMANT" if exit_code(results) == 0 else "❌ NOT CONFORMANT"
     lines = [
         "# x402 Conformance Report",
         "",
-        f"**Target:** `{target_url}`",
+        f"**Target:** `{_md_inline_code(target_url)}`",
         f"**Verdict:** {verdict} "
         f"({s['passed']} passed, {s['failed']} failed, {s['skipped']} skipped, {s['errors']} errors)",
         f"**Spec baseline:** {SPEC_BASELINE}",
@@ -65,10 +91,10 @@ def to_markdown(results: list[CheckResult], target_url: str) -> str:
     ]
     icon = {Status.PASS: "✅", Status.FAIL: "❌", Status.SKIP: "⏭️", Status.ERROR: "💥"}
     for r in results:
-        detail = r.detail.replace("|", "\\|") or "—"
+        detail = _md_cell(r.detail) or "—"
         lines.append(
-            f"| {r.check_id} | {r.title} | {r.severity.value} "
-            f"| {icon[r.status]} {r.status.value} | {detail} | {r.spec_ref} |"
+            f"| {_md_cell(r.check_id)} | {_md_cell(r.title)} | {r.severity.value} "
+            f"| {icon[r.status]} {r.status.value} | {detail} | {_md_cell(r.spec_ref)} |"
         )
     lines.append("")
     return "\n".join(lines)

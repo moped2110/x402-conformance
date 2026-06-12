@@ -22,6 +22,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   rejection path (consistent with the other active checks).
 - `check` warns when `--resource-marker` is passed without `--active` (no effect).
 
+### Security
+- The Markdown report now neutralizes endpoint-controlled content (`detail` and
+  other cells): collapses line breaks and escapes table/Markdown/HTML
+  metacharacters (`| < > \` [ ]`), so a hostile endpoint can't inject raw HTML,
+  links, or table-structure breaks into an operator's report. The target URL is
+  sanitized inside its inline-code span too. (The JSON report was already safe
+  via `json.dumps`.)
+
 ### Tests / tooling
 - Catalog↔code drift guard: tests assert every implemented check ID appears in
   `conformance-catalog.md` and that its "Implemented & tested (N)" count matches
