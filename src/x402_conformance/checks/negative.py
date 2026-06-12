@@ -176,6 +176,10 @@ def sec_011(ctx: ActiveContext) -> tuple[Status, str]:
         return Status.FAIL, f"endpoint returned {resp.status_code} — crashed on an extreme amount"
     if resp.served_resource or resp.settled_ok:
         return Status.FAIL, f"endpoint accepted a 2²⁵⁶-1 amount (status {resp.status_code})"
+    if resp.marker_leaked:
+        return Status.FAIL, (
+            f"resource marker leaked on the extreme-amount rejection path (status {resp.status_code})"
+        )
     return Status.PASS, f"handled cleanly (status {resp.status_code})"
 
 

@@ -60,3 +60,58 @@ def test_duplicate_registration_is_rejected() -> None:
         @register("RS-HS-001", "dup", Severity.MAJOR, "x")
         def _dup(_s):  # pragma: no cover
             return Status.PASS, ""
+
+
+# --- Catalog ↔ code drift guard -------------------------------------------
+#
+# The catalog (docs/conformance-catalog.md) advertises an "Implemented & tested
+# (N checks)" set. It is hand-maintained and easy to drift from the actual code
+# — especially for checks that aren't in a decorator registry (RS-PAY, FA-SET).
+# These tests pin the two together.
+
+import re  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import httpx  # noqa: E402
+
+_CATALOG = Path(__file__).resolve().parents[1] / "docs" / "conformance-catalog.md"
+
+
+def _all_implemented_ids() -> set[str]:
+    """Every check ID the tool can actually emit, across all groups.
+
+    Includes the registry-less groups (RS-PAY/RS-SEC settlement, FA-SET) by
+    invoking their evaluators with an empty context, which yields SKIP results
+    carrying the IDs.
+    """
+    from x402_conformance.checks.facilitator import FacilitatorContext, evaluate_settle
+    from x402_conformance.checks.payment import evaluate_payment
+
+    ids: set[str] = set()
+    for reg in (REGISTRY, FA_REGISTRY, DI_REGISTRY, _active_registry()):
+        ids |= {c.check_id for c in reg}
+    ids |= {r.check_id for r in evaluate_payment(None)}
+    with httpx.Client() as client:
+        ctx = FacilitatorContext(base_url="", client=client, requirements=None,
+                                 signer=None, allow_settle=False)
+        ids |= {r.check_id for r in evaluate_settle(ctx)}
+    return ids
+
+
+def test_every_implemented_check_is_in_the_catalog() -> None:
+    catalog = _CATALOG.read_text(encoding="utf-8")
+    missing = sorted(i for i in _all_implemented_ids() if i not in catalog)
+    assert not missing, f"implemented checks missing from the catalog: {missing}"
+
+
+def test_catalog_implemented_count_matches_code() -> None:
+    catalog = _CATALOG.read_text(encoding="utf-8")
+    m = re.search(r"Implemented & tested \((\d+) checks\)", catalog)
+    assert m, "catalog is missing its 'Implemented & tested (N checks)' marker"
+    stated = int(m.group(1))
+    actual = len(_all_implemented_ids())
+    assert stated == actual, (
+        f"catalog says {stated} implemented checks, code emits {actual} — update "
+        "the catalog's implementation-status section"
+    )
+

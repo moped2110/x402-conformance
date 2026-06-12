@@ -18,6 +18,18 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 - **RS-PR-008** now performs full EIP-55 checksum validation on mixed-case EVM
   asset addresses (via keccak when `[evm]` is installed); all-lowercase
   addresses remain a valid unchecksummed form. Previously format-only.
+- **RS-SEC-011** also flags a resource-marker leak on the extreme-amount
+  rejection path (consistent with the other active checks).
+- `check` warns when `--resource-marker` is passed without `--active` (no effect).
+
+### Tests / tooling
+- Catalog↔code drift guard: tests assert every implemented check ID appears in
+  `conformance-catalog.md` and that its "Implemented & tested (N)" count matches
+  the code (covers registry-less RS-PAY/FA-SET groups too).
+- Stricter report-schema tests (format-checked timestamp, rejects unknown
+  status, additional properties, and missing required fields).
+- `tools/verify_new_features.py` + `--bug-leak`/`--bug-crash-huge`/
+  `--bug-bad-checksum` modes in the calibration target for live verification.
 
 ## [0.1.0] — 2026-06-11
 

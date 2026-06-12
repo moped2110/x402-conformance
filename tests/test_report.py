@@ -73,6 +73,14 @@ def test_json_report_validates_against_published_schema() -> None:
     jsonschema.validate(doc, schema)  # raises on any contract drift
 
 
+def test_schema_validates_with_format_checked_timestamp() -> None:
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    doc = json.loads(to_json([_r("A", Status.ERROR, Severity.CRITICAL)], "u"))
+    # Enforce the declared `format: date-time` too, not just structure.
+    jsonschema.validate(doc, schema, format_checker=jsonschema.FormatChecker())
+
+
 def test_schema_rejects_unknown_severity() -> None:
     jsonschema = pytest.importorskip("jsonschema")
     schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -80,6 +88,28 @@ def test_schema_rejects_unknown_severity() -> None:
     doc["results"][0]["severity"] = "bogus"
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(doc, schema)
+
+
+def test_schema_rejects_unknown_status() -> None:
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    doc = json.loads(to_json([_r("A", Status.PASS, Severity.MAJOR)], "u"))
+    doc["results"][0]["status"] = "maybe"
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(doc, schema)
+
+
+def test_schema_rejects_additional_and_missing_fields() -> None:
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    extra = json.loads(to_json([_r("A", Status.PASS, Severity.MAJOR)], "u"))
+    extra["surprise"] = 1  # additionalProperties: false at the top level
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(extra, schema)
+    missing = json.loads(to_json([_r("A", Status.PASS, Severity.MAJOR)], "u"))
+    del missing["reportVersion"]  # a required field
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(missing, schema)
 
 
 def test_markdown_report_has_verdict_and_rows() -> None:

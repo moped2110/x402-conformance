@@ -122,6 +122,10 @@ def check(
         typer.secho(f"target unreachable: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2)
 
+    if resource_marker and not active:
+        typer.secho("note: --resource-marker has no effect without --active (it guards "
+                    "the active rejection path)", fg=typer.colors.YELLOW, err=True)
+
     if active:
         signer = _make_signer(signer_key)
         if signer is not None:

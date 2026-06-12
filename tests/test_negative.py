@@ -150,6 +150,23 @@ def test_sec_011_extreme_amount_crash_is_caught() -> None:
     assert by_id(results, "RS-SEC-011").status == Status.FAIL
 
 
+def test_sec_011_marker_leak_on_extreme_amount_is_caught() -> None:
+    marker = "PREMIUM_LEAK_ON_HUGE"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sig = request.headers.get("PAYMENT-SIGNATURE")
+        if sig is None:
+            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+        # Rejects cleanly (402, no 5xx) but leaks the resource in the body.
+        return httpx.Response(402, text=f"too much: {marker}")
+
+    results = run_active_checks(
+        TARGET, SIGNER, transport=httpx.MockTransport(handler), resource_marker=marker
+    )
+    r = by_id(results, "RS-SEC-011")
+    assert r.status == Status.FAIL and "leaked" in r.detail, r.detail
+
+
 def test_resource_marker_leak_on_rejection_is_caught() -> None:
     marker = "TOP_SECRET_CAVIAR_RECIPE"
 

@@ -61,9 +61,21 @@ CHAIN_ID = 84532
 # emits it on a rejection; `--bug-leak` does, so `--resource-marker` catches it.
 RESOURCE_MARKER = "x402-calib-marker-7f3a"
 
-# REQ["asset"] with the case of its last hex nibble flipped: still mixed-case, so
-# it carries an EIP-55 checksum — but a broken one. `--bug-bad-checksum` serves it.
-BAD_CHECKSUM_ASSET = REQ["asset"][:-1] + REQ["asset"][-1].swapcase()
+def _break_checksum(addr: str) -> str:
+    """Flip the case of the first hex *letter* (skipping '0x'): keeps the address
+    well-formed and mixed-case but makes its EIP-55 checksum invalid. Robust
+    regardless of which nibble the address ends on."""
+    chars = list(addr)
+    for i in range(2, len(chars)):
+        if chars[i].isalpha():
+            chars[i] = chars[i].swapcase()
+            break
+    return "".join(chars)
+
+
+# A mixed-case asset with a deliberately broken EIP-55 checksum. `--bug-bad-checksum`
+# advertises it so RS-PR-008 has something to catch.
+BAD_CHECKSUM_ASSET = _break_checksum(REQ["asset"])
 
 SUPPORTED = {
     "kinds": [{"x402Version": 2, "scheme": "exact", "network": REQ["network"]}],
