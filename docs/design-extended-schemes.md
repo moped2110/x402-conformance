@@ -14,6 +14,47 @@ protocol-level and already chain-agnostic — **no change needed there**.
 
 ---
 
+## Why this work, by asset
+
+The suite doesn't care about a coin's *brand* — only about two axes: the
+**network family** (`eip155:` / `solana:` / other) and the **transfer/authorization
+method** (`extra.assetTransferMethod`). The same asset on a different chain or with
+a different method lands in a different mechanism.
+
+| Asset | Typical x402 setup | Today | Needs |
+|-------|--------------------|-------|-------|
+| **USDC** (EVM) | `exact` / **EIP-3009** | ✅ full active + settlement | — (happy path) |
+| **USDC** (Solana) | SVM `exact` | passive ✅, active/pay SKIP | §2 SVM |
+| **USDT** (EVM) | `exact` / **Permit2** (no EIP-3009 on USDT) | passive ✅, active/pay SKIP | §1 permit-style |
+| **Other non-USDC ERC-20** | `exact` / Permit2 | passive ✅, active/pay SKIP | §1 permit-style |
+| **WBTC / wrapped BTC** (EVM) | `exact` / Permit2 (plain ERC-20) | passive ✅, active/pay SKIP | §1 permit-style |
+| **XRP via XRPL-EVM sidechain** | `exact` / EIP-3009 or Permit2 | EVM → 3009 ✅ / Permit2 SKIP | — or §1 |
+| **BTC native** | not an x402 scheme | passive only (if advertised) | out of scope* |
+| **XRP native (XRPL)** | not an x402 scheme | passive only (if advertised) | out of scope* |
+
+Key facts driving the priority:
+
+- **USDC implements EIP-3009** (`transferWithAuthorization`) → it's the one asset
+  that works fully today, on any EVM chain (chainId is read generically).
+- **USDT does *not* implement EIP-3009** (nor EIP-2612 on Ethereum mainnet), so an
+  x402 endpoint accepting USDT must use **Permit2** (which wraps arbitrary ERC-20s
+  via a one-time approve + signature). The same is true for most non-USDC ERC-20s.
+  **This is why §1 (permit-style) is the highest-value next step — it unlocks
+  everything that isn't USDC on EVM.**
+- **\*Native BTC and XRP** fall outside x402's signed-payload model entirely:
+  Bitcoin is UTXO-based, XRPL has its own tx/signing format, and neither has a
+  "signed authorization the server redeems" like EIP-3009/Permit. Their
+  x402-relevant forms are the **wrapped / EVM-sidechain** variants, which behave
+  like any ERC-20 (→ §1). Testing the *native* chains actively would be a separate,
+  larger mechanism with a different threat model ("broadcast + watch-chain" rather
+  than "signed payload") — not in scope for T-11.
+
+In all cases the passive groups (`RS-HS`, `RS-PR`, `FA`, `DI`) run unchanged, and
+unsupported active cases **SKIP cleanly** — so the suite never crashes or
+false-fails on an asset it can't actively exercise yet.
+
+---
+
 ## 0. Shared foundation: a `PaymentMechanism` abstraction
 
 Both new schemes need the same refactor first, so the negative/payment checks
