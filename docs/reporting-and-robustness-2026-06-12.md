@@ -150,12 +150,21 @@ ActiveResponse(status_code=402, …, marker_leaked=True)
 ### Usage & guidance
 ```bash
 x402-conformance check https://api.example.com/premium-data \
-    --active --resource-marker "x7f3-caviar-recipe-§42"
+    --active --resource-marker "x7f3-caviar-recipe-42"
 ```
 - Choose a marker that's **specific** to the paid content and won't appear in a
   normal error page (a long random token, a unique phrase from the resource).
+- **Prefer an ASCII marker.** The body is searched for the marker's raw UTF-8
+  bytes; if a server re-encodes the body and escapes non-ASCII (e.g. JSON turns
+  `§` into `§`), a non-ASCII marker may not match even though the content is
+  present. ASCII markers are immune.
 - The flag is optional; omit it and behaviour is unchanged.
 - It complements, not replaces, the 2xx/settlement leak guard — both run.
+
+### Verifying it live
+`tools/calibration_target.py --bug-leak` echoes the marker on its rejection path,
+and `tools/verify_new_features.py` asserts the check catches it (see the runbook
+[`verify-new-features.md`](verify-new-features.md)).
 
 ---
 

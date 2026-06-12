@@ -62,7 +62,13 @@ mypy            # strict type checking
 python tools/calibration_target.py 4500 &
 x402-conformance check http://127.0.0.1:4500/data --active
 x402-conformance facilitator http://127.0.0.1:4500 --resource http://127.0.0.1:4500/data
+
+# One-shot live verification of the report-schema / EIP-55 / leak / extreme-amount
+# features (spins the target up in each bug mode and asserts each check catches it):
+python tools/verify_new_features.py
 ```
+
+Live-verification runbook: [`docs/verify-new-features.md`](docs/verify-new-features.md).
 
 No mainnet funds are ever used. Payment-flow tests run against Base Sepolia or mocks only.
 
