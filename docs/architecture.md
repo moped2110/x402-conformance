@@ -20,8 +20,8 @@ flowchart TD
     chk -->|--active| ACT["run_active_checks()<br/>tampered payments"]
     chk -->|--pay 💸| PAY["run_payment_checks()<br/>1 funded on-chain settle"]
 
-    RUN --> G_HS["RS-HS · handshake<br/>RS-PR · PaymentRequired schema"]
-    ACT --> G_NEG["RS-NEG · negative<br/>RS-SEC-010 · cross-chain replay"]
+    RUN --> G_HS["RS-HS · handshake<br/>RS-PR · PaymentRequired schema<br/>(RS-PR-008 · EIP-55)"]
+    ACT --> G_NEG["RS-NEG · negative<br/>RS-SEC-010 · cross-chain replay<br/>RS-SEC-011 · extreme amount<br/>--resource-marker · leak"]
     PAY --> G_PAY["RS-PAY · positive settle<br/>RS-SEC-001/002 · replay/race"]
 
     fac --> G_FA["FA-SUP /supported<br/>FA-VER /verify · FA-ERR<br/>FA-SET /settle 💸 (--settle)"]
@@ -96,6 +96,40 @@ x402 SDK — so the tester can't inherit the SDK's bugs. The SDK is used only as
 test-time oracle (the EIP-712 digest is asserted byte-identical in the unit tests).
 Throwaway random signer by default; no funds, no chain needed.
 
+The same pipeline also runs two robustness/security checks that don't fit the
+"tamper one field" mould:
+
+- **RS-SEC-010** — signs for a *different* `chainId` (`eip155:1`) but submits to
+  this endpoint; EIP-712 binds chainId in the domain, so recovery must fail.
+- **RS-SEC-011** — signs a `2²⁵⁶-1` (uint256 max) amount. The tool must sign it
+  without overflow and the endpoint must reject it *cleanly* — a `5xx` here means
+  the endpoint crashed on a huge value (FAIL), not that it validated it.
+
+### 3a. Content-leak detection on the rejection path (`--resource-marker`)
+
+Every active check already fails an endpoint that *serves* the resource (2xx) or
+reports a successful settlement for an invalid payment. `--resource-marker`
+strengthens this: it catches an endpoint that correctly returns a non-2xx **but
+still leaks the protected content in the error body**.
+
+```mermaid
+flowchart LR
+    M["--resource-marker 'SECRET'"] --> Ctx["build_active_context<br/>marker_bytes in closure"]
+    Ctx --> S["send() / send_header()"]
+    S --> R["endpoint response"]
+    R --> Chk{"marker in<br/>body?"}
+    Chk -->|yes| Leak["ActiveResponse(marker_leaked=True)"]
+    Chk -->|no| OK["ActiveResponse(marker_leaked=False)"]
+    Leak --> A["_assert_rejected → FAIL<br/>'content leaked on rejection path'"]
+    OK --> A2["_assert_rejected → normal verdict"]
+```
+
+Design choice: the leak is detected **once, centrally**, at response-build time
+inside the `send`/`send_header` closures (which already hold the marker in
+scope), and exposed as a single `marker_leaked` flag on `ActiveResponse`. So all
+~11 negative checks gain leak detection without touching a single call site —
+`_assert_rejected` just reads the flag.
+
 ## 4. Positive settlement pipeline (`check --pay` 💸)
 
 ```mermaid
@@ -119,7 +153,41 @@ sequenceDiagram
 All assertions share a **single** settlement (one nonce, one on-chain tx) so the
 group never spends per-check.
 
-## 5. Module map
+## 5. Report output contract (versioned JSON)
+
+Every command funnels its `CheckResult[]` through `report.py`, which produces the
+terminal summary, the CI exit code, an optional Markdown report, and an optional
+**machine-readable JSON report** whose shape is a pinned contract.
+
+```mermaid
+flowchart LR
+    CR["CheckResult[]"] --> RP["report.py"]
+    RP --> SUM["summarize() → counts"]
+    RP --> EC["exit_code() → 0/1"]
+    RP --> MD["to_markdown()"]
+    RP --> JS["to_json()<br/>reportVersion + summary + results[]"]
+    JS -. "validated in CI" .-> SCH["report.schema.json<br/>(JSON Schema 2020-12)"]
+    EC --> EX(["process exit code<br/>0 conformant · 1 fail · 2 unreachable"])
+```
+
+The JSON carries a top-level `reportVersion` (currently `1.0`). `report.schema.json`
+at the repo root is the published contract — `additionalProperties: false`,
+`severity`/`status` constrained to enums — and the test suite validates real
+output against it, so any accidental shape drift fails CI. Consumers pin a major
+version of `reportVersion`.
+
+| Field | Meaning |
+|-------|---------|
+| `reportVersion` | Schema version of this report shape (`MAJOR.MINOR`). |
+| `tool` | `{name, version}` of the tester. |
+| `specBaseline` | Pinned x402 spec snapshot the checks target. |
+| `target` | The tested endpoint / base URL. |
+| `timestamp` | UTC ISO-8601 generation time. |
+| `summary` | `{total, passed, failed, skipped, errors}`. |
+| `conformant` | `true` when no critical/major check failed/errored. |
+| `results[]` | One `{check_id, title, severity, spec_ref, status, detail}` per check. |
+
+## 6. Module map
 
 ```mermaid
 flowchart TD
@@ -134,18 +202,22 @@ flowchart TD
     probe --> models[models.py · pydantic schemas]
 
     registry --> hs[checks/handshake.py · RS-HS]
-    registry --> pr[checks/payment_required.py · RS-PR]
+    registry --> pr[checks/payment_required.py · RS-PR<br/>RS-PR-008 → eth_utils EIP-55]
 
     active --> probe
-    active --> neg[checks/negative.py · RS-NEG]
+    active --> neg[checks/negative.py · RS-NEG<br/>RS-SEC-010/011 · marker leak]
     active --> payc[checks/payment.py · RS-PAY]
     neg --> builder[payload_builder.py · eth-account]
     payc --> builder
     fac --> builder
 
     report --> models
+    report -. "validated against" .-> schema[report.schema.json]
+    pr -. "optional keccak" .-> ethutils[eth_utils]
 ```
 
-The `[evm]` extra (eth-account) is only needed for `--active`/`--pay` and the
-facilitator `/verify` negatives; the `[onchain]` extra (web3) only for RS-PAY-004.
-The passive core stays dependency-light and chain-free.
+The `[evm]` extra (eth-account, eth-utils) is only needed for `--active`/`--pay`,
+the facilitator `/verify` negatives, and RS-PR-008's EIP-55 checksum validation;
+the `[onchain]` extra (web3) only for RS-PAY-004. The passive core stays
+dependency-light and chain-free — RS-PR-008 falls back to a format-only check
+when keccak isn't installed, so the core never hard-depends on it.

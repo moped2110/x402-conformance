@@ -6,6 +6,7 @@ Point it at any x402-paywalled URL and get a spec-traceable report: does the 402
 
 **Spec baseline:** x402 Protocol v2, `x402-foundation/x402` @ `d454eb9` (2026-06-08).
 **Test catalog:** see [`docs/conformance-catalog.md`](docs/conformance-catalog.md) — every check carries an ID, severity, and spec reference.
+**Architecture:** [`docs/architecture.md`](docs/architecture.md) (how it works, with diagrams) · [`docs/reporting-and-robustness-2026-06-12.md`](docs/reporting-and-robustness-2026-06-12.md) (report schema, EIP-55, content-leak marker, extreme-amount).
 
 ## Status
 
