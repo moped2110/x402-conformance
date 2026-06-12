@@ -57,13 +57,12 @@ python tools/calibration_target.py 4500 &
 x402-conformance check http://127.0.0.1:4500/data --active
 ```
 
-## Still open (needs RPC / chain — Mario's machine or T-09 settlement work)
+## Still open (needs RPC / chain — T-09 settlement work)
 The calibration target omits the RPC-bound verification steps (on-chain
 balance, asset `get_code`, transfer simulation) and never settles. The
 **positive path (RS-PAY-004, real settlement)** and the **balance-dependent
-rejection** still need a funded Base Sepolia payer or a local Anvil chain —
-blocked in this sandbox (Foundry installer is proxy-blocked, see KNOWN-ISSUES
-I-8). `tools/calibration_target.py` is built to grow into a full facilitator by
+rejection** still need a funded Base Sepolia payer or a local Anvil chain.
+`tools/calibration_target.py` is built to grow into a full facilitator by
 swapping in an RPC-backed signer.
 
 ## Not yet covered (next)

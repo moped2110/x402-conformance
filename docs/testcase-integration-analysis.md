@@ -8,9 +8,9 @@
 
 **x402-conformance is something else:** a **black-box tester** that points to an x402 endpoint from the outside and checks whether its *protocol behavior* complies with the x402 V2 spec. We are an external client, not a payment backend. We have no RPC quorums, no DB, no reconciliation — and we should not have them.
 
-**Consequence, plainly stated:** About 60–70% of the document is *principally not testable* with a black-box tester because it concerns the internal state of the system (DB locks, RPC failover, memory leaks, ABI drift). Pulling this into x402-conformance would dilute the product and turn a sharp tool, explainable in a weekend, into a multi-year platform project. Exactly what the portfolio strategy *does not* want (shovel seller, not platform builder).
+**Consequence, plainly stated:** About 60–70% of the document is *principally not testable* with a black-box tester because it concerns the internal state of the system (DB locks, RPC failover, memory leaks, ABI drift). Pulling this into x402-conformance would dilute the tool and turn a sharp, focused utility into a multi-year platform project — out of scope here.
 
-The disciplined path: harvest the ~20–30% black-box testable cases (some of which are real gaps we didn't have yet), and **consciously pass the rest to the correct portfolio projects** so that the insight is not lost.
+The disciplined path: harvest the ~20–30% black-box testable cases (some of which are real gaps we didn't have yet), and leave the rest to the appropriate tooling.
 
 ---
 
@@ -33,28 +33,28 @@ These six are black-box testable and we didn't have them yet. They move to `conf
 | **RS-PR-013** | N1/N2 | `payTo`/`asset` must match the CAIP-2 namespace of the `network` (no Solana address on `eip155`) | passive |
 | **RS-PR-014** | N5 | `amount` must be > 0 (not "0", not negative) | passive |
 | **RS-NEG-014** | N10 | Payment with well-formed but **wrong asset contract** → must be rejected (server checks contract address, not symbol) | active |
-| **RS-SEC-010** | C0 (Fable's objection) | **Cross-Chain Signature Replay**: validly signed payload for network A against endpoint B with a different `chainId` → must be rejected (EIP-712 domain binds chainId) | active |
+| **RS-SEC-010** | C0 | **Cross-Chain Signature Replay**: validly signed payload for network A against endpoint B with a different `chainId` → must be rejected (EIP-712 domain binds chainId) | active |
 | **RS-SEC-011** | N4 | Near-2²⁵⁶ amount values in requirements or payload → no crash/overflow | active |
 
-**Fable's objection to C0 is justified** and well spotted: The dangerous replay in x402 is not the classic network replay, but the on-chain signature replay across chains. The defense (EIP-712 domain separator with chainId) is exactly what RS-SEC-010 tests. Adopted.
+**C0 is well spotted:** the dangerous replay in x402 is not the classic network replay, but the on-chain signature replay across chains. The defense (EIP-712 domain separator with chainId) is exactly what RS-SEC-010 tests. Adopted.
 
 ---
 
-## 2. Delegation: Where the rest belongs
+## 2. Out of scope: Where the rest belongs
 
-Valuable, but not for a black-box conformance tester. These notes move to the respective project backlogs so the work is not lost:
+Valuable, but not for a black-box conformance tester. These categories belong to other kinds of tooling:
 
-### → #09 Agent-Spend-Observability ("Datadog for Agent Payments")
-Reconciliation (O1–O4, D3 — DB-vs-chain drift), Stuck Payment Detection (O2), RPC Quorum/Health (N20–N23, C10), Provider Inconsistency (D5), Audit Log Integrity (O3), Orphaned Settlements (O4). **This is exactly the observability product** — visibility over payments, not conformance of an endpoint.
+### → Payment observability / monitoring
+Reconciliation (O1–O4, D3 — DB-vs-chain drift), Stuck Payment Detection (O2), RPC Quorum/Health (N20–N23, C10), Provider Inconsistency (D5), Audit Log Integrity (O3), Orphaned Settlements (O4). Visibility over payments, not conformance of an endpoint.
 
-### → #10 x402 Paywall Gateway with DE Invoicing
-Currency Mismatch/Slippage (PR5, T10), Refund Path (R6, G7), Multi-Recipient Split (PR6), Receipt Generation (R4 — overlap with #03), Fee Handling. **The gateway product** that handles EUR receipts and VAT.
+### → Paywall gateway / invoicing
+Currency Mismatch/Slippage (PR5, T10), Refund Path (R6, G7), Multi-Recipient Split (PR6), Receipt Generation (R4), Fee Handling.
 
-### → #02 Policy Engine
-Agent Budget Loop (N24 — LLM in loop), Spend Limit (Test 6), Compromised Key/Anomalous Pattern (N25), Agent rejects (Test 5, N26/N27). **This is literally the domain of the policy engine** — deterministic limits outside the LLM.
+### → Policy engine
+Agent Budget Loop (N24 — LLM in loop), Spend Limit (Test 6), Compromised Key/Anomalous Pattern (N25), Agent rejects (Test 5, N26/N27). Deterministic limits outside the LLM.
 
-### → Compliance / Legal Module (Generic)
-Sanctions Screening (R2), MiCA Stablecoin Status (R3), Geo-Fencing (R5) — relevant for #09/#10 at launch, to be reviewed by counsel. Not conformance.
+### → Compliance / legal
+Sanctions Screening (R2), MiCA Stablecoin Status (R3), Geo-Fencing (R5) — to be reviewed by counsel. Not conformance.
 
 ---
 
@@ -62,7 +62,7 @@ Sanctions Screening (R2), MiCA Stablecoin Status (R3), Geo-Fencing (R5) — rele
 
 - **Part 6 Load/Stress Tests (ST1–ST11, S1–S6):** k6/Artillery + Anvil. Performance testing is its own discipline. At most a very late, separate module — explicitly not the conformance core.
 - **Client/Wallet UX (U1–U7):** Browser extension conflicts, wallet popup timeouts, app resume. Behavior of the client, not the endpoint.
-- **Supply Chain/Deploy (SC1–SC6):** ABI drift, library bumps, blue/green, config drift. This is the CI/CD concern of the *implementer* — a justified but internal discipline. (SC1 ABI drift is Fable's top 1 risk — rightly so, but not testable from the outside; an observability signal in #09 can catch it indirectly.)
+- **Supply Chain/Deploy (SC1–SC6):** ABI drift, library bumps, blue/green, config drift. This is the CI/CD concern of the *implementer* — a justified but internal discipline. (SC1 ABI drift is a top risk — rightly so, but not testable from the outside; a monitoring/observability signal can catch it indirectly.)
 - **Token Quirk Internals (T1 USDT void return, T3 Internal Tx, T5 Fee-on-Transfer, T6 Rebase, T8 Permit2 Parsing, T9 Multicall):** This concerns *how a settlement backend recognizes payments* — server-internal. From a black-box perspective, we only see the advertised `asset` (covered by RS-PR).
 - **Chain Settlement Depth (C1 Soft/Hard Finality, C4–C6 Confirmations, C9 Sequencer, Test 7/11/12 Reorg/RBF):** Requires access to the server's settlement logic. Out for black-box.
 
@@ -71,7 +71,4 @@ Sanctions Screening (R2), MiCA Stablecoin Status (R3), Geo-Fencing (R5) — rele
 ## Next Steps
 
 1. **Immediate (this state):** Supplement six new checks (1b) in `conformance-catalog.md`. RS-NEG-014 and RS-SEC-010 are implemented in the course of T-01 (payload builder available); the passive RS-HS-007/RS-PR-013/-014 are immediately implementable.
-2. **Backlog references:** In the CLAUDE.md of #02/#09/#10/#03, add one line each: "Check test ideas from testcase-integration-analysis.md category 2" — as soon as these projects start.
-3. **Consciously NOT do:** load/stress, UX, supply chain, settlement internals in x402-conformance. If at all, later as separate tools.
-
-**Decision needed (Mario):** Should I set the backlog references in #02/#09/#10 already, even though the projects are not running yet? (Recommendation: yes, one line per project, costs nothing and secures the idea.)
+2. **Consciously NOT do:** load/stress, UX, supply chain, settlement internals in x402-conformance. If at all, later as separate tools.

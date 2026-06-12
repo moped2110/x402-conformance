@@ -100,7 +100,7 @@ These are the money tests: a server that delivers the resource despite an invali
 | RS-SEC-007 | Unicode/control chars/JSON edge cases in payload fields | Clean rejection | robustness | m |
 | RS-SEC-008 | Timing: response time for invalid sig vs. unknown payer comparable (info-leak smoke test) | No gross oracle | robustness | m |
 | RS-SEC-009 | Resource served on 402-failure path? (content-leak check on every NEG case) | Body never contains protected resource | CORE §2 | C |
-| RS-SEC-010 | **Cross-chain signature replay:** valid payload signed for network A replayed at an endpoint on network B (different chainId) | Rejected — EIP-712 domain binds chainId; the defense is the domain separator | CORE §10.1 + C0 (Fable) | C |
+| RS-SEC-010 | **Cross-chain signature replay:** valid payload signed for network A replayed at an endpoint on network B (different chainId) | Rejected — EIP-712 domain binds chainId; the defense is the domain separator | CORE §10.1 + C0 | C |
 | RS-SEC-011 | Extreme/near-2²⁵⁶ amount values in requirements or payload | Tooling parses without overflow; endpoint responds cleanly (no crash) | robustness + N4/N13 | m |
 
 ## 6. FA — Facilitator conformance (secondary target)

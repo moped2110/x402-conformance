@@ -1,10 +1,10 @@
 # TODO — x402-conformance
 
-Working backlog for the suite. One source of truth: tasks live here, decisions go to the portfolio `ROADMAP.md` decision log, findings go to `docs/`.
+Working backlog for the suite. Tasks live here; findings go to `docs/`.
 
 **Conventions:** Tasks have stable IDs (`T-nn`), a priority (P1 = blocks v0.1 release, P2 = should-have for v0.1, P3 = after launch), effort (S ≤ 1 evening, M ≤ 1 weekend, L = multiple sessions), and explicit acceptance criteria. Finished tasks move to the Done section with date — never delete them.
 
-**Status:** updated 2026-06-09 · Milestone M1 = OSS release v0.1 (target: August 2026, per portfolio roadmap month 1–3)
+**Status:** updated 2026-06-09 · Milestone M1 = OSS release v0.1
 
 ---
 
@@ -21,25 +21,24 @@ Subtasks:
 5. ☑ CLI flag `--active` (default passive) + throwaway signer ($X402_TESTNET_PAYER_KEY / --signer-key / random).
 6. ☑ Calibration: DONE. `tools/calibration_target.py` (verify-capable via SDK digest, non-circular) → correct server 31 passed / 0 failed; buggy variants caught precisely. See `docs/active-checks-2026-06-10.md`.
 
-Remaining for full closure: RS-PAY positive path + balance-dependent rejection (need RPC/chain — Anvil blocked in sandbox, I-8 → Mario's machine), RS-SEC-001/002/003 (replay/race — need stateful/settled endpoint), content-leak body inspection.
+Remaining for full closure: RS-PAY positive path + balance-dependent rejection (need RPC/chain), RS-SEC-001/002/003 (replay/race — need stateful/settled endpoint), content-leak body inspection.
 Status: **RS-NEG group done and calibrated**; on-chain settlement is the next frontier.
 
 ### T-02 · ☑ DONE (2026-06-10) — LICENSE file
-Apache-2.0 chosen (Mario). `LICENSE` added, matches pyproject.
+Apache-2.0 chosen. `LICENSE` added, matches pyproject.
 
-### T-03 · P1 · S — Initialize git repo locally
-Not possible in the sandbox (mount incompatibility — see KNOWN-ISSUES.md). Must run on Mario's machine.
-Acceptance: `git init -b main`, first Conventional Commit, `.gitignore` verified (no `.env`, no `__pycache__`).
+### T-03 · ☑ DONE — Initialize git repo
+`git init -b main`, Conventional Commits, `.gitignore` verified (no `.env`, no `__pycache__`).
 
 ### T-04 · P2 · M — Calibrate against further reference servers
 So far only FastAPI. Add Flask (Python) and one Node server (Express or Hono).
 Acceptance: at least flask + one Node server run conformant; deviations documented in `docs/`.
 Depends on: Node toolchain in dev setup.
 
-### T-05 · P2 · M — File upstream issues for the 3 calibration findings
+### T-05 · P2 · M — File upstream issues for the calibration findings
 From `docs/calibration-2026-06-09.md`: (1) undocumented facilitator capability fields, (2) silent 500 on requirements-building error, (3) invalid bazaar extensions in the e2e server.
-Precondition: re-verify against current upstream `main` before filing (our snapshot is `d454eb9`, one day old).
-Acceptance: 3 issues/PRs filed — first community visibility (roadmap goal, month 1–3).
+Precondition: re-verify against current upstream `main` before filing.
+Acceptance: issues/PRs filed upstream.
 
 ### T-06 · ◐ partly DONE (2026-06-10) — Facilitator check group (FA-*)
 Done (chain-free): FA-SUP-001/002, FA-VER-002, FA-ERR-001 + `facilitator` CLI
@@ -64,20 +63,18 @@ caught. Low priority; needs operator knowledge of the resource.
 Send a near-2²⁵⁶ amount; endpoint must respond cleanly (no crash). Active-ish.
 
 ### T-07 · P2 · S — Finalize report format (versioned JSON schema)
-Current JSON output is ad-hoc. Define `report.schema.json` so future consumers (monitoring SaaS) parse stably.
+Current JSON output is ad-hoc. Define `report.schema.json` so future consumers parse stably.
 Acceptance: schema file present, CLI JSON output validates against it.
 
-### T-08 · P2 · M — CI pipeline (GitHub Actions)
-pytest + mypy on every push; optional nightly calibration run against reference servers.
-Acceptance: workflow file present, runs green.
-Depends on: T-03.
+### T-08 · ☑ DONE — CI pipeline (GitHub Actions)
+pytest + mypy on every push. Workflow present, runs green.
 
 ---
 
 ## After M1 (P3)
 
 ### T-09 · P3 · S — Decide testnet strategy
-How to test RS-PAY-004 (real on-chain settlement) cost-effectively. Options: verify-path only, mocked settlement, or a dedicated nightly run against Base Sepolia with faucet USDC. **Decision needed (Mario).** Partially blocks T-01 (only the settlement cases).
+How to test RS-PAY-004 (real on-chain settlement) cost-effectively. Options: verify-path only, mocked settlement, or a dedicated nightly run against Base Sepolia with faucet USDC. Partially blocks T-01 (only the settlement cases).
 
 ### T-10 · P3 · L — RS-SEC check group (replay / race / robustness)
 Catalog §5: replay-after-settlement, parallel race, cross-resource replay, oversized header.
@@ -89,15 +86,14 @@ Depends on: T-01 (payload builder), T-09 (race tests need real settlement).
 ### T-12 · P3 · S — EIP-55 checksum validation for asset addresses (RS-PR-008)
 Currently format-only. Full checksum validation needs keccak.
 
-### T-13 · P3 · M — Hosted monitoring layer ("Pingdom for x402")
-The SaaS angle: continuous checks + alerting (Telegram/Discord). Out of scope for v0.1, but calibration already surfaced the selling point — see KNOWN-ISSUES note on facilitator-dependency.
+### T-13 · P3 · M — Hosted monitoring layer
+Optional future direction: continuous checks + alerting. Out of scope for v0.1.
 
 ---
 
-## Decisions pending (Mario)
-1. **T-02:** License — Apache-2.0 (recommended) vs. MIT.
-2. **T-09:** Testnet strategy — how far do we test real on-chain settlement?
-3. **Sequencing:** T-01/T-02 first (negative tests, the product core) or T-05 first (upstream issues, fast visibility)?
+## Open decisions
+1. **T-09:** Testnet strategy — how far to test real on-chain settlement.
+2. **Sequencing:** T-01/T-02 first (negative tests, the product core) or T-05 first (upstream issues).
 
 ---
 
@@ -108,7 +104,7 @@ The SaaS angle: continuous checks + alerting (Telegram/Discord). Out of scope fo
 - 2026-06-10 — Internal infrastructure tests added (models, probe stages, report/exit-codes/JSON, registry integrity, CLI exit codes): 85 tests total, mypy clean across 15 modules. The tool's own scaffolding is now test-covered, not just the checks.
 - 2026-06-09 — Project skeleton, models, probe, check registry, CLI, reports (RS-HS + RS-PR groups), 20 offline tests, mypy strict clean.
 - 2026-06-09 — Calibration against upstream FastAPI reference server: 7/7 endpoints conformant, zero false positives. See `docs/calibration-2026-06-09.md`.
-- 2026-06-10 — Triaged uploaded `x402-Testcases.md` (see `docs/testcase-integration-analysis.md`); added 6 new black-box checks (RS-HS-007 cache, RS-PR-013 namespace, RS-PR-014 amount>0, RS-NEG-014 wrong-asset, RS-SEC-010 cross-chain-replay, RS-SEC-011 overflow). 3 passive ones implemented + tested.
+- 2026-06-10 — Triaged the x402 testcase set (see `docs/testcase-integration-analysis.md`); added 6 new black-box checks (RS-HS-007 cache, RS-PR-013 namespace, RS-PR-014 amount>0, RS-NEG-014 wrong-asset, RS-SEC-010 cross-chain-replay, RS-SEC-011 overflow). 3 passive ones implemented + tested.
 - 2026-06-10 — T-02 payload builder + tamper toolkit (`payload_builder.py`), independent eth-account signing proven byte-identical to reference SDK. 37 tests, mypy clean. Apache-2.0 LICENSE added.
 - 2026-06-10 — T-01 core: active-request runner (`active.py`) + 11 RS-NEG/RS-SEC-010 active checks (`checks/negative.py`) + CLI `--active`. 42 tests (correct mock → all PASS, buggy mocks → caught), live socket smoke test green, mypy clean. See `docs/active-checks-2026-06-10.md`.
 - 2026-06-10 — RS-NEG live calibration via `tools/calibration_target.py` (SDK-digest verify, non-circular): correct → 31/0, buggy variants caught.

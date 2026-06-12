@@ -27,9 +27,9 @@ RS-PR-009 (EIP-712 domain fields) skips correctly on permit2-only endpoints — 
 2. **Silent 500 on requirements-building errors.** The SDK middleware catches `Exception` without logging and returns `{"error": "Failed to process request"}` with HTTP 500. Operators get zero diagnostics. Status mapping is spec-conformant (Server Error → 500), but the missing log is a DX problem. → candidate for an SDK issue/PR.
 3. **Reference server emits invalid bazaar extensions.** Every protected route in `e2e/servers/fastapi/main.py` logs `invalid bazaar extension: 'method' is a required property` at startup — the e2e server's own discovery declarations fail SDK validation. → candidate for an e2e fix PR.
 
-## Environment notes (sandbox-specific, not findings)
+## Environment notes (not findings)
 
-- SDK's facilitator client inherits proxy env vars; without `socksio` installed it 500s on every request (sandbox proxy setup). Irrelevant outside the sandbox, but it shows: facilitator unreachability ⇒ total endpoint outage. A monitoring angle worth remembering for the SaaS layer.
+- SDK's facilitator client inherits proxy env vars; behind a proxy, without `socksio` installed it 500s on every request. It shows: facilitator unreachability ⇒ total endpoint outage — a monitoring-relevant fact.
 - Initial 500s on ALL endpoints had one root cause: `initialize()` requires a reachable facilitator `/supported` at first request. Resource servers hard-depend on their facilitator even for unpaid 402 responses — another monitoring-relevant fact.
 
 ## Follow-ups

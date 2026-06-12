@@ -33,7 +33,7 @@ anvil --chain-id 84532
 
 ### Terminal B — deploy the token and fund the payer
 ```bash
-cd ~/.../01-x402-testsuite/onchain      # your project path under /mnt/c/...
+cd onchain      # from the repo root
 RPC=http://127.0.0.1:8545
 DEPLOYER=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 PAYER_ADDR=0x70997970C51812dc3A010C7d01b50e0d17dc79C8

@@ -1,10 +1,10 @@
 # Setup Checklist for On-Chain Day
 
-Checklist for Mario so we can start directly with the settlement part (RS-PAY, FA-SET) tomorrow.
+Checklist to start directly with the settlement part (RS-PAY, FA-SET).
 Order: 1–3 are mandatory and fast. 4 is the actual fork in the road (Anvil **or** Base Sepolia — Anvil recommended). 5 is optional.
 
 ## 1. Local Git
-Git is there. In the project folder `01-x402-testsuite/`:
+In the project folder:
 ```bash
 git init -b main
 git add .
@@ -13,7 +13,7 @@ git commit -m "feat: initial implementation of x402 conformance suite v0.1.0-pre
 The `.gitignore` is already there and keeps `.env`, `__pycache__`, and reports out.
 
 ## 2. Python 3.11+
-The project requires `>=3.11` (the cloud sandbox only had 3.10).
+The project requires `>=3.11`.
 ```bash
 python3 --version        # must be 3.11 or higher
 ```
@@ -42,7 +42,7 @@ python -m mypy src
 ```
 
 ## 4. Local Chain (Anvil) — RECOMMENDED
-Anvil is a local EVM chain: no faucet waiting time, no real tokens, reorgs and block time controllable (needed for RS-SEC race/replay). In the cloud sandbox, the installer was proxy-blocked — on your machine it works:
+Anvil is a local EVM chain: no faucet waiting time, no real tokens, reorgs and block time controllable (needed for RS-SEC race/replay). Install:
 ```bash
 curl -L https://foundry.paradigm.xyz | bash
 foundryup
