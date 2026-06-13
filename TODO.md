@@ -35,10 +35,16 @@ So far only FastAPI. Add Flask (Python) and one Node server (Express or Hono).
 Acceptance: at least flask + one Node server run conformant; deviations documented in `docs/`.
 Depends on: Node toolchain in dev setup.
 
-### T-05 · P2 · M — File upstream issues for the calibration findings
-From `docs/calibration-2026-06-09.md`: (1) undocumented facilitator capability fields, (2) silent 500 on requirements-building error, (3) invalid bazaar extensions in the e2e server.
-Precondition: re-verify against current upstream `main` before filing.
-Acceptance: issues/PRs filed upstream.
+### T-05 · ☑ DONE (2026-06-12) — File upstream issues for the calibration findings
+Re-verified against upstream `main` before filing. Outcome of the three findings:
+(1) undocumented facilitator capability fields — already fixed upstream, dropped;
+(2) silent 402 / no logging on the settlement path — filed as
+[issue #2603](https://github.com/x402-foundation/x402/issues/2603);
+(3) invalid bazaar extensions in the e2e server — filed as
+[issue #2604](https://github.com/x402-foundation/x402/issues/2604).
+Both open, awaiting maintainer response (checked 2026-06-12: no comments yet).
+Follow-up: a small PR for (2) — log + return 500 — would be a low-effort,
+high-signal contribution.
 
 ### T-06 · ◐ partly DONE (2026-06-10) — Facilitator check group (FA-*)
 Done (chain-free): FA-SUP-001/002, FA-VER-002, FA-ERR-001 + `facilitator` CLI
