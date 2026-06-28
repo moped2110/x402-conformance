@@ -5,14 +5,48 @@ from __future__ import annotations
 import pytest
 
 from x402_conformance.checks import Status
+from x402_conformance.report import exit_code
 from x402_conformance.runner import run_checks
 
 from conftest import TARGET_URL, transport_with_402
 from test_handshake import by_id
 
 
-def test_wrong_version(valid_payload: dict) -> None:
-    valid_payload["x402Version"] = 1
+def test_v1_endpoint_is_bucketed_not_failed() -> None:
+    # A recognized x402 v1 envelope (real JPYC deployments still emit v1): version 1,
+    # no v2 top-level `resource`, accepts without the v2-required maxTimeoutSeconds.
+    # It must read as "speaks v1, not v2" (bucketed SKIPs under RS-PR-001), not a pile
+    # of v2-shape failures that flip the verdict — and the version-agnostic rail checks
+    # still run and pass.
+    v1 = {
+        "x402Version": 1,
+        "accepts": [
+            {
+                "scheme": "exact",
+                "network": "eip155:137",
+                "amount": "1000000000000000000",
+                "asset": "0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29",
+                "payTo": "0x209693Bc6afc0C5328bA36FaF03C514EF312287C",
+                "extra": {"name": "JPY Coin", "version": "1"},
+            }
+        ],
+    }
+    results = run_checks(TARGET_URL, transport=transport_with_402(v1))
+    assert by_id(results, "RS-PR-001").status == Status.SKIP
+    assert "v1" in by_id(results, "RS-PR-001").detail
+    assert by_id(results, "RS-PR-002").status == Status.SKIP
+    assert by_id(results, "RS-PR-005").status == Status.SKIP
+    assert by_id(results, "RS-HS-004").status == Status.SKIP
+    # version-agnostic rail checks still run on the v1 envelope
+    assert by_id(results, "RS-PR-006").status == Status.PASS  # CAIP-2 network
+    assert by_id(results, "RS-PR-009").status == Status.PASS  # extra.name/version
+    # a clean v1 endpoint must not gate the verdict
+    assert exit_code(results) == 0
+
+
+def test_unknown_version_still_fails(valid_payload: dict) -> None:
+    # An unrecognized/garbage version is a real malformation — still a FAIL.
+    valid_payload["x402Version"] = 3
     results = run_checks(TARGET_URL, transport=transport_with_402(valid_payload))
     assert by_id(results, "RS-PR-001").status == Status.FAIL
 

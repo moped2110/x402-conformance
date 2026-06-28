@@ -53,6 +53,12 @@ def hs_004(s: ProbeSession) -> tuple[Status, str]:
         return Status.SKIP, "nothing decodable"
     if s.first.json_error is not None:
         return Status.FAIL, s.first.json_error
+    if s.first.raw is not None and s.first.raw.get("x402Version") == 1:
+        # A recognised x402 v1 envelope fails the v2 schema, but that's a version
+        # mismatch, not a malformation — bucket it under RS-PR-001, don't FAIL here.
+        return Status.SKIP, (
+            "endpoint advertises x402 v1, not v2 — v2 schema validation N/A (see RS-PR-001)"
+        )
     if s.first.parse_error is not None:
         return Status.FAIL, f"schema violation: {s.first.parse_error}"
     return Status.PASS, ""

@@ -32,6 +32,19 @@ def _accepts_raw(s: ProbeSession) -> list[dict[str, object]] | None:
     return [a for a in accepts if isinstance(a, dict)]
 
 
+# x402 v1 is a recognized PRIOR protocol version that real deployments still emit
+# (e.g. some JPYC facilitators). This suite tests v2, so a v1 endpoint should read
+# as "speaks v1, not v2" — bucketed under RS-PR-001 — rather than accruing generic
+# v2-shape failures that wrongly flip the verdict to NOT CONFORMANT. The v2-shape
+# checks (RS-PR-001/002/005 + RS-HS-004) skip on a recognised v1 envelope; the
+# version-agnostic rail checks (network/asset/amount/extra) still run.
+_V1_SKIP = "endpoint advertises x402 v1, not v2 — this suite tests v2 (see RS-PR-001)"
+
+
+def _x402_version(s: ProbeSession) -> object:
+    return s.first.raw.get("x402Version") if s.first.raw is not None else None
+
+
 @register("RS-PR-001", "x402Version present and == 2", Severity.MAJOR, f"{_CORE} §5.1.2")
 def pr_001(s: ProbeSession) -> tuple[Status, str]:
     if s.first.raw is None:
@@ -39,6 +52,12 @@ def pr_001(s: ProbeSession) -> tuple[Status, str]:
     version = s.first.raw.get("x402Version")
     if version == 2:
         return Status.PASS, ""
+    if version == 1:
+        return Status.SKIP, (
+            "endpoint advertises x402 v1, a recognized prior protocol version — "
+            "this suite tests v2, so v2-shape checks are skipped; the version-agnostic "
+            "rail checks (network/asset/amount/extra) still ran"
+        )
     return Status.FAIL, f"x402Version is {version!r}, expected 2"
 
 
@@ -46,6 +65,8 @@ def pr_001(s: ProbeSession) -> tuple[Status, str]:
 def pr_002(s: ProbeSession) -> tuple[Status, str]:
     if s.first.raw is None:
         return Status.SKIP, "no decoded PaymentRequired payload"
+    if _x402_version(s) == 1:
+        return Status.SKIP, _V1_SKIP
     resource = s.first.raw.get("resource")
     if not isinstance(resource, dict):
         return Status.FAIL, "resource object missing"
@@ -95,6 +116,8 @@ def pr_004(s: ProbeSession) -> tuple[Status, str]:
     f"{_CORE} §5.1.2",
 )
 def pr_005(s: ProbeSession) -> tuple[Status, str]:
+    if _x402_version(s) == 1:
+        return Status.SKIP, _V1_SKIP
     accepts = _accepts_raw(s)
     if not accepts:
         return Status.SKIP, "no accepts entries to inspect"

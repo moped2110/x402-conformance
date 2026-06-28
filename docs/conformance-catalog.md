@@ -44,7 +44,7 @@ RS-SEC-009 (content-leak on the rejection path) is enforced inside every active 
 
 | ID | Test | Expected | Spec ref | Sev |
 |----|------|----------|----------|-----|
-| RS-PR-001 | `x402Version` present and `== 2` | Pass | CORE §5.1.2 | M |
+| RS-PR-001 | `x402Version` present and `== 2` | Pass; a recognised **x402 v1** endpoint is a SKIP ("speaks v1, not v2") and the v2-shape checks (RS-PR-002/005, RS-HS-004) skip too, so a working v1 endpoint isn't flagged as broken — only an *unknown* version fails | CORE §5.1.2 | M |
 | RS-PR-002 | `resource` object present with required `url` | Pass | CORE §5.1.2 | M |
 | RS-PR-003 | `resource.url` matches the requested resource (no mismatch/spoofing) | Match | CORE §5.1.2 | M |
 | RS-PR-004 | `accepts` array present, ≥1 entry | Pass | CORE §5.1.2 | M |

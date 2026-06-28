@@ -70,6 +70,23 @@ def test_schema_violation_fails(valid_payload: dict) -> None:
     assert "accepts" in r.detail
 
 
+def test_v1_envelope_skips_v2_schema_check() -> None:
+    # An x402 v1 envelope fails the v2 schema, but it's a version mismatch, not a
+    # malformation — RS-HS-004 skips it (bucketed under RS-PR-001), not FAIL.
+    v1 = {
+        "x402Version": 1,
+        "accepts": [
+            {
+                "scheme": "exact", "network": "eip155:137", "amount": "1",
+                "asset": "0x" + "ab" * 20, "payTo": "0x" + "cd" * 20,
+                "extra": {"name": "JPY Coin", "version": "1"},
+            }
+        ],
+    }
+    results = run_checks(TARGET_URL, transport=transport_with_402(v1))
+    assert by_id(results, "RS-HS-004").status == Status.SKIP
+
+
 def test_legacy_headers_flagged(valid_payload: dict) -> None:
     transport = transport_with_402(valid_payload, extra_headers={"X-PAYMENT": "legacy"})
     results = run_checks(TARGET_URL, transport=transport)

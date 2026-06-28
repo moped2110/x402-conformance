@@ -20,6 +20,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   output, with a `reportVersion` field; CI validates the output against it.
 
 ### Fixed
+- **x402 v1 endpoints are no longer reported as broken.** A recognised v1 envelope
+  (which real JPYC deployments still emit) used to accrue four gating failures
+  (RS-PR-001 version, plus the v2-required `resource` / `maxTimeoutSeconds` shape via
+  RS-PR-002/005 and RS-HS-004) and read as NOT CONFORMANT. The version-shape checks
+  now SKIP on a recognised v1 endpoint and bucket it under RS-PR-001 ("speaks v1, not
+  v2"), while the version-agnostic rail checks (network/asset/amount/extra) still run.
+  An *unknown* `x402Version` is still a FAIL. (Surfaced via a real JPYC-on-Polygon run.)
 - **FA-SUP-001** no longer fails a facilitator that omits `GET /supported`. The
   endpoint is optional (CORE §7.3) — payment requirements are carried inline in the
   402 challenge — so an absent `/supported` (404/unreachable) is now a SKIP, not a
