@@ -6,6 +6,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **`check --fix`**: a developer-facing report instead of the full table — failures
+  only, grouped by severity (CRITICAL/MAJOR/MINOR), each with what's wrong, a
+  remediation hint ("how to fix"), and the spec reference. Turns a pass/fail run into
+  an actionable punch-list for the endpoint owner. (`report.to_developer_report`.)
 - **RS-PR-015** (`check`): opt-in structural check for the community `x-jp402`
   invoice extension — validates the qualified-invoice registration number
   (`^T[0-9]{13}$`, 適格請求書発行事業者登録番号) and boolean flags. SKIPs unless an

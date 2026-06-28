@@ -11,7 +11,7 @@ import typer
 
 from . import SPEC_BASELINE, __version__
 from .checks import CheckResult, Status
-from .report import exit_code, summarize, to_json, to_markdown
+from .report import exit_code, summarize, to_developer_report, to_json, to_markdown
 from .runner import run_checks
 
 app = typer.Typer(
@@ -43,33 +43,36 @@ def _make_signer(signer_key: Optional[str]) -> Optional[object]:
 
 def _emit(
     results: list[CheckResult], target: str, quiet: bool,
-    json_out: Optional[Path], md_out: Optional[Path],
+    json_out: Optional[Path], md_out: Optional[Path], developer: bool = False,
 ) -> int:
     """Print results + write reports. Returns the CI exit code."""
-    if not quiet:
-        icon = {
-            Status.PASS: typer.style("PASS", fg=typer.colors.GREEN),
-            Status.FAIL: typer.style("FAIL", fg=typer.colors.RED),
-            Status.SKIP: typer.style("SKIP", fg=typer.colors.YELLOW),
-            Status.ERROR: typer.style("ERR ", fg=typer.colors.MAGENTA),
-        }
-        for r in results:
-            line = f"{icon[r.status]}  {r.check_id:<10} [{r.severity.value:<8}] {r.title}"
-            if r.detail and r.status != Status.PASS:
-                line += f"\n      ↳ {r.detail}"
-            typer.echo(line)
-
-    s = summarize(results)
     code = exit_code(results)
-    verdict = (
-        typer.style("CONFORMANT", fg=typer.colors.GREEN, bold=True)
-        if code == 0
-        else typer.style("NOT CONFORMANT", fg=typer.colors.RED, bold=True)
-    )
-    typer.echo(
-        f"\n{verdict} — {s['passed']} passed, {s['failed']} failed, "
-        f"{s['skipped']} skipped, {s['errors']} errors  ({target})"
-    )
+    if developer:
+        # Failures-only punch-list for the endpoint owner: what's wrong + how to fix.
+        typer.echo(to_developer_report(results, target))
+    else:
+        if not quiet:
+            icon = {
+                Status.PASS: typer.style("PASS", fg=typer.colors.GREEN),
+                Status.FAIL: typer.style("FAIL", fg=typer.colors.RED),
+                Status.SKIP: typer.style("SKIP", fg=typer.colors.YELLOW),
+                Status.ERROR: typer.style("ERR ", fg=typer.colors.MAGENTA),
+            }
+            for r in results:
+                line = f"{icon[r.status]}  {r.check_id:<10} [{r.severity.value:<8}] {r.title}"
+                if r.detail and r.status != Status.PASS:
+                    line += f"\n      ↳ {r.detail}"
+                typer.echo(line)
+        s = summarize(results)
+        verdict = (
+            typer.style("CONFORMANT", fg=typer.colors.GREEN, bold=True)
+            if code == 0
+            else typer.style("NOT CONFORMANT", fg=typer.colors.RED, bold=True)
+        )
+        typer.echo(
+            f"\n{verdict} — {s['passed']} passed, {s['failed']} failed, "
+            f"{s['skipped']} skipped, {s['errors']} errors  ({target})"
+        )
     if json_out is not None:
         json_out.write_text(to_json(results, target), encoding="utf-8")
         typer.echo(f"JSON report: {json_out}")
@@ -109,6 +112,11 @@ def check(
     ),
     json_out: Optional[Path] = typer.Option(None, "--json", help="Write JSON report to file"),
     md_out: Optional[Path] = typer.Option(None, "--markdown", help="Write Markdown report to file"),
+    fix: bool = typer.Option(
+        False, "--fix",
+        help="Print a developer-focused report instead of the full table: failures "
+             "only, grouped by severity, each with what's wrong, how to fix, and the spec ref.",
+    ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Only print the summary line"),
 ) -> None:
     """Run conformance checks against a resource endpoint URL.
@@ -140,7 +148,7 @@ def check(
             from .active import run_payment_checks
             results = results + run_payment_checks(url, signer, rpc_url=rpc_url, method=method)
 
-    raise typer.Exit(_emit(results, url, quiet, json_out, md_out))
+    raise typer.Exit(_emit(results, url, quiet, json_out, md_out, developer=fix))
 
 
 @app.command()

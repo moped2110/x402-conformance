@@ -98,3 +98,83 @@ def to_markdown(results: list[CheckResult], target_url: str) -> str:
         )
     lines.append("")
     return "\n".join(lines)
+
+
+# Crisp, developer-facing remediation hints keyed by check id. Not every check needs
+# one — the check's own `detail` already says what's wrong; this adds the "how to fix"
+# for the high-value cases. Unmapped checks fall back to detail + spec ref.
+_REMEDIATION: dict[str, str] = {
+    "RS-HS-001": "Return HTTP 402 for an unpaid request; never serve protected content without payment.",
+    "RS-HS-002": "Include the PAYMENT-REQUIRED header (base64 PaymentRequired) on the 402 response.",
+    "RS-HS-007": "Send `Cache-Control: no-store` on the 402 so a CDN/proxy can't serve the paywall to others.",
+    "RS-PR-001": "Emit `x402Version: 2` (this suite tests v2; a recognised v1 endpoint is reported separately).",
+    "RS-PR-002": "Include a top-level `resource` object with a non-empty `url`.",
+    "RS-PR-005": "Give every `accepts` entry all required fields: scheme, network, amount, asset, payTo, maxTimeoutSeconds.",
+    "RS-PR-006": "Use a CAIP-2 network id (e.g. `eip155:8453`), not a legacy name like `base-sepolia`.",
+    "RS-PR-007": "Express `amount` as an integer string in atomic units (no decimal point).",
+    "RS-PR-009": "Add `extra.name` and `extra.version` to each exact/eip3009 entry — clients need them to build the EIP-712 domain.",
+    "RS-PR-013": "Match payTo/asset to the network namespace (EVM address for eip155, Solana address for solana).",
+    "RS-PR-014": "Set a strictly positive `amount` (> 0).",
+    "RS-NEG-003": "Reject a payment whose signature doesn't recover to `from` before serving or settling.",
+    "RS-NEG-005": "Reject underpayment: the authorized value must equal the required amount.",
+    "RS-NEG-007": "Reject a payment whose `to` doesn't match your payTo (recipient mismatch).",
+    "RS-NEG-008": "Reject expired authorizations (validBefore in the past).",
+    "RS-NEG-013": "Validate the price against YOUR requirements, not the client-supplied `accepted` amount.",
+    "RS-NEG-014": "Verify the asset is your expected token contract, not any address the client supplies.",
+    "RS-NEG-015": "Reject an asset with no contract code (an EOA): settling against it is a silent no-op — pre-flight `eth_getCode`.",
+    "RS-SEC-010": "Bind to the EIP-712 chainId and reject cross-chain-replayed signatures.",
+    "RS-SEC-011": "Handle an extreme (2²⁵⁶-1) amount cleanly — reject it, don't 5xx-crash.",
+    "FA-SUP-001": "If you expose /supported, return `kinds[]`, `extensions[]`, `signers{}` (it's optional — omitting it is fine).",
+    "FA-VER-002": "Your /verify must return `isValid:false` (with a CORE §9 reason) for an invalid payment.",
+    "FA-VER-003": "Reject an asset that is an EOA (no bytecode) with `asset_not_deployed_contract`.",
+    "FA-SET-003": "Reject a double-settle of the same payment (nonce reuse).",
+    "RS-SEC-009": "Never echo the protected resource on a rejection path — the 402 body must not leak paid content.",
+}
+
+_SEVERITY_HEADER = {
+    Severity.CRITICAL: "CRITICAL — must fix (security / funds at risk)",
+    Severity.MAJOR: "MAJOR — spec violation / interop broken",
+    Severity.MINOR: "MINOR — advisory",
+}
+
+
+def to_developer_report(results: list[CheckResult], target_url: str) -> str:
+    """A developer-facing punch-list for the endpoint owner under test.
+
+    Failures only (FAIL/ERROR), grouped by severity, each with what's wrong
+    (`detail`), how to fix (a remediation hint where we have one), and the spec
+    reference. Plain text, meant to be read straight from a test run.
+    """
+    failures = [r for r in results if r.status in _BAD]
+    s = summarize(results)
+    lines = ["x402 conformance — developer report", f"Target: {target_url}", ""]
+    if not failures:
+        lines.append(
+            f"✅ CONFORMANT — no issues to fix. "
+            f"{s['passed']} passed, {s['skipped']} skipped."
+        )
+        return "\n".join(lines) + "\n"
+
+    gating = [r for r in failures if r.severity in _GATING]
+    advisory = len(failures) - len(gating)
+    verdict = "NOT CONFORMANT" if gating else "CONFORMANT (advisory issues only)"
+    lines.append(
+        f"{verdict} — {len(gating)} blocking, {advisory} advisory "
+        f"(of {s['total']} checks: {s['passed']} passed, {s['skipped']} skipped)"
+    )
+    lines.append("")
+    for severity in (Severity.CRITICAL, Severity.MAJOR, Severity.MINOR):
+        group = [r for r in failures if r.severity == severity]
+        if not group:
+            continue
+        lines.append(_SEVERITY_HEADER[severity])
+        for r in group:
+            lines.append(f"  ✗ {r.check_id}  {r.title}")
+            if r.detail:
+                lines.append(f"      what: {r.detail}")
+            fix = _REMEDIATION.get(r.check_id)
+            if fix:
+                lines.append(f"      fix:  {fix}")
+            lines.append(f"      spec: {r.spec_ref}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
