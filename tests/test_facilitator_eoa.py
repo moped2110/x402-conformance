@@ -66,3 +66,34 @@ def test_fa_ver_003_fails_when_eoa_asset_accepted() -> None:
     r = _by_id(evaluate_facilitator(_ctx(handler)), "FA-VER-003")
     assert r.status == Status.FAIL
     assert "EOA" in r.detail
+
+
+# --- FA-SUP-001: /supported is OPTIONAL (CORE §7.3) — absent must not fail ---
+
+def _supported_ctx(status: int, json_body: object | None = None) -> FacilitatorContext:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/supported"):
+            return httpx.Response(status) if json_body is None else httpx.Response(status, json=json_body)
+        return httpx.Response(404)
+
+    return _ctx(handler)
+
+
+def test_fa_sup_001_skips_when_supported_absent() -> None:
+    # A conforming facilitator may omit /supported (404) — requirements come inline
+    # in the 402. Must be SKIP, not FAIL (was a false positive vs non-CDP facilitators).
+    r = _by_id(evaluate_facilitator(_supported_ctx(404)), "FA-SUP-001")
+    assert r.status == Status.SKIP, r.detail
+    assert "optional" in r.detail.lower()
+
+
+def test_fa_sup_001_fails_when_present_but_malformed() -> None:
+    # Present (200) but missing keys is a real fault — still caught.
+    r = _by_id(evaluate_facilitator(_supported_ctx(200, {"kinds": []})), "FA-SUP-001")
+    assert r.status == Status.FAIL
+
+
+def test_fa_sup_001_passes_on_good_supported() -> None:
+    good = {"kinds": [], "extensions": [], "signers": {}}
+    r = _by_id(evaluate_facilitator(_supported_ctx(200, good)), "FA-SUP-001")
+    assert r.status == Status.PASS

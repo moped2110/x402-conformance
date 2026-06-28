@@ -19,6 +19,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 - **`report.schema.json`**: a versioned JSON Schema for the `--json` report
   output, with a `reportVersion` field; CI validates the output against it.
 
+### Fixed
+- **FA-SUP-001** no longer fails a facilitator that omits `GET /supported`. The
+  endpoint is optional (CORE §7.3) — payment requirements are carried inline in the
+  402 challenge — so an absent `/supported` (404/unreachable) is now a SKIP, not a
+  FAIL. A *present but malformed* `/supported` (200 + non-JSON, or missing keys) is
+  still a failure. Previously the suite flagged every non-CDP/facilitator-less
+  endpoint as non-conformant. (Reported via a real JPYC-on-Polygon facilitator.)
+
 ### Changed
 - Signed EIP-3009 payloads now default to `validAfter = 0` and a 300s timeout
   window, matching the reference client since x402#2601 ("validAfter patch").

@@ -66,6 +66,7 @@ class FacilitatorContext:
     requirements: dict[str, Any] | None  # eip3009 reqs from --resource, if any
     signer: Any | None
     supported: dict[str, Any] | None = None  # cached /supported body
+    supported_status: int | None = None  # last GET /supported status (None = unreachable)
     allow_settle: bool = False  # FA-SET moves real funds; opt-in only
 
 
@@ -97,21 +98,40 @@ def _get_supported(ctx: FacilitatorContext) -> dict[str, Any] | None:
         return ctx.supported
     try:
         resp = ctx.client.get(f"{ctx.base_url.rstrip('/')}/supported")
-        ctx.supported = resp.json() if resp.status_code == 200 else None
     except Exception:
-        ctx.supported = None
+        ctx.supported_status = None  # unreachable / transport error
+        return None
+    ctx.supported_status = resp.status_code
+    if resp.status_code != 200:
+        return None  # absent (e.g. 404) — /supported is optional (CORE §7.3)
+    try:
+        body = resp.json()
+    except Exception:
+        return None  # 200 but not JSON (status recorded as 200 → a real fault)
+    ctx.supported = body if isinstance(body, dict) else None
     return ctx.supported
 
 
-@_register("FA-SUP-001", "/supported returns kinds[], extensions[], signers{}", Severity.MAJOR,
-           f"{_CORE} §7.3")
+@_register("FA-SUP-001", "/supported (if present) returns kinds[], extensions[], signers{}",
+           Severity.MAJOR, f"{_CORE} §7.3")
 def fa_sup_001(ctx: FacilitatorContext) -> tuple[Status, str]:
     body = _get_supported(ctx)
     if body is None:
-        return Status.FAIL, "GET /supported did not return 200 with JSON"
+        # /supported is OPTIONAL (CORE §7.3): a facilitator may omit it and still be
+        # fully conformant — the payment requirements are carried inline in the 402
+        # challenge. So an absent endpoint is a SKIP, not a failure. Only a present
+        # but malformed /supported (200 + non-JSON, or missing keys) is a real fault.
+        st = ctx.supported_status
+        if st is None or st != 200:
+            where = "unreachable" if st is None else f"HTTP {st}"
+            return Status.SKIP, (
+                f"/supported not implemented ({where}) — optional per CORE §7.3; "
+                "the endpoint is testable from the inline 402 requirements"
+            )
+        return Status.FAIL, "GET /supported returned 200 but not a JSON object"
     missing = [k for k in ("kinds", "extensions", "signers") if k not in body]
     if missing:
-        return Status.FAIL, f"/supported missing keys: {', '.join(missing)}"
+        return Status.FAIL, f"/supported present but missing keys: {', '.join(missing)}"
     if not isinstance(body["kinds"], list) or not isinstance(body["signers"], dict):
         return Status.FAIL, "kinds must be array, signers must be object"
     return Status.PASS, ""
