@@ -49,9 +49,14 @@ KNOWN_ERROR_CODES = frozenset({
     "invalid_transaction_state",
     "unexpected_verify_error",
     "unexpected_settle_error",
+    "asset_not_deployed_contract",  # x402#2554: asset address has no bytecode (EOA)
 })
 
 _CAIP2 = __import__("re").compile(r"^[a-z0-9-]{3,8}:[-_a-zA-Z0-9]{1,32}$")
+
+# A well-known EOA (Anvil dev account #0): no contract code on any chain, so it
+# can never be a token. Used to probe the asset_not_deployed_contract guard (x402#2554).
+_EOA_ASSET = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 
 
 @dataclass
@@ -163,6 +168,35 @@ def fa_ver_002(ctx: FacilitatorContext) -> tuple[Status, str]:
     if result.get("isValid") is True:
         return Status.FAIL, "/verify reported isValid:true for value != requirements.amount"
     return Status.PASS, f"correctly invalid (reason: {result.get('invalidReason')!r})"
+
+
+@_register("FA-VER-003", "/verify rejects an asset that is not a deployed contract (EOA)",
+           Severity.CRITICAL, f"{_CORE} §7.1 + x402#2554 asset_not_deployed_contract")
+def fa_ver_003(ctx: FacilitatorContext) -> tuple[Status, str]:
+    if ctx.requirements is None or ctx.signer is None:
+        return Status.SKIP, "no --resource requirements / signer to build a payment"
+    if str(ctx.requirements.get("asset", "")).lower() == _EOA_ASSET.lower():
+        return Status.SKIP, "endpoint already advertises the EOA test asset"
+    from ..payload_builder import build_exact_eip3009_payload
+
+    # An asset pointing at an EOA has no bytecode; on-chain simulation does not
+    # revert, so a facilitator that skips an eth_getCode pre-flight would settle a
+    # silent no-op. /verify must report isValid:false (ideally asset_not_deployed_contract).
+    eoa_req = {**ctx.requirements, "asset": _EOA_ASSET}
+    payload = build_exact_eip3009_payload(eoa_req, ctx.signer)
+    result = _verify(ctx, payload, eoa_req)
+    if result is None:
+        return Status.FAIL, "/verify did not return JSON"
+    if result.get("isValid") is True:
+        return Status.FAIL, (
+            "/verify accepted a payment whose asset is an EOA (no contract code) — "
+            "silent-no-op / payment-bypass risk"
+        )
+    reason = result.get("invalidReason")
+    note = "" if reason == "asset_not_deployed_contract" else (
+        f" (reason {reason!r}; canonical is asset_not_deployed_contract)"
+    )
+    return Status.PASS, f"correctly rejected EOA asset{note}"
 
 
 @_register("FA-ERR-001", "invalidReason is from the CORE §9 error registry", Severity.MINOR,

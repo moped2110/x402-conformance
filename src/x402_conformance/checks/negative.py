@@ -28,6 +28,10 @@ from .base import CheckResult, Severity, Status
 _CORE = "x402-specification-v2.md"
 _ATTACKER = "0x000000000000000000000000000000000000dEaD"
 _OTHER_ASSET = "0x1111111111111111111111111111111111111111"
+# A well-known EOA (Anvil dev account #0): definitively has NO contract code on
+# any chain, so it can never be a token. Probes the "asset is not a deployed
+# contract" bypass class (x402#2554, reason asset_not_deployed_contract).
+_EOA_ASSET = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 
 ActiveFunc = Callable[[ActiveContext], "tuple[Status, str]"]
 
@@ -140,6 +144,21 @@ def neg_014(ctx: ActiveContext) -> tuple[Status, str]:
         return Status.SKIP, "endpoint already uses the substitute test asset"
     wrong = {**ctx.requirements, "asset": _OTHER_ASSET}
     payload = build_exact_eip3009_payload(wrong, ctx.signer)
+    return _assert_rejected(ctx.send(payload))
+
+
+@_register("RS-NEG-015", "Payment whose asset is an EOA (no contract code) is rejected",
+           Severity.CRITICAL, f"{_CORE} §6.1.2 step 4 + x402#2554 asset_not_deployed_contract")
+def neg_015(ctx: ActiveContext) -> tuple[Status, str]:
+    # Distinct from RS-NEG-014 (a *different* token contract): here the asset is a
+    # known EOA with no bytecode. On EVM, calling transferWithAuthorization on an
+    # EOA does NOT revert — simulation passes and settlement is a silent no-op (no
+    # Transfer, no funds moved), so a naive endpoint "succeeds" without being paid.
+    # A correct server rejects it (asset_not_deployed_contract) before settling.
+    if ctx.requirements.get("asset", "").lower() == _EOA_ASSET.lower():
+        return Status.SKIP, "endpoint already advertises the EOA test asset"
+    eoa = {**ctx.requirements, "asset": _EOA_ASSET}
+    payload = build_exact_eip3009_payload(eoa, ctx.signer)
     return _assert_rejected(ctx.send(payload))
 
 

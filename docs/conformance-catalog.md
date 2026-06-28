@@ -10,16 +10,16 @@
 
 ## Implementation status (v0.1.0)
 
-**Implemented & tested (48 checks):**
+**Implemented & tested (50 checks):**
 - RS-HS-001…007, RS-PR-001…014 — passive (`check`). RS-PR-008 now does full EIP-55 checksum validation (mixed-case addresses) when keccak is available.
-- RS-NEG-001/002/003/005/006/007/008/009/013/014 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
+- RS-NEG-001/002/003/005/006/007/008/009/013/014/015 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
 - RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) — on-chain (`check --pay`)
-- FA-SUP-001/002, FA-VER-002, FA-ERR-001 — `facilitator`; FA-SET-001/002/003 — `facilitator --settle`
+- FA-SUP-001/002, FA-VER-002/003, FA-ERR-001 — `facilitator`; FA-SET-001/002/003 — `facilitator --settle`
 - DI-001/002 — `discovery`
 
 RS-SEC-009 (content-leak on the rejection path) is enforced inside every active check; `check --active --resource-marker <s>` additionally flags a rejected body that still contains the protected content.
 
-**Planned (in this catalog, not yet shipped):** RS-NEG-004/010/012, RS-SEC-003…008, FA-VER-001/003, DI-003. RS-SEC-003 (cross-resource replay) is considered redundant with RS-NEG-007 + RS-SEC-001.
+**Planned (in this catalog, not yet shipped):** RS-NEG-004/010/012, RS-SEC-003…008, FA-VER-001, DI-003. RS-SEC-003 (cross-resource replay) is considered redundant with RS-NEG-007 + RS-SEC-001.
 
 **Target types:**
 - **RS** = Resource Server (the x402-paywalled endpoint) — primary MVP target
@@ -88,6 +88,7 @@ These are the money tests: a server that delivers the resource despite an invali
 | RS-NEG-012 | `x402Version` ≠ 2 (e.g. 1, 99) | Rejected or correct V1 fallback (`invalid_x402_version`) | CORE §9 | M |
 | RS-NEG-013 | Tampered `accepted.amount` (lower than server's offer, signature consistent with tampered value) | 402 — server must validate against ITS requirements, not client-supplied ones | CORE §6.1.2 step 5 | C |
 | RS-NEG-014 | Payment with a well-formed but **wrong asset contract** (lookalike token) | 402 — server validates the contract address against its requirement, not the token symbol | CORE §6.1.2 step 4 + N10 | C |
+| RS-NEG-015 | Payment whose **asset is an EOA** (no contract code) | 402 — calling transferWithAuthorization on an EOA never reverts, so settlement is a silent no-op; server must reject (`asset_not_deployed_contract`) before settling | CORE §6.1.2 step 4 + x402#2554 | C |
 
 ## 5. RS-SEC — Security & robustness
 
@@ -113,6 +114,7 @@ These are the money tests: a server that delivers the resource despite an invali
 | FA-SUP-002 | Each kind: `x402Version`, `scheme`, CAIP-2 `network` | Pass | CORE §7.3.1 | M |
 | FA-VER-001 | `POST /verify` with valid payload | `{isValid:true, payer}` | CORE §7.1 | M |
 | FA-VER-002 | `/verify` with each RS-NEG payload class | `isValid:false` + correct `invalidReason` code | CORE §7.1, §9 | C |
+| FA-VER-003 | `/verify` with an **asset that is an EOA** (no bytecode) | `isValid:false` — facilitator must pre-flight `eth_getCode` and reject (`asset_not_deployed_contract`), else settlement is a silent no-op | CORE §7.1 + x402#2554 | C |
 | FA-VER-003 | `/verify` does NOT settle (no on-chain tx) | No state change | CORE §7.1 | C |
 | FA-SET-001 | `POST /settle` with valid payload | `{success:true, transaction, network}`; tx on-chain | CORE §7.2 | M |
 | FA-SET-002 | `/settle` with invalid payload | `{success:false, errorReason, transaction:""}` | CORE §7.2 | M |

@@ -6,6 +6,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **RS-NEG-015** (`check --active`) & **FA-VER-003** (`facilitator`): asset-is-an-EOA
+  rejection. A payment whose `asset` points at a wallet (no contract code) must be
+  rejected — a `transferWithAuthorization` call to an EOA never reverts, so
+  settlement would be a silent no-op. Mirrors the upstream `asset_not_deployed_contract`
+  guard (x402#2554), now added to the known error-code registry.
 - **RS-SEC-011** (`check --active`): extreme/near-2²⁵⁶ amount robustness — the
   endpoint must reject a uint256-max amount cleanly without a 5xx crash.
 - **`--resource-marker`** for `check --active`: pass a unique string from the
@@ -15,6 +20,8 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   output, with a `reportVersion` field; CI validates the output against it.
 
 ### Changed
+- Signed EIP-3009 payloads now default to `validAfter = 0` and a 300s timeout
+  window, matching the reference client since x402#2601 ("validAfter patch").
 - **RS-PR-008** now performs full EIP-55 checksum validation on mixed-case EVM
   asset addresses (via keccak when `[evm]` is installed); all-lowercase
   addresses remain a valid unchecksummed form. Previously format-only.

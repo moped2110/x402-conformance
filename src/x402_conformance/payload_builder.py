@@ -139,11 +139,15 @@ def build_exact_eip3009_payload(
 
     chain_id = _chain_id_from_caip2(requirements["network"])
     now = now if now is not None else int(time.time())
-    valid_after = valid_after if valid_after is not None else now - 60
+    # Canonical client defaults since x402#2601 ("validAfter patch"): validAfter = 0
+    # and maxTimeoutSeconds = 300. validAfter = 0 means "valid from genesis", which
+    # every facilitator accepts (rule is validAfter <= now); we mirror the reference
+    # client so generated payloads match real-world client behaviour.
+    valid_after = valid_after if valid_after is not None else 0
     valid_before = (
         valid_before
         if valid_before is not None
-        else now + int(requirements.get("maxTimeoutSeconds", 60))
+        else now + int(requirements.get("maxTimeoutSeconds", 300))
     )
     nonce = nonce if nonce is not None else "0x" + secrets.token_hex(32)
 

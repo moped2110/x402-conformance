@@ -208,3 +208,36 @@ def test_no_eip3009_requirement_skips_all() -> None:
 
     results = run_active_checks(TARGET, SIGNER, transport=httpx.MockTransport(handler))
     assert all(r.status == Status.SKIP for r in results)
+
+
+def test_neg_015_eoa_asset_silent_bypass_is_caught() -> None:
+    # A facilitator that trusts the client's asset and skips an eth_getCode
+    # pre-flight: it recovers the signature against the *claimed* (EOA) asset and
+    # serves — the silent-no-op bypass class (x402#2554). RS-NEG-015 must catch it.
+    def handler(request: httpx.Request) -> httpx.Response:
+        sig = request.headers.get("PAYMENT-SIGNATURE")
+        if sig is None:
+            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+        payload = json.loads(base64.b64decode(sig))
+        auth = payload["payload"]["authorization"]
+        asset = payload["accepted"]["asset"]  # trust the client's asset (the bug)
+        domain = {"name": REQ["extra"]["name"], "version": REQ["extra"]["version"],
+                  "chainId": CHAIN_ID, "verifyingContract": asset}
+        message = {"from": auth["from"], "to": auth["to"], "value": int(auth["value"]),
+                   "validAfter": int(auth["validAfter"]), "validBefore": int(auth["validBefore"]),
+                   "nonce": bytes.fromhex(auth["nonce"].removeprefix("0x"))}
+        signable = encode_typed_data(domain, _TRANSFER_WITH_AUTHORIZATION_TYPES, message)
+        try:
+            recovered = Account.recover_message(signable, signature=payload["payload"]["signature"])
+        except Exception:
+            return httpx.Response(402)
+        if recovered != auth["from"]:
+            return httpx.Response(402)
+        # No eth_getCode check → serves even though the asset is an EOA.
+        ok = {"success": True, "transaction": "0x" + "ab" * 32, "network": REQ["network"],
+              "payer": auth["from"]}
+        return httpx.Response(200, headers={"PAYMENT-RESPONSE": encode_header(ok)},
+                              json={"data": "premium"})
+
+    results = run_active_checks(TARGET, SIGNER, transport=httpx.MockTransport(handler))
+    assert by_id(results, "RS-NEG-015").status == Status.FAIL
