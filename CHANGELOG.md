@@ -6,6 +6,12 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **RS-PR-015** (`check`): opt-in structural check for the community `x-jp402`
+  invoice extension — validates the qualified-invoice registration number
+  (`^T[0-9]{13}$`, 適格請求書発行事業者登録番号) and boolean flags. SKIPs unless an
+  endpoint advertises `x-jp402`, MINOR severity so it never gates a non-JP endpoint.
+  (Community extension, not x402-core; live-402 placement + the separate `jp402.tax`
+  breakdown are pending a real fixture.)
 - **RS-NEG-015** (`check --active`) & **FA-VER-003** (`facilitator`): asset-is-an-EOA
   rejection. A payment whose `asset` points at a wallet (no contract code) must be
   rejected — a `transferWithAuthorization` call to an EOA never reverts, so

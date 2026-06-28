@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit
 
+from ..jp402 import find_jp402, validate_invoice
 from ..probe import ProbeSession
 from .base import Severity, Status, register
 
@@ -378,3 +379,29 @@ def pr_014(s: ProbeSession) -> tuple[Status, str]:
     if bad:
         return Status.FAIL, "; ".join(bad) + " — a zero/negative price is a logic hole"
     return Status.PASS, ""
+
+
+@register(
+    "RS-PR-015",
+    "x-jp402 invoice extension (if present) is structurally valid",
+    Severity.MINOR,
+    "jp402-registry (community JP-rail extension)",
+)
+def pr_015(s: ProbeSession) -> tuple[Status, str]:
+    # Opt-in JP-rail check: only fires when the endpoint advertises the community
+    # `x-jp402` extension; otherwise SKIP (never gates a non-JP endpoint). MINOR, so
+    # even a malformed invoice block can't flip the verdict. (Live-402 placement of
+    # x-jp402 is provisional — confirm against a real fixture; the separate
+    # jp402.tax breakdown is not covered yet.)
+    if s.first.raw is None:
+        return Status.SKIP, "no decoded PaymentRequired payload"
+    block = find_jp402(s.first.raw)
+    if block is None:
+        return Status.SKIP, "no x-jp402 extension advertised (opt-in JP-rail check)"
+    invoice = block.get("invoice")
+    if not isinstance(invoice, dict):
+        return Status.SKIP, "x-jp402 present but carries no invoice block"
+    problems = validate_invoice(invoice)
+    if problems:
+        return Status.FAIL, "; ".join(problems)
+    return Status.PASS, "x-jp402 invoice block is structurally valid"

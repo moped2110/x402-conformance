@@ -150,3 +150,24 @@ def test_extension_missing_schema(valid_payload: dict) -> None:
 def test_stable_requirements_pass(valid_payload: dict) -> None:
     results = run_checks(TARGET_URL, transport=transport_with_402(valid_payload))
     assert by_id(results, "RS-PR-012").status == Status.PASS
+
+
+def test_jp402_absent_skips(valid_payload: dict) -> None:
+    # Opt-in JP-rail check: no x-jp402 advertised → SKIP (never gates a non-JP endpoint).
+    results = run_checks(TARGET_URL, transport=transport_with_402(valid_payload))
+    assert by_id(results, "RS-PR-015").status == Status.SKIP
+
+
+def test_jp402_valid_invoice_passes(valid_payload: dict) -> None:
+    valid_payload["accepts"][0]["x-jp402"] = {"invoice": {"registrationNumber": "T1234567890123"}}
+    results = run_checks(TARGET_URL, transport=transport_with_402(valid_payload))
+    assert by_id(results, "RS-PR-015").status == Status.PASS
+
+
+def test_jp402_bad_t_number_fails_but_does_not_gate(valid_payload: dict) -> None:
+    valid_payload["accepts"][0]["x-jp402"] = {"invoice": {"registrationNumber": "T12345"}}
+    results = run_checks(TARGET_URL, transport=transport_with_402(valid_payload))
+    r = by_id(results, "RS-PR-015")
+    assert r.status == Status.FAIL
+    assert "registrationNumber" in r.detail
+    assert exit_code(results) == 0  # MINOR — must not flip the verdict
