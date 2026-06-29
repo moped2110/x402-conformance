@@ -6,6 +6,9 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **RS-SEC-004** (`check --active`): a payment carrying a non-32-byte EIP-3009 `nonce`
+  must be rejected cleanly (`invalid nonce`), not 5xx-crash a naive bytes32 parse.
+  MAJOR. (Reuse of a *valid* nonce is the stateful on-chain replay case, RS-SEC-001.)
 - **RS-NEG-011** (`check --active`): a payment whose `accepted` claims a scheme/network
   the endpoint never offered must be rejected (`invalid_scheme`/`invalid_network`), not
   served. MAJOR.

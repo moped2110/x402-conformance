@@ -296,3 +296,22 @@ def test_neg_012_wrong_version_served_is_caught() -> None:
     # A server that ignores a bogus top-level x402Version and serves anyway.
     results = run_active_checks(TARGET, SIGNER, transport=make_server(check_version=False))
     assert by_id(results, "RS-NEG-012").status == Status.FAIL
+
+
+def test_sec_004_malformed_nonce_crash_is_caught() -> None:
+    # A naive backend that 5xx-crashes parsing a non-32-byte bytes32 nonce.
+    def handler(request: httpx.Request) -> httpx.Response:
+        sig = request.headers.get("PAYMENT-SIGNATURE")
+        if sig is None:
+            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+        try:
+            nonce = json.loads(base64.b64decode(sig))["payload"]["authorization"]["nonce"]
+            ok32 = len(bytes.fromhex(nonce.removeprefix("0x"))) == 32
+        except Exception:
+            return httpx.Response(400)
+        if not ok32:
+            return httpx.Response(500)  # blows up on the short nonce
+        return httpx.Response(402)
+
+    results = run_active_checks(TARGET, SIGNER, transport=httpx.MockTransport(handler))
+    assert by_id(results, "RS-SEC-004").status == Status.FAIL

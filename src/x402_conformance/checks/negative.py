@@ -238,6 +238,21 @@ def sec_007(ctx: ActiveContext) -> tuple[Status, str]:
     return _assert_rejected(resp)
 
 
+@_register("RS-SEC-004", "Payment with a non-32-byte nonce is rejected cleanly, not crashed",
+           Severity.MAJOR, f"{_CORE} §5.2.2 invalid nonce")
+def sec_004(ctx: ActiveContext) -> tuple[Status, str]:
+    # The EIP-3009 nonce is a bytes32. A non-32-byte nonce is malformed (and breaks
+    # replay protection); the endpoint must reject it cleanly, never 5xx-crash on a
+    # naive bytes32 parse. (Reuse of a *valid* nonce is the stateful on-chain replay
+    # case, RS-SEC-001.)
+    payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
+    payload["payload"]["authorization"]["nonce"] = "0x1234"  # 2 bytes, not 32
+    resp = ctx.send(payload)
+    if resp.status_code >= 500:
+        return Status.FAIL, f"endpoint returned {resp.status_code} — crashed on a non-32-byte nonce"
+    return _assert_rejected(resp)
+
+
 @_register("RS-NEG-011", "Payment whose `accepted` claims a scheme/network the server never offered is rejected",
            Severity.MAJOR, f"{_CORE} §9 invalid_network")
 def neg_011(ctx: ActiveContext) -> tuple[Status, str]:

@@ -10,16 +10,16 @@
 
 ## Implementation status (v0.1.0)
 
-**Implemented & tested (55 checks):**
+**Implemented & tested (56 checks):**
 - RS-HS-001…007, RS-PR-001…015 — passive (`check`). RS-PR-008 now does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `x-jp402` invoice extension (SKIP unless advertised).
-- RS-NEG-001/002/003/005/006/007/008/009/011/012/013/014/015 + RS-SEC-005 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
+- RS-NEG-001/002/003/005/006/007/008/009/011/012/013/014/015 + RS-SEC-004 + RS-SEC-005 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
 - RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) — on-chain (`check --pay`)
 - FA-SUP-001/002, FA-VER-002/003, FA-ERR-001 — `facilitator`; FA-SET-001/002/003 — `facilitator --settle`
 - DI-001/002 — `discovery`
 
 RS-SEC-009 (content-leak on the rejection path) is enforced inside every active check; `check --active --resource-marker <s>` additionally flags a rejected body that still contains the protected content.
 
-**Planned (in this catalog, not yet shipped):** RS-NEG-004/010, RS-SEC-003/004/006/008, FA-VER-001, DI-003. RS-SEC-003 (cross-resource replay) is considered redundant with RS-NEG-007 + RS-SEC-001.
+**Planned (in this catalog, not yet shipped):** RS-NEG-004/010, RS-SEC-003/006/008, FA-VER-001, DI-003. RS-SEC-003 (cross-resource replay) is considered redundant with RS-NEG-007 + RS-SEC-001.
 
 **Target types:**
 - **RS** = Resource Server (the x402-paywalled endpoint) — primary MVP target
