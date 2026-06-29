@@ -6,6 +6,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **RS-NEG-011** (`check --active`): a payment whose `accepted` claims a scheme/network
+  the endpoint never offered must be rejected (`invalid_scheme`/`invalid_network`), not
+  served. MAJOR.
+- **RS-NEG-012** (`check --active`): a payment with a top-level `x402Version` != 2
+  (here 99) must be rejected cleanly (`invalid_x402_version`), not mis-parsed. MAJOR.
 - **RS-SEC-005** (`check --active`): oversized `PAYMENT-SIGNATURE` header (~1 MB) must
   be rejected cleanly (a 4xx) — no 5xx crash, no hang, resource not served. Basic
   header-path DoS hygiene. MINOR.

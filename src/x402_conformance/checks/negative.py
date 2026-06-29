@@ -238,6 +238,28 @@ def sec_007(ctx: ActiveContext) -> tuple[Status, str]:
     return _assert_rejected(resp)
 
 
+@_register("RS-NEG-011", "Payment whose `accepted` claims a scheme/network the server never offered is rejected",
+           Severity.MAJOR, f"{_CORE} §9 invalid_network")
+def neg_011(ctx: ActiveContext) -> tuple[Status, str]:
+    # The client echoes an `accepted` entry on a network the endpoint does not
+    # offer. The server must match the payment to one of its own requirements and
+    # reject the mismatch (invalid_scheme/invalid_network), not serve blindly.
+    payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
+    payload["accepted"] = {**dict(ctx.requirements), "network": "eip155:999999"}
+    return _assert_rejected(ctx.send(payload))
+
+
+@_register("RS-NEG-012", "Payment with x402Version != 2 is rejected", Severity.MAJOR,
+           f"{_CORE} §9 invalid_x402_version")
+def neg_012(ctx: ActiveContext) -> tuple[Status, str]:
+    # A v2 endpoint must reject an unknown top-level x402Version (here 99) cleanly,
+    # not mis-parse it. (1 may legitimately route to a V1 fallback; 99 is
+    # unambiguously unsupported, so the verdict stays "must reject".)
+    payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
+    payload["x402Version"] = 99
+    return _assert_rejected(ctx.send(payload))
+
+
 def evaluate_active(context: ActiveContext | None) -> list[CheckResult]:
     """Run every active check; skip all cleanly if no payable requirement found."""
     results: list[CheckResult] = []

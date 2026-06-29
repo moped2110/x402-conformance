@@ -52,6 +52,7 @@ def _recovers_to_from(payload: dict) -> bool:
 def make_server(
     *, check_signature: bool = True, check_amount: bool = True,
     check_recipient: bool = True, check_time: bool = True,
+    check_version: bool = True, check_accepts: bool = True,
 ) -> httpx.MockTransport:
     """A configurable x402 resource server. Defaults = fully correct."""
 
@@ -74,6 +75,12 @@ def make_server(
         except Exception:
             return httpx.Response(400)
 
+        if check_version and payload.get("x402Version") != 2:
+            return reject("invalid_x402_version")
+        if check_accepts:
+            acc = payload.get("accepted") or {}
+            if acc.get("scheme") != "exact" or acc.get("network") != REQ["network"]:
+                return reject("invalid_network")
         if check_recipient and auth.get("to") != REQ["payTo"]:
             return reject("invalid_exact_evm_payload_recipient_mismatch")
         if check_amount and str(auth.get("value")) != str(REQ["amount"]):
@@ -277,3 +284,15 @@ def test_sec_007_control_chars_crash_is_caught() -> None:
 
     results = run_active_checks(TARGET, SIGNER, transport=httpx.MockTransport(handler))
     assert by_id(results, "RS-SEC-007").status == Status.FAIL
+
+
+def test_neg_011_unoffered_accept_served_is_caught() -> None:
+    # A server that ignores the claimed `accepted` (wrong network) and serves anyway.
+    results = run_active_checks(TARGET, SIGNER, transport=make_server(check_accepts=False))
+    assert by_id(results, "RS-NEG-011").status == Status.FAIL
+
+
+def test_neg_012_wrong_version_served_is_caught() -> None:
+    # A server that ignores a bogus top-level x402Version and serves anyway.
+    results = run_active_checks(TARGET, SIGNER, transport=make_server(check_version=False))
+    assert by_id(results, "RS-NEG-012").status == Status.FAIL
