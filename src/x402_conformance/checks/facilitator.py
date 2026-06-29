@@ -32,25 +32,74 @@ from .base import CheckResult, Severity, Status
 
 _CORE = "x402-specification-v2.md"
 
-# CORE §9 error code registry — invalidReason / errorReason must come from here.
-KNOWN_ERROR_CODES = frozenset({
+# Canonical error-reason vocabulary, vendored verbatim from the TS `ErrorReasons`
+# enum in typescript/packages/legacy/x402/src/types/verify/x402Specs.ts — the
+# machine-enforced source (reference SDK runs `z.enum(ErrorReasons)` on
+# SettleResponse.errorReason / VerifyResponse.invalidReason / x402Response.error).
+# Re-sync on every SPEC_BASELINE bump; tests/test_error_reason_drift.py compares
+# this set against a live x402Specs.ts when one is reachable (skips otherwise).
+# Caveat: this enum is missing one EVM code that the spec prose / Python / Go define
+# (..._authorization_value_mismatch) — accepted via _LOCAL_ERROR_CODES below.
+SPEC_ERROR_REASONS = frozenset({
     "insufficient_funds",
     "invalid_exact_evm_payload_authorization_valid_after",
     "invalid_exact_evm_payload_authorization_valid_before",
-    "invalid_exact_evm_payload_authorization_value_mismatch",
+    "invalid_exact_evm_payload_authorization_value",
     "invalid_exact_evm_payload_signature",
+    "invalid_exact_evm_payload_undeployed_smart_wallet",
     "invalid_exact_evm_payload_recipient_mismatch",
+    "invalid_exact_svm_payload_transaction",
+    "invalid_exact_svm_payload_transaction_amount_mismatch",
+    "invalid_exact_svm_payload_transaction_create_ata_instruction",
+    "invalid_exact_svm_payload_transaction_create_ata_instruction_incorrect_payee",
+    "invalid_exact_svm_payload_transaction_create_ata_instruction_incorrect_asset",
+    "invalid_exact_svm_payload_transaction_instructions",
+    "invalid_exact_svm_payload_transaction_instructions_length",
+    "invalid_exact_svm_payload_transaction_instructions_compute_limit_instruction",
+    "invalid_exact_svm_payload_transaction_instructions_compute_price_instruction",
+    "invalid_exact_svm_payload_transaction_instructions_compute_price_instruction_too_high",
+    "invalid_exact_svm_payload_transaction_instruction_not_spl_token_transfer_checked",
+    "invalid_exact_svm_payload_transaction_instruction_not_token_2022_transfer_checked",
+    "invalid_exact_svm_payload_transaction_fee_payer_included_in_instruction_accounts",
+    "invalid_exact_svm_payload_transaction_fee_payer_transferring_funds",
+    "invalid_exact_svm_payload_transaction_not_a_transfer_instruction",
+    "invalid_exact_svm_payload_transaction_receiver_ata_not_found",
+    "invalid_exact_svm_payload_transaction_sender_ata_not_found",
+    "invalid_exact_svm_payload_transaction_simulation_failed",
+    "invalid_exact_svm_payload_transaction_transfer_to_incorrect_ata",
     "invalid_network",
     "invalid_payload",
     "invalid_payment_requirements",
     "invalid_scheme",
+    "invalid_payment",
+    "payment_expired",
     "unsupported_scheme",
     "invalid_x402_version",
     "invalid_transaction_state",
-    "unexpected_verify_error",
+    "settle_exact_svm_block_height_exceeded",
+    "settle_exact_svm_transaction_confirmation_timed_out",
     "unexpected_settle_error",
-    "asset_not_deployed_contract",  # x402#2554: asset address has no bytecode (EOA)
+    "unexpected_verify_error",
+    "duplicate_settlement",
 })
+
+# Codes we recognise beyond the TS `ErrorReasons` Zod enum:
+#  - asset_not_deployed_contract: proposed in x402#2554 (asset address is an EOA,
+#    no bytecode) — not yet in the enum.
+#  - invalid_exact_evm_payload_authorization_value_mismatch: upstream is internally
+#    inconsistent on this one. The spec PROSE (§ error registry), the Python
+#    facilitator constants (mechanisms/evm/constants.py::ERR_AUTHORIZATION_VALUE_MISMATCH)
+#    and the Go errors all define ..._value_mismatch, but the TS Zod enum is MISSING
+#    it entirely (it carries a sibling ..._value, not the _mismatch reason). So the
+#    TS validator (z.enum) rejects what a Python/Go facilitator legitimately emits.
+#    We accept BOTH so neither is false-flagged. (Reportable upstream nit — see T-20.)
+_LOCAL_ERROR_CODES = frozenset({
+    "asset_not_deployed_contract",
+    "invalid_exact_evm_payload_authorization_value_mismatch",
+})
+
+# CORE §9 / spec ErrorReasons registry — invalidReason / errorReason must come from here.
+KNOWN_ERROR_CODES = SPEC_ERROR_REASONS | _LOCAL_ERROR_CODES
 
 _CAIP2 = __import__("re").compile(r"^[a-z0-9-]{3,8}:[-_a-zA-Z0-9]{1,32}$")
 
