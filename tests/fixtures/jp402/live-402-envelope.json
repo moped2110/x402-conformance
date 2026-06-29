@@ -1,0 +1,21 @@
+{
+  "_source": "x402-jpyc reference resource server (facilitator https://yen402.com), GET /api/markets. Real wire shape as emitted today.",
+  "_note": "Live 402 carries the JP extension on accepts[] under the key `jp402` (no `x-` prefix), and it carries `tax`, NOT `invoice`. The invoice/registrationNumber lives in the OpenAPI discovery doc instead (see openapi-discovery-x-jp402.json). NB this deployment is still x402Version 1.",
+  "x402Version": 1,
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "eip155:137",
+      "asset": "0xe7c3d8c9a439fede00d2600032d5db0be71c3c29",
+      "amount": "11000000000000000000",
+      "maxAmountRequired": "11000000000000000000",
+      "payTo": "0x9E3Bedb880507e35794FC3a3E35F91D08322AB46",
+      "extra": { "name": "JPY Coin", "version": "1" },
+      "resource": "https://api.example.com/api/markets",
+      "jp402": {
+        "tax": { "excl_jpyc": "10", "vat_jpyc": "1", "rate": 0.1 },
+        "upstream": "polymarket-gamma"
+      }
+    }
+  ]
+}

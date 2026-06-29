@@ -1,0 +1,22 @@
+{
+  "_source": "jp402-registry discovery shape (OpenAPI doc the seller publishes at /openapi.json). This is where the qualified-invoice metadata lives — not on the live 402.",
+  "_note": "Discovery/OpenAPI surface carries the key `x-jp402` (with `x-` prefix) at info-level (currency) and operation-level (invoice). registrationNumber pattern is ^T[0-9]{13}$ (適格請求書発行事業者番号).",
+  "info": {
+    "title": "EXAMPLE_SHOP",
+    "version": "1.0.0",
+    "x-jp402": { "currency": "JPYC" }
+  },
+  "paths": {
+    "/api/markets": {
+      "get": {
+        "x-jp402": {
+          "invoice": {
+            "qualifiedIssuer": true,
+            "registrationNumber": "T0000000000000",
+            "smallAmountException": false
+          }
+        }
+      }
+    }
+  }
+}
