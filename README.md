@@ -44,7 +44,7 @@ funds.
 
 **Spec baseline:** x402 Protocol v2, `x402-foundation/x402` @ `d454eb9` (2026-06-08).
 **Test catalog:** see [`docs/conformance-catalog.md`](docs/conformance-catalog.md) — every check carries an ID, severity, and spec reference.
-**Architecture:** [`docs/architecture.md`](docs/architecture.md) (how it works, with diagrams) · [`docs/reporting-and-robustness-2026-06-12.md`](docs/reporting-and-robustness-2026-06-12.md) (report schema, EIP-55, content-leak marker, extreme-amount).
+**Architecture:** [`docs/architecture.md`](docs/architecture.md) (how it works, with diagrams). Dated development logs (calibration, on-chain bring-up, report/robustness work) are archived under [`docs/history/`](docs/history/).
 
 ## Status
 
@@ -58,7 +58,9 @@ funds.
 - **RS-PAY** + **RS-SEC-001** (positive settlement + replay) — `check --pay`: signs a valid funded payment, settles it ON-CHAIN, verifies the tx, and confirms a replay is rejected. Confirmed live against Anvil.
 - **FA-SET** (facilitator `/settle`) — `facilitator --settle`: valid settle, invalid settle, double-settle.
 
-Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). See `docs/onchain-2026-06-11.md`. 39 checks across 5 groups; 102 offline tests.
+Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **56 checks across the groups above; ~141 offline tests, mypy strict, CI green.**
+
+Since v0.1.0 (see [`CHANGELOG.md`](CHANGELOG.md)): a developer-focused fix-it report (`check --fix`), v1-envelope handling (real JPYC endpoints no longer read as broken), asset-is-an-EOA rejection (x402#2554), an opt-in `x-jp402` invoice check, and added robustness checks (oversized header, control/Unicode input, non-32-byte nonce, bad `x402Version`, unoffered scheme/network).
 
 ## Install
 
@@ -84,6 +86,10 @@ x402-conformance facilitator https://facilitator.example --resource https://api.
 # Discovery / Bazaar checks
 x402-conformance discovery https://facilitator.example
 
+# Developer fix-it report: failures only, grouped by severity, each with what's
+# wrong + how to fix + the spec reference (instead of the full pass/fail table)
+x402-conformance check https://api.example.com/premium-data --active --fix
+
 # Machine-readable output + CI-friendly exit code (1 on major/critical failure)
 x402-conformance check https://api.example.com/premium-data --json report.json --markdown report.md
 ```
@@ -93,7 +99,7 @@ Exit codes: `0` conformant, `1` not conformant (a major/critical check failed), 
 ## Development
 
 ```bash
-pytest          # the suite's own tests (offline, mocked transport) — 102 tests
+pytest          # the suite's own tests (offline, mocked transport) — ~141 tests
 mypy            # strict type checking
 
 # Calibrate the checks against a verify-capable reference server:

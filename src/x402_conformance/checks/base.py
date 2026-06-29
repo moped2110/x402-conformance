@@ -17,12 +17,17 @@ if TYPE_CHECKING:
 
 
 class Severity(str, enum.Enum):
+    """How bad a failure is. Drives the CI gate: a failed CRITICAL/MAJOR check
+    sets a non-zero exit code; MINOR is advisory."""
+
     CRITICAL = "critical"  # security / funds at risk
     MAJOR = "major"        # spec violation, interop broken
     MINOR = "minor"        # robustness / quality
 
 
 class Status(str, enum.Enum):
+    """Outcome of running one check against a target."""
+
     PASS = "pass"
     FAIL = "fail"
     SKIP = "skip"   # precondition not met (e.g. no 402 to inspect)
@@ -34,6 +39,9 @@ CheckFunc = Callable[["ProbeSession"], tuple[Status, str]]
 
 @dataclass(frozen=True)
 class Check:
+    """A registered check: its identity (id/title/severity/spec_ref) plus the
+    function that runs it. The static definition, before execution."""
+
     check_id: str
     title: str
     severity: Severity
@@ -43,6 +51,9 @@ class Check:
 
 @dataclass(frozen=True)
 class CheckResult:
+    """The outcome of running a `Check`: its identity carried through, plus the
+    resulting `status` and a human-readable `detail`. This is what reports render."""
+
     check_id: str
     title: str
     severity: Severity
