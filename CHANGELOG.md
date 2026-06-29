@@ -6,6 +6,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **RS-SEC-005** (`check --active`): oversized `PAYMENT-SIGNATURE` header (~1 MB) must
+  be rejected cleanly (a 4xx) — no 5xx crash, no hang, resource not served. Basic
+  header-path DoS hygiene. MINOR.
+- **RS-SEC-007** (`check --active`): control/Unicode characters embedded in a payload
+  field (NUL, RTL-override, BEL, non-ASCII) must be rejected cleanly, not 5xx-crash a
+  naive parser. Structurally valid base64+JSON; the mangled `from` no longer recovers
+  from the signature. MINOR. (RS-SEC-006 header-smuggling deferred — needs a
+  second-header active primitive + a sharper precedence assertion.)
 - **`check --fix`**: a developer-facing report instead of the full table — failures
   only, grouped by severity (CRITICAL/MAJOR/MINOR), each with what's wrong, a
   remediation hint ("how to fix"), and the spec reference. Turns a pass/fail run into

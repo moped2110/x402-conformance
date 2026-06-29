@@ -183,7 +183,7 @@ def neg_006(ctx: ActiveContext) -> tuple[Status, str]:
     return _assert_rejected(ctx.send(payload))
 
 
-@_register("RS-SEC-011", "Extreme (near-2²⁵⁶) amount is handled cleanly, not crashed",
+@_register("RS-SEC-011", "Extreme (near-2^256) amount is handled cleanly, not crashed",
            Severity.MINOR, f"{_CORE} §5.1.2 + testcase N4")
 def sec_011(ctx: ActiveContext) -> tuple[Status, str]:
     # uint256 max — the tool must sign it without overflow and the endpoint must
@@ -194,12 +194,48 @@ def sec_011(ctx: ActiveContext) -> tuple[Status, str]:
     if resp.status_code >= 500:
         return Status.FAIL, f"endpoint returned {resp.status_code} — crashed on an extreme amount"
     if resp.served_resource or resp.settled_ok:
-        return Status.FAIL, f"endpoint accepted a 2²⁵⁶-1 amount (status {resp.status_code})"
+        return Status.FAIL, f"endpoint accepted a near-2^256 amount (status {resp.status_code})"
     if resp.marker_leaked:
         return Status.FAIL, (
             f"resource marker leaked on the extreme-amount rejection path (status {resp.status_code})"
         )
     return Status.PASS, f"handled cleanly (status {resp.status_code})"
+
+
+@_register("RS-SEC-005", "Oversized PAYMENT-SIGNATURE header (~1 MB) is rejected cleanly, not crashed",
+           Severity.MINOR, "transports-v2/http.md §Error Handling")
+def sec_005(ctx: ActiveContext) -> tuple[Status, str]:
+    # A ~1 MiB header value. The endpoint must reject it cleanly (a 4xx) without a
+    # 5xx crash and without serving the resource — basic DoS hygiene on the header
+    # path. (Length, not content: the value need not be valid base64.)
+    oversized = "A" * (1024 * 1024)
+    resp = ctx.send_header(oversized)
+    if resp.status_code >= 500:
+        return Status.FAIL, f"endpoint returned {resp.status_code} — crashed on a ~1 MB header"
+    if resp.served_resource or resp.settled_ok:
+        return Status.FAIL, f"endpoint accepted a 1 MB junk header (status {resp.status_code})"
+    if resp.marker_leaked:
+        return Status.FAIL, (
+            f"resource marker leaked on the oversized-header rejection path (status {resp.status_code})"
+        )
+    return Status.PASS, f"oversized header rejected cleanly (status {resp.status_code})"
+
+
+@_register("RS-SEC-007", "Control/Unicode characters in a payload field are rejected cleanly, not crashed",
+           Severity.MINOR, "transports-v2/http.md §Error Handling")
+def sec_007(ctx: ActiveContext) -> tuple[Status, str]:
+    # Structurally valid base64+JSON, but the `from` field carries control bytes
+    # and a non-ASCII char. A robust endpoint rejects it cleanly (the signature can
+    # no longer recover to a mangled `from`); it must not 5xx-crash on weird input.
+    payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
+    auth = payload["payload"]["authorization"]
+    # NUL, RTL-override (U+202E), BEL, non-ASCII (U+00E9), built via chr() so the
+    # source stays pure ASCII (no literal bidi/control chars; cf. "Trojan Source").
+    auth["from"] = auth["from"] + "".join(chr(c) for c in (0x00, 0x202E, 0x07, 0xE9))
+    resp = ctx.send(payload)
+    if resp.status_code >= 500:
+        return Status.FAIL, f"endpoint returned {resp.status_code} — crashed on control/Unicode chars"
+    return _assert_rejected(resp)
 
 
 def evaluate_active(context: ActiveContext | None) -> list[CheckResult]:

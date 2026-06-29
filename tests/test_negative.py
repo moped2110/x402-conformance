@@ -31,14 +31,18 @@ CHAIN_ID = 84532
 
 
 def _recovers_to_from(payload: dict) -> bool:
+    # Wrap the whole thing: a mangled `from`/`value`/`nonce` (e.g. RS-SEC-007's
+    # control chars) is not encodable as an address/uint, so encode_typed_data
+    # raises. A correct server treats that as "signature does not recover" and
+    # rejects cleanly — it must not let the exception escape.
     auth = payload["payload"]["authorization"]
-    domain = {"name": REQ["extra"]["name"], "version": REQ["extra"]["version"],
-              "chainId": CHAIN_ID, "verifyingContract": REQ["asset"]}
-    message = {"from": auth["from"], "to": auth["to"], "value": int(auth["value"]),
-               "validAfter": int(auth["validAfter"]), "validBefore": int(auth["validBefore"]),
-               "nonce": bytes.fromhex(auth["nonce"].removeprefix("0x"))}
-    signable = encode_typed_data(domain, _TRANSFER_WITH_AUTHORIZATION_TYPES, message)
     try:
+        domain = {"name": REQ["extra"]["name"], "version": REQ["extra"]["version"],
+                  "chainId": CHAIN_ID, "verifyingContract": REQ["asset"]}
+        message = {"from": auth["from"], "to": auth["to"], "value": int(auth["value"]),
+                   "validAfter": int(auth["validAfter"]), "validBefore": int(auth["validBefore"]),
+                   "nonce": bytes.fromhex(auth["nonce"].removeprefix("0x"))}
+        signable = encode_typed_data(domain, _TRANSFER_WITH_AUTHORIZATION_TYPES, message)
         recovered = Account.recover_message(signable, signature=payload["payload"]["signature"])
     except Exception:
         return False
@@ -241,3 +245,35 @@ def test_neg_015_eoa_asset_silent_bypass_is_caught() -> None:
 
     results = run_active_checks(TARGET, SIGNER, transport=httpx.MockTransport(handler))
     assert by_id(results, "RS-NEG-015").status == Status.FAIL
+
+
+def test_sec_005_oversized_header_crash_is_caught() -> None:
+    # A backend that 5xx-crashes on a very large PAYMENT-SIGNATURE header must be flagged.
+    def handler(request: httpx.Request) -> httpx.Response:
+        sig = request.headers.get("PAYMENT-SIGNATURE")
+        if sig is None:
+            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+        if len(sig) > 100_000:
+            return httpx.Response(500)  # chokes on the oversized header
+        return httpx.Response(402)
+
+    results = run_active_checks(TARGET, SIGNER, transport=httpx.MockTransport(handler))
+    assert by_id(results, "RS-SEC-005").status == Status.FAIL
+
+
+def test_sec_007_control_chars_crash_is_caught() -> None:
+    # A naive parser that 5xx-crashes on control characters in a field must be flagged.
+    def handler(request: httpx.Request) -> httpx.Response:
+        sig = request.headers.get("PAYMENT-SIGNATURE")
+        if sig is None:
+            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+        try:
+            frm = json.loads(base64.b64decode(sig))["payload"]["authorization"]["from"]
+        except Exception:
+            return httpx.Response(400)
+        if "\x00" in frm:
+            return httpx.Response(500)  # crashes on the embedded NUL
+        return httpx.Response(402)
+
+    results = run_active_checks(TARGET, SIGNER, transport=httpx.MockTransport(handler))
+    assert by_id(results, "RS-SEC-007").status == Status.FAIL
