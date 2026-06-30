@@ -113,7 +113,7 @@ These are the money tests: a server that delivers the resource despite an invali
 | ID | Test | Expected | Spec ref | Sev |
 |----|------|----------|----------|-----|
 | FA-SUP-001 | `GET /supported` **if present** returns `kinds[]`, `extensions[]`, `signers{}` | Schema-valid when present; absent (404) is SKIP — `/supported` is optional (§7.3), requirements come inline in the 402 | CORE §7.3 | M |
-| FA-SUP-002 | Each kind: `x402Version`, `scheme`, CAIP-2 `network` | Pass | CORE §7.3.1 | M |
+| FA-SUP-002 | Each kind is well-formed: `x402Version` 1 or 2, `scheme`, non-empty `network`; a **v2** kind's network is CAIP-2 (a **v1** kind carries a legacy name, e.g. `base-sepolia`) | Pass — version-aware, so a facilitator serving both v1+v2 isn't false-flagged | CORE §7.3.1 | M |
 | FA-VER-001 | `POST /verify` with valid payload | `{isValid:true, payer}` | CORE §7.1 | M |
 | FA-VER-002 | `/verify` with each RS-NEG payload class | `isValid:false` + correct `invalidReason` code | CORE §7.1, §9 | C |
 | FA-VER-003 | `/verify` with an **asset that is an EOA** (no bytecode) | `isValid:false` — facilitator must pre-flight `eth_getCode` and reject (`asset_not_deployed_contract`), else settlement is a silent no-op | CORE §7.1 + x402#2554 | C |

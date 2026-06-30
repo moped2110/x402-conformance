@@ -94,7 +94,27 @@ def test_supported_missing_signers_fails() -> None:
 
 
 def test_kind_non_caip2_fails() -> None:
+    # A *v2* kind must use a CAIP-2 network; a legacy name is a fault for v2.
     bad = {"kinds": [{"x402Version": 2, "scheme": "exact", "network": "base-sepolia"}],
+           "extensions": [], "signers": {}}
+    results = run_facilitator_checks(FAC, transport=make_facilitator(supported=bad))
+    assert by_id(results, "FA-SUP-002").status == Status.FAIL
+
+
+def test_mixed_v1_v2_supported_passes() -> None:
+    # A facilitator serving both protocol versions (the common case, e.g. x402-rs)
+    # advertises a v1 kind with a legacy network NAME alongside a CAIP-2 v2 kind.
+    # Both are conformant — FA-SUP-002 must not flag the v1 kind.
+    mixed = {"kinds": [
+        {"x402Version": 2, "scheme": "exact", "network": "eip155:84532"},
+        {"x402Version": 1, "scheme": "exact", "network": "base-sepolia"},
+    ], "extensions": [], "signers": {}}
+    results = run_facilitator_checks(FAC, transport=make_facilitator(supported=mixed))
+    assert by_id(results, "FA-SUP-002").status == Status.PASS
+
+
+def test_unknown_version_kind_fails() -> None:
+    bad = {"kinds": [{"x402Version": 3, "scheme": "exact", "network": "eip155:84532"}],
            "extensions": [], "signers": {}}
     results = run_facilitator_checks(FAC, transport=make_facilitator(supported=bad))
     assert by_id(results, "FA-SUP-002").status == Status.FAIL

@@ -53,6 +53,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   output, with a `reportVersion` field; CI validates the output against it.
 
 ### Fixed
+- **FA-SUP-002 no longer false-flags a facilitator that serves both x402 v1 and v2.**
+  It assumed every `/supported` kind was v2 (required `x402Version == 2` and a CAIP-2
+  network), so a real facilitator advertising a v1 kind (version 1 with a legacy network
+  *name* like `base-sepolia`) alongside its v2 kind read as NOT CONFORMANT. The check is
+  now version-aware: a kind must be v1 or v2 with a scheme and a non-empty network, and
+  CAIP-2 is required for v2 kinds only. (Surfaced by a real run against the x402-rs
+  facilitator, which serves both versions — completes the v1 awareness on the facilitator
+  side, mirroring the v1 bucketing on the resource side.)
 - **RS-PR-015 now matches the real JP-rail wire shape.** Against production fixtures
   (facilitator `yen402.com` / the `x402-jpyc` reference server), the live 402 carries
   the extension under **`jp402`** (no `x-`) on `accepts[]` with a per-quote **`tax`**

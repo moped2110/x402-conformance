@@ -186,7 +186,7 @@ def fa_sup_001(ctx: FacilitatorContext) -> tuple[Status, str]:
     return Status.PASS, ""
 
 
-@_register("FA-SUP-002", "Each supported kind has x402Version, scheme, CAIP-2 network",
+@_register("FA-SUP-002", "Each supported kind is well-formed (x402Version 1/2, scheme; v2 network is CAIP-2)",
            Severity.MAJOR, f"{_CORE} §7.3.1")
 def fa_sup_002(ctx: FacilitatorContext) -> tuple[Status, str]:
     body = _get_supported(ctx)
@@ -197,13 +197,19 @@ def fa_sup_002(ctx: FacilitatorContext) -> tuple[Status, str]:
         if not isinstance(kind, dict):
             problems.append(f"kinds[{i}] not an object")
             continue
-        if kind.get("x402Version") != 2:
-            problems.append(f"kinds[{i}].x402Version != 2")
+        ver = kind.get("x402Version")
+        if ver not in (1, 2):
+            problems.append(f"kinds[{i}].x402Version {ver!r} is not 1 or 2")
         if not kind.get("scheme"):
             problems.append(f"kinds[{i}].scheme missing")
         net = kind.get("network")
-        if not (isinstance(net, str) and _CAIP2.match(net)):
-            problems.append(f"kinds[{i}].network {net!r} not CAIP-2")
+        if not isinstance(net, str) or not net:
+            problems.append(f"kinds[{i}].network missing")
+        elif ver == 2 and not _CAIP2.match(net):
+            # v2 networks are CAIP-2 (eip155:8453); a v1 kind legitimately carries a
+            # legacy network *name* (e.g. "base-sepolia"), so CAIP-2 is required for v2
+            # kinds only — a facilitator that serves both versions is conformant.
+            problems.append(f"kinds[{i}].network {net!r} not CAIP-2 (required for v2)")
     if problems:
         return Status.FAIL, "; ".join(problems[:6])
     return Status.PASS, ""
