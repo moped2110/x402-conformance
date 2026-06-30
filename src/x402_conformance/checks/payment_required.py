@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit
 
-from ..jp402 import find_jp402, validate_invoice
+from ..jp402 import find_jp402, find_jp402_accept, validate_tax
 from ..probe import ProbeSession
 from .base import Severity, Status, register
 
@@ -383,25 +383,33 @@ def pr_014(s: ProbeSession) -> tuple[Status, str]:
 
 @register(
     "RS-PR-015",
-    "x-jp402 invoice extension (if present) is structurally valid",
+    "jp402 tax breakdown (if present) is structurally consistent",
     Severity.MINOR,
     "jp402-registry (community JP-rail extension)",
 )
 def pr_015(s: ProbeSession) -> tuple[Status, str]:
-    # Opt-in JP-rail check: only fires when the endpoint advertises the community
-    # `x-jp402` extension; otherwise SKIP (never gates a non-JP endpoint). MINOR, so
-    # even a malformed invoice block can't flip the verdict. (Live-402 placement of
-    # x-jp402 is provisional — confirm against a real fixture; the separate
-    # jp402.tax breakdown is not covered yet.)
+    # Opt-in JP-rail check: only fires when the live 402 advertises the community
+    # `jp402` extension; otherwise SKIP (never gates a non-JP endpoint). MINOR, so a
+    # malformed tax block can't flip the verdict. Confirmed against real fixtures
+    # (2026-06-29): the live 402 carries `jp402.tax` (excl_jpyc/vat_jpyc/rate) on the
+    # accepts entry — the qualified-invoice/registrationNumber lives in the seller's
+    # OpenAPI doc instead (see jp402.find_invoice_blocks / validate_invoice).
     if s.first.raw is None:
         return Status.SKIP, "no decoded PaymentRequired payload"
-    block = find_jp402(s.first.raw)
-    if block is None:
-        return Status.SKIP, "no x-jp402 extension advertised (opt-in JP-rail check)"
-    invoice = block.get("invoice")
-    if not isinstance(invoice, dict):
-        return Status.SKIP, "x-jp402 present but carries no invoice block"
-    problems = validate_invoice(invoice)
+    found = find_jp402_accept(s.first.raw)
+    if found is not None:
+        entry, block = found
+        amount: object | None = entry.get("amount")
+    else:
+        ext_block = find_jp402(s.first.raw)
+        if ext_block is None:
+            return Status.SKIP, "no jp402 extension advertised (opt-in JP-rail check)"
+        block = ext_block
+        amount = None
+    tax = block.get("tax")
+    if not isinstance(tax, dict):
+        return Status.SKIP, "jp402 present but carries no tax block (invoice lives in the OpenAPI doc)"
+    problems = validate_tax(tax, amount)
     if problems:
         return Status.FAIL, "; ".join(problems)
-    return Status.PASS, "x-jp402 invoice block is structurally valid"
+    return Status.PASS, "jp402 tax breakdown is structurally consistent"

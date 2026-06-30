@@ -153,21 +153,30 @@ def test_stable_requirements_pass(valid_payload: dict) -> None:
 
 
 def test_jp402_absent_skips(valid_payload: dict) -> None:
-    # Opt-in JP-rail check: no x-jp402 advertised → SKIP (never gates a non-JP endpoint).
+    # Opt-in JP-rail check: no jp402 advertised → SKIP (never gates a non-JP endpoint).
     results = run_checks(TARGET_URL, transport=transport_with_402(valid_payload))
     assert by_id(results, "RS-PR-015").status == Status.SKIP
 
 
-def test_jp402_valid_invoice_passes(valid_payload: dict) -> None:
-    valid_payload["accepts"][0]["x-jp402"] = {"invoice": {"registrationNumber": "T1234567890123"}}
+def test_jp402_valid_tax_passes(valid_payload: dict) -> None:
+    # Live 402 carries `jp402.tax` on accepts[]: excl 10 + vat 1 == 11, scaling to an
+    # 11e18 atomic amount; vat == excl * rate (10 * 0.1).
+    valid_payload["accepts"][0]["amount"] = "11000000000000000000"
+    valid_payload["accepts"][0]["jp402"] = {
+        "tax": {"excl_jpyc": "10", "vat_jpyc": "1", "rate": 0.1}
+    }
     results = run_checks(TARGET_URL, transport=transport_with_402(valid_payload))
     assert by_id(results, "RS-PR-015").status == Status.PASS
 
 
-def test_jp402_bad_t_number_fails_but_does_not_gate(valid_payload: dict) -> None:
-    valid_payload["accepts"][0]["x-jp402"] = {"invoice": {"registrationNumber": "T12345"}}
+def test_jp402_bad_tax_fails_but_does_not_gate(valid_payload: dict) -> None:
+    # vat 5 contradicts excl 10 * rate 0.1 (= 1) → FAIL, but MINOR so it can't gate.
+    valid_payload["accepts"][0]["amount"] = "11000000000000000000"
+    valid_payload["accepts"][0]["jp402"] = {
+        "tax": {"excl_jpyc": "10", "vat_jpyc": "5", "rate": 0.1}
+    }
     results = run_checks(TARGET_URL, transport=transport_with_402(valid_payload))
     r = by_id(results, "RS-PR-015")
     assert r.status == Status.FAIL
-    assert "registrationNumber" in r.detail
+    assert "vat_jpyc" in r.detail
     assert exit_code(results) == 0  # MINOR — must not flip the verdict

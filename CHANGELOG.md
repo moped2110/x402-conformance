@@ -46,6 +46,16 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   output, with a `reportVersion` field; CI validates the output against it.
 
 ### Fixed
+- **RS-PR-015 now matches the real JP-rail wire shape.** Against production fixtures
+  (facilitator `yen402.com` / the `x402-jpyc` reference server), the live 402 carries
+  the extension under **`jp402`** (no `x-`) on `accepts[]` with a per-quote **`tax`**
+  breakdown — *not* `x-jp402`/`invoice`, which lives in the seller's OpenAPI doc. The
+  old check looked for `x-jp402`/`invoice` on the 402 and so quietly SKIPped on a real
+  JPYC endpoint. RS-PR-015 now validates the `jp402.tax` block (`excl_jpyc`/`vat_jpyc`/
+  `rate`: `vat == excl * rate`, and `excl + vat` scaling onto `amount` by a power of
+  ten). The qualified-invoice `registrationNumber` validation moved to the OpenAPI
+  surface (`jp402.find_invoice_blocks` + `validate_invoice`). Fixtures in
+  `tests/fixtures/jp402/` (contributed by kakedashi3, x402#2603 thread).
 - **x402 v1 endpoints are no longer reported as broken.** A recognised v1 envelope
   (which real JPYC deployments still emit) used to accrue four gating failures
   (RS-PR-001 version, plus the v2-required `resource` / `maxTimeoutSeconds` shape via
