@@ -29,8 +29,15 @@ OpenAPI discovery doc. The live 402 instead carries a per-quote **tax breakdown*
 2. **The black-box `check` path** (live 402) is the natural home for a
    **`jp402.tax`** structural check — the field a live 402 actually exposes:
    `excl_jpyc` / `vat_jpyc` / `rate`, with the integrity relation
-   `excl_jpyc + vat_jpyc == amount` (atomic units). The invoice/registrationNumber
-   check fits better when validating a published OpenAPI doc.
+   `amount == (excl_jpyc + vat_jpyc) · 10^k` for some power of ten `k`. This is
+   scale-invariant on purpose: the observed deployment carries whole-JPYC tax
+   fields (`10` + `1`) against an 18-dp atomic `amount` (`11e18`), so they differ
+   by the token's decimals; `k == 0` is the special case where the breakdown is
+   itself in atomic units. (An earlier draft of this note said
+   `excl + vat == amount` in atomic units, which only holds in that `k == 0`
+   case — RS-PR-015 implements the scale-invariant relation, validated against
+   the golden fixtures.) The invoice/registrationNumber check fits better when
+   validating a published OpenAPI doc.
 3. This deployment is still **x402Version 1**; placement of `jp402` on `accepts[]`
    is unaffected by the v1→v2 envelope differences.
 
