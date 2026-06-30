@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from x402_conformance.checks import Status
 from x402_conformance.report import exit_code
 from x402_conformance.runner import run_checks
 
-from conftest import TARGET_URL, transport_with_402
+from conftest import TARGET_URL, encode_header, transport_with_402
 from test_handshake import by_id
 
 
@@ -180,3 +181,61 @@ def test_jp402_bad_tax_fails_but_does_not_gate(valid_payload: dict) -> None:
     assert r.status == Status.FAIL
     assert "vat_jpyc" in r.detail
     assert exit_code(results) == 0  # MINOR — must not flip the verdict
+
+
+# --- RS-PR-016: the OpenAPI invoice surface (fetched only when jp402 is advertised) ---
+
+_OPENAPI_OK = {
+    "info": {"x-jp402": {"currency": "JPYC"}},
+    "paths": {
+        "/premium-data": {
+            "get": {"x-jp402": {"invoice": {"registrationNumber": "T0000000000000",
+                                            "qualifiedIssuer": True}}}
+        }
+    },
+}
+_OPENAPI_BAD = {
+    "paths": {"/premium-data": {"get": {"x-jp402": {"invoice": {"registrationNumber": "T123"}}}}},
+}
+
+
+def _jp402_402(valid_payload: dict) -> dict:
+    valid_payload["accepts"][0]["amount"] = "11000000000000000000"
+    valid_payload["accepts"][0]["jp402"] = {"tax": {"excl_jpyc": "10", "vat_jpyc": "1", "rate": 0.1}}
+    return valid_payload
+
+
+def _routing_transport(payload: dict, openapi: dict | None) -> httpx.MockTransport:
+    """402 for the resource, and serve (or 404) /openapi.json separately."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/openapi.json"):
+            return httpx.Response(200, json=openapi) if openapi is not None else httpx.Response(404)
+        return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(payload)}, json={})
+
+    return httpx.MockTransport(handler)
+
+
+def test_pr016_openapi_invoice_valid_passes(valid_payload: dict) -> None:
+    payload = _jp402_402(valid_payload)
+    results = run_checks(TARGET_URL, transport=_routing_transport(payload, _OPENAPI_OK))
+    assert by_id(results, "RS-PR-016").status == Status.PASS
+
+
+def test_pr016_openapi_invoice_bad_fails_but_does_not_gate(valid_payload: dict) -> None:
+    payload = _jp402_402(valid_payload)
+    results = run_checks(TARGET_URL, transport=_routing_transport(payload, _OPENAPI_BAD))
+    r = by_id(results, "RS-PR-016")
+    assert r.status == Status.FAIL and "registrationNumber" in r.detail
+    assert exit_code(results) == 0  # MINOR — must not flip the verdict
+
+
+def test_pr016_no_jp402_skips(valid_payload: dict) -> None:
+    # Non-JP endpoint → the runner makes no /openapi.json request → SKIP.
+    results = run_checks(TARGET_URL, transport=transport_with_402(valid_payload))
+    assert by_id(results, "RS-PR-016").status == Status.SKIP
+
+
+def test_pr016_openapi_unreachable_skips(valid_payload: dict) -> None:
+    payload = _jp402_402(valid_payload)
+    results = run_checks(TARGET_URL, transport=_routing_transport(payload, None))  # /openapi.json 404
+    assert by_id(results, "RS-PR-016").status == Status.SKIP

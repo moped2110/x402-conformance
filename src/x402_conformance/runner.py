@@ -2,12 +2,40 @@
 
 from __future__ import annotations
 
+import json
+from typing import Any
+from urllib.parse import urlsplit, urlunsplit
+
 import httpx
 
 from .checks import REGISTRY, CheckResult, Status
-from .probe import ProbeSession, build_probe
+from .jp402 import find_jp402
+from .probe import Probe, ProbeSession, build_probe
 
 USER_AGENT = "x402-conformance/0.1.0 (+https://github.com/x402-conformance)"
+
+
+def _maybe_fetch_openapi(
+    client: httpx.Client, target_url: str, first: Probe
+) -> dict[str, Any] | None:
+    """Fetch ``{origin}/openapi.json`` — but only when the live 402 advertises
+    ``jp402``, so a non-JP endpoint never incurs the extra request. Returns the
+    parsed doc, or ``None`` if not applicable / unreachable / not a JSON object.
+    """
+    if first.raw is None or find_jp402(first.raw) is None:
+        return None
+    parts = urlsplit(target_url)
+    if not parts.scheme or not parts.netloc:
+        return None
+    openapi_url = urlunsplit((parts.scheme, parts.netloc, "/openapi.json", "", ""))
+    try:
+        resp = client.request("GET", openapi_url)
+        if resp.status_code != 200:
+            return None
+        doc = json.loads(resp.text)
+    except Exception:
+        return None
+    return doc if isinstance(doc, dict) else None
 
 
 def run_checks(
@@ -26,8 +54,11 @@ def run_checks(
     ) as client:
         first = build_probe(client.request(method, url))
         second = build_probe(client.request(method, url))
+        openapi = _maybe_fetch_openapi(client, url, first)
 
-    session = ProbeSession(target_url=url, method=method, first=first, second=second)
+    session = ProbeSession(
+        target_url=url, method=method, first=first, second=second, openapi=openapi
+    )
 
     results: list[CheckResult] = []
     for check in REGISTRY:

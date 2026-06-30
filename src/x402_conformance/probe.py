@@ -44,12 +44,19 @@ class Probe:
 
 @dataclass(frozen=True)
 class ProbeSession:
-    """All probes against one target; input to every check."""
+    """All probes against one target; input to every check.
+
+    ``openapi`` is the target's parsed ``/openapi.json`` document, fetched by the
+    runner *only* when the live 402 advertises ``jp402`` (the JP-rail extension) —
+    the discovery surface where the qualified-invoice metadata lives. ``None`` for
+    every non-JP endpoint, so no extra request is made in the common case.
+    """
 
     target_url: str
     method: str
     first: Probe
     second: Probe | None = None
+    openapi: dict[str, object] | None = None
     notes: list[str] = field(default_factory=list)
 
 

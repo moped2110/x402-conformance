@@ -6,6 +6,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **RS-PR-016** (`check`): validates the JP qualified-invoice metadata
+  (`x-jp402.invoice`, `registrationNumber` `^T[0-9]{13}$`) on the seller's OpenAPI
+  surface — where it actually lives, per the production fixtures. The runner fetches
+  `/openapi.json` **only** when the live 402 advertises `jp402`, so a non-JP endpoint
+  never incurs the extra request; an unreachable/absent doc is a SKIP, a
+  present-but-malformed invoice FAILs. Opt-in, MINOR. (Completes the two-surface jp402
+  split alongside RS-PR-015.)
 - **RS-SEC-004** (`check --active`): a payment carrying a non-32-byte EIP-3009 `nonce`
   must be rejected cleanly (`invalid nonce`), not 5xx-crash a naive bytes32 parse.
   MAJOR. (Reuse of a *valid* nonce is the stateful on-chain replay case, RS-SEC-001.)

@@ -10,8 +10,8 @@
 
 ## Implementation status (v0.1.0)
 
-**Implemented & tested (56 checks):**
-- RS-HS-001…007, RS-PR-001…015 — passive (`check`). RS-PR-008 now does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); the qualified-invoice metadata lives on the OpenAPI discovery surface (`jp402.find_invoice_blocks` + `validate_invoice`).
+**Implemented & tested (57 checks):**
+- RS-HS-001…007, RS-PR-001…016 — passive (`check`). RS-PR-008 now does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
 - RS-NEG-001/002/003/005/006/007/008/009/011/012/013/014/015 + RS-SEC-004 + RS-SEC-005 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
 - RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) — on-chain (`check --pay`)
 - FA-SUP-001/002, FA-VER-002/003, FA-ERR-001 — `facilitator`; FA-SET-001/002/003 — `facilitator --settle`
@@ -58,6 +58,7 @@ RS-SEC-009 (content-leak on the rejection path) is enforced inside every active 
 | RS-PR-012 | Consistency across repeated requests (same requirements, or deliberate dynamic pricing) | Stable or documented | CORE §5.1 | m |
 | RS-PR-013 | payTo/asset match the network's CAIP-2 namespace | No `eip155`/`solana` cross-wiring (e.g. Solana address advertised on an eip155 network) | CORE §11.1 + N1/N2 | M |
 | RS-PR-014 | amount is strictly positive | `amount` > 0 (not "0", not negative) — a zero/negative price is a logic hole | CORE §5.1.2 + N5 | M |
+| RS-PR-016 | **jp402 OpenAPI invoice** (when `jp402` is advertised) is structurally valid | The qualified-invoice metadata (`registrationNumber` `^T[0-9]{13}$`) lives in the seller's OpenAPI doc (`x-jp402.invoice` at `info` / per-operation), not on the live 402. The runner fetches `/openapi.json` only when the 402 advertises `jp402`; an unreachable/absent doc is a SKIP, a present-but-malformed invoice FAILs. Community extension, MINOR | jp402-registry | m |
 | RS-PR-015 | **jp402 tax** breakdown (if present) is structurally consistent | Opt-in JP-rail check: SKIP unless `jp402` advertised on the live 402; validates the `tax` block (`excl_jpyc`/`vat_jpyc`/`rate`) — `vat == excl * rate` and `excl + vat` scaling onto `amount` by a power of ten. The qualified-invoice `registrationNumber` (`^T[0-9]{13}$`) lives in the OpenAPI doc (`x-jp402.invoice`), validated by `find_invoice_blocks` + `validate_invoice`. Community extension (jp402-registry), not core; MINOR so it never gates | jp402-registry | m |
 
 ## 3. RS-PAY — Payment flow, positive path (testnet/mock only)

@@ -9,7 +9,13 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit
 
-from ..jp402 import find_jp402, find_jp402_accept, validate_tax
+from ..jp402 import (
+    find_invoice_blocks,
+    find_jp402,
+    find_jp402_accept,
+    validate_invoice,
+    validate_tax,
+)
 from ..probe import ProbeSession
 from .base import Severity, Status, register
 
@@ -413,3 +419,30 @@ def pr_015(s: ProbeSession) -> tuple[Status, str]:
     if problems:
         return Status.FAIL, "; ".join(problems)
     return Status.PASS, "jp402 tax breakdown is structurally consistent"
+
+
+@register(
+    "RS-PR-016",
+    "jp402 OpenAPI invoice (when jp402 is advertised) is structurally valid",
+    Severity.MINOR,
+    "jp402-registry (community JP-rail extension)",
+)
+def pr_016(s: ProbeSession) -> tuple[Status, str]:
+    # The qualified-invoice metadata (registrationNumber) lives in the seller's
+    # OpenAPI doc, not on the live 402. The runner fetched `/openapi.json` only when
+    # the 402 advertised `jp402`; here we validate the `x-jp402.invoice` block(s).
+    # Opt-in + MINOR: never gates a non-JP endpoint, and an unreachable/absent doc is
+    # a SKIP (we couldn't check) — only a present-but-malformed invoice FAILs.
+    if s.first.raw is None or find_jp402(s.first.raw) is None:
+        return Status.SKIP, "no jp402 advertised (opt-in JP-rail check)"
+    if s.openapi is None:
+        return Status.SKIP, "jp402 advertised but /openapi.json was unreachable or not a JSON object"
+    invoices = find_invoice_blocks(s.openapi)
+    if not invoices:
+        return Status.SKIP, "OpenAPI doc carries no x-jp402.invoice block"
+    problems: list[str] = []
+    for invoice in invoices:
+        problems.extend(validate_invoice(invoice))
+    if problems:
+        return Status.FAIL, "; ".join(problems)
+    return Status.PASS, f"{len(invoices)} x-jp402 invoice block(s) structurally valid"
