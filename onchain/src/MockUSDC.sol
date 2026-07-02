@@ -50,9 +50,15 @@ contract MockUSDC {
         );
     }
 
-    /// @notice EIP-3009 gasless transfer. The facilitator submits this; the payer
-    ///         pays nothing on-chain (only signs). Reverts on bad sig, used nonce,
-    ///         out-of-window, or insufficient balance — mirroring real USDC.
+    /// @notice EIP-3009 gasless transfer (packed `bytes` signature overload).
+    ///         The facilitator submits this; the payer pays nothing on-chain (only
+    ///         signs). Reverts on bad sig, used nonce, out-of-window, or insufficient
+    ///         balance — mirroring real USDC (FiatTokenV2_2).
+    /// @dev Real USDC exposes BOTH this `bytes` overload and the `(v, r, s)` overload
+    ///      below. x402 facilitators pick between them by how they classify the
+    ///      signature (EOA → v/r/s; EIP-1271/6492 → bytes), so a faithful mock must
+    ///      implement both selectors — otherwise a facilitator that chose the missing
+    ///      overload hits the fallback and reverts with empty data ("0x").
     function transferWithAuthorization(
         address from,
         address to,
@@ -62,6 +68,41 @@ contract MockUSDC {
         bytes32 nonce,
         bytes calldata signature
     ) external {
+        bytes32 digest = _authorize(from, to, value, validAfter, validBefore, nonce);
+        require(_recover(digest, signature) == from, "auth: invalid signature");
+        _finalize(from, to, value, nonce);
+    }
+
+    /// @notice EIP-3009 gasless transfer (`(v, r, s)` overload). Same semantics as the
+    ///         `bytes` overload above; provided for parity with real USDC's ABI.
+    function transferWithAuthorization(
+        address from,
+        address to,
+        uint256 value,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external {
+        bytes32 digest = _authorize(from, to, value, validAfter, validBefore, nonce);
+        if (v < 27) {
+            v += 27; // tolerate 0/1 recovery id
+        }
+        require(ecrecover(digest, v, r, s) == from, "auth: invalid signature");
+        _finalize(from, to, value, nonce);
+    }
+
+    /// @dev Shared pre-checks (time window, nonce unused) + EIP-712 digest construction.
+    function _authorize(
+        address from,
+        address to,
+        uint256 value,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce
+    ) internal view returns (bytes32) {
         require(block.timestamp > validAfter, "auth: not yet valid");
         require(block.timestamp < validBefore, "auth: expired");
         require(!authorizationState[from][nonce], "auth: nonce already used");
@@ -71,9 +112,11 @@ contract MockUSDC {
                 TRANSFER_WITH_AUTHORIZATION_TYPEHASH, from, to, value, validAfter, validBefore, nonce
             )
         );
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), structHash));
-        require(_recover(digest, signature) == from, "auth: invalid signature");
+        return keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), structHash));
+    }
 
+    /// @dev Shared settlement: mark the nonce used (replay safety) before moving funds.
+    function _finalize(address from, address to, uint256 value, bytes32 nonce) internal {
         authorizationState[from][nonce] = true; // mark before transfer (replay safety)
         require(balanceOf[from] >= value, "insufficient balance");
         balanceOf[from] -= value;
