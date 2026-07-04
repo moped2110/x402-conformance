@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -136,6 +137,101 @@ _SEVERITY_HEADER = {
     Severity.MAJOR: "MAJOR — spec violation / interop broken",
     Severity.MINOR: "MINOR — advisory",
 }
+
+# On-chain / settle checks that don't live in a decorator registry — they run via the
+# --pay (RS-PAY / RS-SEC-001/002) and `facilitator --settle` (FA-SET) paths. Listed here
+# so `explain` can describe them too. Metadata mirrors docs/conformance-catalog.md; keep
+# in sync if those checks change (they are stable, so drift risk is low).
+_ONCHAIN_CHECKS: list[tuple[str, str, Severity, str]] = [
+    ("RS-PAY-001", "Valid funded payment is accepted and the resource delivered",
+     Severity.CRITICAL, "CORE §2, HTTP"),
+    ("RS-PAY-002", "Success response carries a valid PAYMENT-RESPONSE settlement",
+     Severity.MAJOR, "HTTP §Settlement Response Delivery"),
+    ("RS-PAY-003", "Settlement network and payer match the payment", Severity.MAJOR,
+     "CORE §5.3.2"),
+    ("RS-PAY-004", "Settlement transaction exists on-chain (status 1)", Severity.CRITICAL,
+     "CORE §6.1.3"),
+    ("RS-SEC-001", "Replaying a settled payment is rejected (nonce reuse)",
+     Severity.CRITICAL, "CORE §10.1"),
+    ("RS-SEC-002", "Concurrent settle of one payment yields at most one success (race)",
+     Severity.CRITICAL, "CORE §10.1"),
+    ("FA-SET-001", "/settle of a valid payment succeeds with a tx hash", Severity.MAJOR,
+     "CORE §7.2"),
+    ("FA-SET-002", "/settle of an invalid payment fails with an empty tx", Severity.MAJOR,
+     "CORE §7.2"),
+    ("FA-SET-003", "Double-settle of the same payment is rejected (nonce reuse)",
+     Severity.CRITICAL, "CORE §10.1"),
+]
+
+
+def _explain_catalog() -> dict[str, tuple[str, Severity, str]]:
+    """Every check the suite ships, as ``check_id -> (title, severity, spec_ref)``.
+
+    Collects the passive REGISTRY plus the active / facilitator / discovery registries
+    (imported defensively so `explain` still works without the ``[evm]`` extra, which the
+    active checks need), plus the on-chain/settle checks that aren't in a registry.
+    """
+    from .checks import REGISTRY  # passive checks — always importable
+
+    entries = list(REGISTRY)
+    for modname, attr in (
+        ("negative", "ACTIVE_REGISTRY"),
+        ("facilitator", "FA_REGISTRY"),
+        ("discovery", "DI_REGISTRY"),
+    ):
+        try:
+            mod = importlib.import_module(f".checks.{modname}", package=__package__)
+            entries.extend(getattr(mod, attr))
+        except Exception:
+            continue  # e.g. active checks unavailable without [evm]; skip gracefully
+    catalog: dict[str, tuple[str, Severity, str]] = {
+        c.check_id: (c.title, c.severity, c.spec_ref) for c in entries
+    }
+    for cid, title, sev, ref in _ONCHAIN_CHECKS:
+        catalog.setdefault(cid, (title, sev, ref))
+    return catalog
+
+
+def _explain_line(cid: str, title: str, sev: Severity) -> str:
+    return f"  {cid:<12} [{sev.value:<8}] {title}"
+
+
+def explain_check(query: str | None) -> str:
+    """Explain a check ID in plain language, or list the catalog.
+
+    No ``query`` → the full catalog (id, severity, title). An exact ID → its title,
+    severity meaning, spec reference, and a fix hint where we have one. A partial/prefix
+    string → the matching IDs. Case-insensitive.
+    """
+    catalog = _explain_catalog()
+    if not query:
+        lines = ["x402-conformance — check catalog", ""]
+        lines += [_explain_line(cid, catalog[cid][0], catalog[cid][1]) for cid in sorted(catalog)]
+        lines += ["", "Run `x402-conformance explain <CHECK-ID>` for one check in detail."]
+        return "\n".join(lines)
+
+    q = query.strip().upper()
+    if q in catalog:
+        title, sev, ref = catalog[q]
+        lines = [
+            f"{q} — {title}",
+            f"  severity: {_SEVERITY_HEADER[sev]}",
+            f"  spec ref: {ref}",
+        ]
+        fix = _REMEDIATION.get(q)
+        if fix:
+            lines.append(f"  fix:      {fix}")
+        return "\n".join(lines)
+
+    matches = sorted(cid for cid in catalog if q in cid)
+    if not matches:
+        return (
+            f"no check matches {query!r}. Run `x402-conformance explain` with no "
+            "argument to list every check ID."
+        )
+    header = f"{len(matches)} checks match {query!r}:"
+    body = [_explain_line(cid, catalog[cid][0], catalog[cid][1]) for cid in matches]
+    return "\n".join([header, "", *body])
 
 
 def to_developer_report(results: list[CheckResult], target_url: str) -> str:

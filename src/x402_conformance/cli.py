@@ -11,7 +11,15 @@ import typer
 
 from . import SPEC_BASELINE, __version__
 from .checks import CheckResult, Status
-from .report import exit_code, summarize, to_developer_report, to_json, to_markdown
+from .diff import diff_reports, format_diff
+from .report import (
+    exit_code,
+    explain_check,
+    summarize,
+    to_developer_report,
+    to_json,
+    to_markdown,
+)
 from .runner import run_checks
 
 app = typer.Typer(
@@ -80,6 +88,42 @@ def _emit(
         md_out.write_text(to_markdown(results, target), encoding="utf-8")
         typer.echo(f"Markdown report: {md_out}")
     return code
+
+
+@app.command()
+def explain(
+    check_id: Optional[str] = typer.Argument(
+        None, help="A check ID (e.g. RS-NEG-007) or a prefix (e.g. RS-SEC). "
+        "Omit to list the whole catalog.",
+    ),
+) -> None:
+    """Explain what a check tests, why it matters, and how to fix a failure.
+
+    Offline — reads the built-in check catalog, no target needed. Examples:
+    `x402-conformance explain RS-NEG-007`, `explain FA`, or `explain` for the full list.
+    """
+    typer.echo(explain_check(check_id))
+
+
+@app.command()
+def diff(
+    old: Path = typer.Argument(..., help="Previous JSON report (from --json)"),
+    new: Path = typer.Argument(..., help="Current JSON report (from --json)"),
+) -> None:
+    """Compare two JSON reports — "did my fix work?".
+
+    Classifies each check as fixed / regressed / still-failing / added / removed.
+    Exit 0 if no previously-passing check regressed, 1 if any regressed, 2 on read error.
+    """
+    try:
+        result = diff_reports(
+            old.read_text(encoding="utf-8"), new.read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError) as exc:
+        typer.secho(f"cannot diff: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    typer.echo(format_diff(result))
+    raise typer.Exit(1 if result.has_regressions else 0)
 
 
 @app.command()

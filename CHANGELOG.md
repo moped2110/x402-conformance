@@ -6,6 +6,17 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **`explain` command**: `x402-conformance explain <CHECK-ID>` prints what a check tests,
+  its severity, spec reference, and a fix hint — offline, no target needed. A prefix
+  (`explain RS-SEC`) lists matches; no argument lists the whole catalog. Reads the built-in
+  check registries so it stays in sync with the shipped checks.
+- **`diff` command**: `x402-conformance diff old.json new.json` compares two `--json`
+  reports and classifies every check as fixed / regressed / still-failing / added / removed
+  ("did my fix work?"). Exit code 1 if any previously-passing check regressed, so it doubles
+  as a CI regression gate.
+- **docs/threat-model-mapping.md**: traceability from the public x402 security literature
+  (arXiv:2605.11781, 2605.30998, 2603.01179) to this suite's checks — coverage, gaps, and
+  the finality/reconciliation/token-quirk surface those papers do not test.
 - **RS-PR-016** (`check`): validates the JP qualified-invoice metadata
   (`x-jp402.invoice`, `registrationNumber` `^T[0-9]{13}$`) on the seller's OpenAPI
   surface — where it actually lives, per the production fixtures. The runner fetches
