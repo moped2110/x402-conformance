@@ -28,6 +28,9 @@ from .base import CheckResult, Severity, Status
 _CORE = "x402-specification-v2.md"
 _ATTACKER = "0x000000000000000000000000000000000000dEaD"
 _OTHER_ASSET = "0x1111111111111111111111111111111111111111"
+# A resource URL deliberately different from the one under test, for the cross-resource
+# binding probe (RS-SEC-003). The EIP-3009 authorization does not sign the resource.
+_FOREIGN_RESOURCE = "https://cross-resource-probe.example/other"
 # A well-known EOA (Anvil dev account #0): definitively has NO contract code on
 # any chain, so it can never be a token. Probes the "asset is not a deployed
 # contract" bypass class (x402#2554, reason asset_not_deployed_contract).
@@ -172,6 +175,37 @@ def sec_010(ctx: ActiveContext) -> tuple[Status, str]:
     payload = build_exact_eip3009_payload(foreign, ctx.signer)
     payload["accepted"] = dict(ctx.requirements)  # claim the endpoint's own network
     return _assert_rejected(ctx.send(payload))
+
+
+@_register("RS-SEC-003", "Cross-resource binding: a payment claiming a foreign resource is rejected",
+           Severity.MINOR, f"{_CORE} §10.1 + arXiv:2605.11781 (III) / 2605.30998 (I3)")
+def sec_003(ctx: ActiveContext) -> tuple[Status, str]:
+    # Build a fully valid payment for THIS resource, then relabel its `resource` to a
+    # different URL. EIP-3009 does not sign the resource, so the payment stays valid; a
+    # server that binds payment->resource must reject the mismatch, closing the
+    # cross-resource replay vector (a payment for A reused to unlock B — "missing
+    # resource-identifier binding", arXiv:2605.11781 / 2605.30998).
+    #
+    # MINOR by design: a single request can't demonstrate the replay exploit, and the
+    # resource label is unsigned metadata, so a server that ignores it isn't strictly
+    # non-conformant. This is an advisory binding signal — it never gates the verdict,
+    # preserving zero false-positive gating. (Overlaps the RS-NEG-013 "validate the
+    # client-supplied `accepted` against your own offer" principle, applied to `resource`.)
+    payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
+    payload["resource"] = {"url": _FOREIGN_RESOURCE}
+    if isinstance(payload.get("accepted"), dict):
+        payload["accepted"]["resource"] = _FOREIGN_RESOURCE
+    resp = ctx.send(payload)
+    if resp.status_code >= 500:
+        return Status.FAIL, f"endpoint returned {resp.status_code} on a mismatched-resource payment"
+    if resp.served_resource or resp.settled_ok:
+        return Status.FAIL, (
+            "served/settled a payment whose claimed `resource` differs from the requested "
+            "one — no payment↔resource binding (cross-resource replay risk)"
+        )
+    if resp.marker_leaked:
+        return Status.FAIL, "resource marker leaked on the mismatched-resource rejection path"
+    return Status.PASS, f"correctly rejected a foreign-resource payment (status {resp.status_code})"
 
 
 @_register("RS-NEG-006", "Overpayment (authorized value > required) is rejected",

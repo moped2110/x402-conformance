@@ -53,6 +53,7 @@ def make_server(
     *, check_signature: bool = True, check_amount: bool = True,
     check_recipient: bool = True, check_time: bool = True,
     check_version: bool = True, check_accepts: bool = True,
+    check_resource: bool = True,
 ) -> httpx.MockTransport:
     """A configurable x402 resource server. Defaults = fully correct."""
 
@@ -81,6 +82,14 @@ def make_server(
             acc = payload.get("accepted") or {}
             if acc.get("scheme") != "exact" or acc.get("network") != REQ["network"]:
                 return reject("invalid_network")
+        if check_resource:
+            # Bind the payment to the requested resource: a non-empty claimed resource
+            # (top-level or in `accepted`) that differs from ours is a cross-resource
+            # replay attempt (RS-SEC-003). An empty/absent claim is fine.
+            claimed = ((payload.get("resource") or {}).get("url")
+                       or (payload.get("accepted") or {}).get("resource"))
+            if claimed and claimed != VALID_PAYMENT_REQUIRED["resource"]["url"]:
+                return reject("invalid_payment_requirements")
         if check_recipient and auth.get("to") != REQ["payTo"]:
             return reject("invalid_exact_evm_payload_recipient_mismatch")
         if check_amount and str(auth.get("value")) != str(REQ["amount"]):
@@ -114,6 +123,20 @@ def test_correct_server_passes_all_active_checks() -> None:
     assert bad == [], bad
     # sanity: we actually ran the group, not skipped everything
     assert any(r.status == Status.PASS for r in results)
+
+
+def test_sec_003_passes_when_foreign_resource_rejected() -> None:
+    results = run_active_checks(TARGET, SIGNER, transport=make_server())
+    assert by_id(results, "RS-SEC-003").status == Status.PASS
+
+
+def test_sec_003_caught_when_resource_not_bound() -> None:
+    # A server that ignores the resource label serves a payment claiming a foreign
+    # resource — the cross-resource binding gap RS-SEC-003 flags (advisory/MINOR).
+    results = run_active_checks(TARGET, SIGNER, transport=make_server(check_resource=False))
+    r = by_id(results, "RS-SEC-003")
+    assert r.status == Status.FAIL
+    assert "resource" in r.detail.lower()
 
 
 def test_server_without_signature_check_is_caught() -> None:

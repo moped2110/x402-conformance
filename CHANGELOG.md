@@ -6,6 +6,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **RS-SEC-003** (`check --active`): cross-resource binding — an otherwise-valid payment whose
+  claimed `resource` is relabelled to a different URL must be rejected; a server that serves it
+  has no payment↔resource binding, the cross-resource replay vector from arXiv:2605.11781 /
+  2605.30998. MINOR/advisory (the resource label is unsigned and a single request can't prove
+  the replay exploit) so it never gates the verdict. Catalog 58 → 59.
 - **Method auto-fallback** (`check`): when the probed verb returns 404/405 and the *other*
   verb (GET↔POST) reveals a real x402 paywall (a 402 or a `PAYMENT-REQUIRED` header), the
   runner switches to it automatically and records a note — so a POST-only resource is no

@@ -23,7 +23,7 @@ outside single-endpoint black-box scope; those are marked accordingly rather tha
 | **P1 I-A** Revert-grant under optimistic execution | Server grants the resource before on-chain finality; if settlement later fails/reverts → unpaid service. (P2 **I1** sync gap.) | RS-NEG-010 (unfunded payer → resource not delivered before settlement); catalog Open-Q #1 (serve-before-settle ordering) | RS-NEG-010 **planned**; ordering flag **undecided** | **Partial gap** → build RS-NEG-010; deeper case (grant valid at settle but undone by reorg) is `psv` finality terrain |
 | **P1 I-B** Unauthorized settlement preemption | Caller-unbound Permit2 `settle()` lets an observer consume the authorization before the legitimate facilitator → payment without service | — (eip3009 path is caller-agnostic by construction; Permit2/proxy settle path not modelled) | **not covered** | **Scope note** — Permit2-path caller-binding; facilitator-design issue, `psv`/settlement terrain |
 | **P1 II** Replay / idempotency across the HTTP–chain boundary | A reusable `X-PAYMENT` payload yields multiple HTTP grants when the server doesn't atomically record payment identity before releasing. (P2 **I4** service duplication.) | RS-SEC-001 (replay after settlement), RS-SEC-002 (parallel race → exactly one), FA-SET-003 (double-settle nonce) | **shipped** | **Covered** — strongest area |
-| **P1 II / P2 I3** Missing resource-identifier binding | A valid payment for resource A is accepted at resource B (payment not bound to the requested resource) | RS-SEC-003 (cross-resource replay) | **planned**, currently marked "redundant with RS-NEG-007+RS-SEC-001" | **Gap** → P1/P2 are direct evidence it is a *distinct* audited vuln; **un-defer and implement** |
+| **P1 II / P2 I3** Missing resource-identifier binding | A valid payment for resource A is accepted at resource B (payment not bound to the requested resource) | RS-SEC-003 (cross-resource binding) | **shipped** (MINOR/advisory single-request relabel) | **Covered (advisory)** — flags the binding gap; the full settled-payment replay needs two resources + settlement (below) |
 | **P1 III** Cache leakage | Paywalled 402/response cacheable → CDN/proxy serves protected content or a stale paywall | RS-HS-007 (402 not cacheable: `no-store`/`private`) | **shipped** | **Covered** |
 | **P1 III** Header ambiguity | Simultaneous v1 + v2 payment headers → deployment-dependent parser confusion | RS-SEC-006 (header smuggling / precedence); RS-HS-005 (legacy v1 header absent) | RS-SEC-006 **planned/deferred**; RS-HS-005 **shipped** | **Partial gap** → build RS-SEC-006 (needs a second-header primitive in `active.py`) |
 | **P1 IV** Server-selection: metadata manipulation | Bazaar listing advertises terms that differ from the resource's live 402 (bias agent toward a malicious/cheaper-looking endpoint) | DI-003 (listed `accepts` vs live 402 staleness) | **planned/deferred** | **Gap** → build DI-003; catches lying listings |
@@ -35,10 +35,12 @@ outside single-endpoint black-box scope; those are marked accordingly rather tha
 
 Ranked by leverage (all money-invariant-safe; passive or testnet-only):
 
-1. **RS-SEC-003 — resource-identifier binding (un-defer).** Both P1 and P2 audit "missing
-   resource-id binding" as a real, distinct vulnerability. Our catalog currently deprecates it
-   as redundant; the literature says otherwise. Implement: take a valid payment built for
-   resource A's requirements and present it at resource B; assert rejection. Highest-value gap.
+1. **RS-SEC-003 — resource-identifier binding — SHIPPED (MINOR/advisory).** Both P1 and P2
+   audit "missing resource-id binding" as a real, distinct vulnerability. Implemented as a
+   single-request probe: relabel an otherwise-valid payment's `resource` to a foreign URL and
+   assert rejection. MINOR so it never gates (the label is unsigned; one request can't prove
+   the replay exploit). Remaining escalation: the *settled-payment* cross-resource replay needs
+   a two-resource, on-chain harness (a `--resource-b` mode) — tracked, out of black-box scope.
 2. **RS-NEG-010 — unfunded-payer / grant-before-settle.** Present a well-formed payment from a
    zero-balance payer; assert the resource is **not** delivered before settlement is confirmed.
    The black-box shadow of P1 I-A / P2 I1.
