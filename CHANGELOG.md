@@ -6,6 +6,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Method auto-fallback** (`check`): when the probed verb returns 404/405 and the *other*
+  verb (GET↔POST) reveals a real x402 paywall (a 402 or a `PAYMENT-REQUIRED` header), the
+  runner switches to it automatically and records a note — so a POST-only resource is no
+  longer a false negative. Conservative: it only switches when the alternate verb is clearly
+  a paywall; a genuine non-402 is still reported as-is. (Closes the T-22 method-awareness gap.)
 - **`scan` command**: batch-scans many facilitator URLs from a file (PASSIVE — never
   settles, moves no funds) and ranks them by findings, most non-conformant first (whose
   `/verify` waves through what it should reject). Optional `--resource`/`--signer-key`

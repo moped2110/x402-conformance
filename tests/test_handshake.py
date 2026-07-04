@@ -8,11 +8,39 @@ from x402_conformance.checks import Severity, Status
 from x402_conformance.report import exit_code
 from x402_conformance.runner import run_checks
 
-from conftest import TARGET_URL, transport_with_402
+from conftest import (
+    TARGET_URL,
+    VALID_PAYMENT_REQUIRED,
+    encode_header,
+    transport_with_402,
+)
 
 
 def by_id(results: list, check_id: str):
     return next(r for r in results if r.check_id == check_id)
+
+
+def test_method_fallback_get_to_post_on_405() -> None:
+    # A POST-only resource 405s on GET; the runner should retry POST, find the 402,
+    # and evaluate against it (RS-HS-001 passes) instead of a false negative.
+    header = encode_header(VALID_PAYMENT_REQUIRED)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(405, json={})
+        return httpx.Response(402, headers={"PAYMENT-REQUIRED": header}, json={})
+
+    results = run_checks(TARGET_URL, transport=httpx.MockTransport(handler))
+    assert by_id(results, "RS-HS-001").status == Status.PASS
+
+
+def test_no_method_switch_when_neither_verb_is_a_paywall() -> None:
+    # Both verbs 405 → no paywall to find → keep the original response, report it faithfully.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(405, json={})
+
+    results = run_checks(TARGET_URL, transport=httpx.MockTransport(handler))
+    assert by_id(results, "RS-HS-001").status == Status.FAIL
 
 
 def test_spec_example_endpoint_is_conformant(valid_transport: httpx.MockTransport) -> None:
