@@ -225,6 +225,26 @@ def _verify(ctx: FacilitatorContext, payload: dict[str, Any], requirements: dict
         return None
 
 
+def _verify_raw(
+    ctx: FacilitatorContext, payload: dict[str, Any], requirements: dict[str, Any]
+) -> tuple[int | None, dict[str, Any] | None]:
+    """Like `_verify`, but also returns the HTTP status code (for FA-VER-004).
+
+    Returns ``(status_code, parsed_body_or_None)``; ``(None, None)`` if the request
+    could not be sent at all.
+    """
+    req = {"x402Version": 2, "paymentPayload": payload, "paymentRequirements": requirements}
+    try:
+        resp = ctx.client.post(f"{ctx.base_url.rstrip('/')}/verify", json=req)
+    except Exception:
+        return None, None
+    try:
+        data: Any = json.loads(resp.text)
+    except Exception:
+        data = None
+    return resp.status_code, (data if isinstance(data, dict) else None)
+
+
 @_register("FA-VER-002", "/verify rejects invalid payloads with isValid:false", Severity.CRITICAL,
            f"{_CORE} §7.1, §9")
 def fa_ver_002(ctx: FacilitatorContext) -> tuple[Status, str]:
@@ -272,6 +292,33 @@ def fa_ver_003(ctx: FacilitatorContext) -> tuple[Status, str]:
         f" (reason {reason!r}; canonical is asset_not_deployed_contract)"
     )
     return Status.PASS, f"correctly rejected EOA asset{note}"
+
+
+@_register("FA-VER-004", "/verify handles an invalid payment with a clean 4xx, not a 5xx server error",
+           Severity.MINOR, f"{_CORE} §7.1")
+def fa_ver_004(ctx: FacilitatorContext) -> tuple[Status, str]:
+    if ctx.requirements is None or ctx.signer is None:
+        return Status.SKIP, "no --resource requirements / signer to build a payment"
+    if str(ctx.requirements.get("asset", "")).lower() == _EOA_ASSET.lower():
+        return Status.SKIP, "endpoint already advertises the EOA test asset"
+    from ..payload_builder import build_exact_eip3009_payload
+
+    # A client-supplied asset that is an EOA (no bytecode) is invalid input. A robust
+    # facilitator reports isValid:false (HTTP 200 or a 4xx). A 5xx means an unhandled
+    # server error on client-controlled input — a robustness gap seen on real
+    # facilitators that let a balanceOf/parse exception bubble up to a 500. MINOR: the
+    # rejection itself is what FA-VER-003 gates; this only flags the *shape* of it.
+    eoa_req = {**ctx.requirements, "asset": _EOA_ASSET}
+    payload = build_exact_eip3009_payload(eoa_req, ctx.signer)
+    status, _ = _verify_raw(ctx, payload, eoa_req)
+    if status is None:
+        return Status.SKIP, "/verify unreachable — no response to inspect"
+    if 500 <= status <= 599:
+        return Status.FAIL, (
+            f"/verify returned HTTP {status} on an invalid (EOA-asset) payment — malformed "
+            "client input should surface as isValid:false (200/4xx), not a server error"
+        )
+    return Status.PASS, f"clean HTTP {status} on invalid input (no 5xx)"
 
 
 @_register("FA-ERR-001", "invalidReason is from the CORE §9 error registry", Severity.MINOR,

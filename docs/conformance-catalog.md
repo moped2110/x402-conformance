@@ -10,11 +10,11 @@
 
 ## Implementation status (v0.1.0)
 
-**Implemented & tested (57 checks):**
+**Implemented & tested (58 checks):**
 - RS-HS-001…007, RS-PR-001…016 — passive (`check`). RS-PR-008 now does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
 - RS-NEG-001/002/003/005/006/007/008/009/011/012/013/014/015 + RS-SEC-004 + RS-SEC-005 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
 - RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) — on-chain (`check --pay`)
-- FA-SUP-001/002, FA-VER-002/003, FA-ERR-001 — `facilitator`; FA-SET-001/002/003 — `facilitator --settle`
+- FA-SUP-001/002, FA-VER-002/003/004, FA-ERR-001 — `facilitator`; FA-SET-001/002/003 — `facilitator --settle`
 - DI-001/002 — `discovery`
 
 RS-SEC-009 (content-leak on the rejection path) is enforced inside every active check; `check --active --resource-marker <s>` additionally flags a rejected body that still contains the protected content.
@@ -118,6 +118,7 @@ These are the money tests: a server that delivers the resource despite an invali
 | FA-VER-002 | `/verify` with each RS-NEG payload class | `isValid:false` + correct `invalidReason` code | CORE §7.1, §9 | C |
 | FA-VER-003 | `/verify` with an **asset that is an EOA** (no bytecode) | `isValid:false` — facilitator must pre-flight `eth_getCode` and reject (`asset_not_deployed_contract`), else settlement is a silent no-op | CORE §7.1 + x402#2554 | C |
 | FA-VER-003 | `/verify` does NOT settle (no on-chain tx) | No state change | CORE §7.1 | C |
+| FA-VER-004 | `/verify` handles invalid client input (EOA asset) with a clean 4xx/200, not a 5xx | No server error on malformed input — a `balanceOf`/parse exception must surface as `isValid:false`, not HTTP 500 | CORE §7.1 (robustness) | m |
 | FA-SET-001 | `POST /settle` with valid payload | `{success:true, transaction, network}`; tx on-chain | CORE §7.2 | M |
 | FA-SET-002 | `/settle` with invalid payload | `{success:false, errorReason, transaction:""}` | CORE §7.2 | M |
 | FA-SET-003 | Double-settle same payload | Second call fails (nonce protection) | CORE §10.1 | C |

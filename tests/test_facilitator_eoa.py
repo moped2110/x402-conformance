@@ -68,6 +68,39 @@ def test_fa_ver_003_fails_when_eoa_asset_accepted() -> None:
     assert "EOA" in r.detail
 
 
+# --- FA-VER-004: invalid input must not 5xx (clean 4xx/200 + isValid:false) ---
+
+def _verify_status_ctx(eoa_status: int, eoa_body: object | None = None) -> FacilitatorContext:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/verify"):
+            body = json.loads(request.content)
+            asset = body["paymentRequirements"]["asset"]
+            if asset.lower() == _EOA_ASSET.lower():
+                return (httpx.Response(eoa_status) if eoa_body is None
+                        else httpx.Response(eoa_status, json=eoa_body))
+            return httpx.Response(200, json={"isValid": False, "invalidReason": "invalid_payment"})
+        return httpx.Response(404)
+
+    return _ctx(handler)
+
+
+def test_fa_ver_004_fails_on_5xx_for_invalid_input() -> None:
+    r = _by_id(evaluate_facilitator(_verify_status_ctx(500, {"isValid": False})), "FA-VER-004")
+    assert r.status == Status.FAIL
+    assert "500" in r.detail
+
+
+def test_fa_ver_004_passes_on_clean_200() -> None:
+    ctx = _verify_status_ctx(200, {"isValid": False, "invalidReason": "asset_not_deployed_contract"})
+    r = _by_id(evaluate_facilitator(ctx), "FA-VER-004")
+    assert r.status == Status.PASS, r.detail
+
+
+def test_fa_ver_004_passes_on_clean_4xx() -> None:
+    r = _by_id(evaluate_facilitator(_verify_status_ctx(400, {"isValid": False})), "FA-VER-004")
+    assert r.status == Status.PASS, r.detail
+
+
 # --- FA-SUP-001: /supported is OPTIONAL (CORE §7.3) — absent must not fail ---
 
 def _supported_ctx(status: int, json_body: object | None = None) -> FacilitatorContext:

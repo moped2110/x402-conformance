@@ -128,6 +128,7 @@ _REMEDIATION: dict[str, str] = {
     "FA-SUP-001": "If you expose /supported, return `kinds[]`, `extensions[]`, `signers{}` (it's optional — omitting it is fine).",
     "FA-VER-002": "Your /verify must return `isValid:false` (with a CORE §9 reason) for an invalid payment.",
     "FA-VER-003": "Reject an asset that is an EOA (no bytecode) with `asset_not_deployed_contract`.",
+    "FA-VER-004": "Return isValid:false (200/4xx) on invalid input — don't let a balanceOf/parse exception bubble up to a 5xx.",
     "FA-SET-003": "Reject a double-settle of the same payment (nonce reuse).",
     "RS-SEC-009": "Never echo the protected resource on a rejection path — the 402 body must not leak paid content.",
 }

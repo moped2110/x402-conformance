@@ -6,6 +6,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **FA-VER-004** (`facilitator`): a facilitator must handle invalid client input (an
+  EOA `asset`) with a clean `isValid:false` (HTTP 200/4xx), not a **5xx server error**.
+  MINOR robustness check — the rejection itself is gated by FA-VER-003; this flags the
+  *shape*. Surfaced by real facilitators (x402-rs 500s on an EOA asset; Faremeter 500s on
+  a handler exception). Catalog: 57 → 58 implemented.
 - **`explain` command**: `x402-conformance explain <CHECK-ID>` prints what a check tests,
   its severity, spec reference, and a fix hint — offline, no target needed. A prefix
   (`explain RS-SEC`) lists matches; no argument lists the whole catalog. Reads the built-in
