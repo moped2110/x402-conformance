@@ -26,7 +26,7 @@ outside single-endpoint black-box scope; those are marked accordingly rather tha
 | **P1 II / P2 I3** Missing resource-identifier binding | A valid payment for resource A is accepted at resource B (payment not bound to the requested resource) | RS-SEC-003 (cross-resource binding) | **shipped** (MINOR/advisory single-request relabel) | **Covered (advisory)** — flags the binding gap; the full settled-payment replay needs two resources + settlement (below) |
 | **P1 III** Cache leakage | Paywalled 402/response cacheable → CDN/proxy serves protected content or a stale paywall | RS-HS-007 (402 not cacheable: `no-store`/`private`) | **shipped** | **Covered** |
 | **P1 III** Header ambiguity | Simultaneous v1 + v2 payment headers → deployment-dependent parser confusion | RS-SEC-006 (header smuggling); RS-HS-005 (legacy v1 header absent) | both **shipped** | **Covered** — an invalid v2 payment + a legacy V1 header must stay rejected (no smuggle) and not 5xx |
-| **P1 IV** Server-selection: metadata manipulation | Bazaar listing advertises terms that differ from the resource's live 402 (bias agent toward a malicious/cheaper-looking endpoint) | DI-003 (listed `accepts` vs live 402 staleness) | **planned/deferred** | **Gap** → build DI-003; catches lying listings |
+| **P1 IV** Server-selection: metadata manipulation | Bazaar listing advertises terms that differ from the resource's live 402 (bias agent toward a malicious/cheaper-looking endpoint) | DI-003 (listed `accepts` vs live 402 staleness) | **shipped** (MINOR, scheme/network/asset/payTo) | **Covered** — flags a listing the resource doesn't honor |
 | **P1 IV** Server-selection: Sybil flooding | Adversary floods discovery with sock-puppet listings | — | **not covered** | **Out of scope** — needs cross-endpoint/network trust analysis, not single-endpoint black-box |
 
 ---
@@ -47,8 +47,10 @@ Ranked by leverage (all money-invariant-safe; passive or testnet-only):
 3. **RS-SEC-006 — header ambiguity/precedence — SHIPPED (MINOR).** An invalid v2 payment sent
    with a contradictory legacy V1 `X-PAYMENT` header must stay rejected (no smuggle) and not
    5xx. Added a `send_with_headers` primitive to the active runner.
-4. **DI-003 — listing-vs-live staleness.** Cross-fetch each listed resource's live 402 and
-   compare `accepts`; a mismatch is metadata manipulation (P1 IV) or plain staleness.
+4. **DI-003 — listing-vs-live staleness — SHIPPED (MINOR).** Cross-fetches each listed
+   resource's live 402 (capped at 5) and flags a listed `scheme/network/asset/payTo` the
+   resource doesn't honor — metadata manipulation (P1 IV) or plain staleness. `amount` excluded
+   (dynamic pricing is legitimate).
 
 ## Where we go *beyond* the papers (the differentiator)
 

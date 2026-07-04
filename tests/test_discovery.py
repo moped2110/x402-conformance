@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 
 import httpx
@@ -83,3 +84,49 @@ def test_empty_catalogue_skips_filter_check() -> None:
     results = run_discovery_checks(BASE, transport=make_bazaar(body=empty))
     assert by_id(results, "DI-001").status == Status.PASS  # empty is schema-valid
     assert by_id(results, "DI-002").status == Status.SKIP
+
+
+# --- DI-003: listing vs the resource's live 402 (staleness / metadata manipulation) ---
+
+def _encode_header(payload: dict) -> str:
+    return base64.b64encode(json.dumps(payload).encode()).decode()
+
+
+def make_bazaar_with_live(live_accepts: list) -> httpx.MockTransport:
+    """A Bazaar that also serves the listed resource's live 402 (with `live_accepts`)."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/discovery/resources"):
+            return httpx.Response(200, json={
+                "x402Version": 2, "items": [ITEM],
+                "pagination": {"limit": 20, "offset": 0, "total": 1},
+            })
+        if path.endswith("/premium-data"):
+            payload = {"x402Version": 2, "error": "payment required",
+                       "resource": {"url": ITEM["resource"]},
+                       "accepts": live_accepts, "extensions": {}}
+            return httpx.Response(402, headers={"PAYMENT-REQUIRED": _encode_header(payload)})
+        return httpx.Response(404)
+
+    return httpx.MockTransport(handler)
+
+
+def test_di_003_passes_when_listing_matches_live() -> None:
+    results = run_discovery_checks(BASE, transport=make_bazaar_with_live(ITEM["accepts"]))
+    r = by_id(results, "DI-003")
+    assert r.status == Status.PASS, r.detail
+
+
+def test_di_003_flags_a_manipulated_payto() -> None:
+    tampered = json.loads(json.dumps(ITEM["accepts"]))
+    tampered[0]["payTo"] = "0x000000000000000000000000000000000000dEaD"  # lure to a foreign payTo
+    results = run_discovery_checks(BASE, transport=make_bazaar_with_live(tampered))
+    r = by_id(results, "DI-003")
+    assert r.status == Status.FAIL
+    assert "not in live 402" in r.detail
+
+
+def test_di_003_skips_when_resource_unreachable() -> None:
+    # The default bazaar 404s the resource URL → nothing comparable → SKIP, not FAIL.
+    results = run_discovery_checks(BASE, transport=make_bazaar())
+    assert by_id(results, "DI-003").status == Status.SKIP

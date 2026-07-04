@@ -135,6 +135,67 @@ def di_002(ctx: DiscoveryContext) -> tuple[Status, str]:
     return Status.PASS, f"network filter honored ({network})"
 
 
+# Cap the live cross-fetch so a large catalogue doesn't turn one check into a crawl.
+_MAX_STALENESS_ITEMS = 5
+
+
+def _accept_identity(a: dict[str, Any]) -> tuple[str, str, str, str]:
+    """The fields that decide WHERE money goes and on what rail — scheme, network,
+    asset, payTo. `amount` is deliberately excluded: dynamic pricing is legitimate
+    (RS-PR-012), so an amount delta must not read as a stale/misleading listing."""
+    return (
+        str(a.get("scheme")),
+        str(a.get("network")),
+        str(a.get("asset")).lower(),
+        str(a.get("payTo")).lower(),
+    )
+
+
+@_register("DI-003", "Listed accepts are consistent with the resource's live 402 (staleness)",
+           Severity.MINOR, f"{_CORE} §8.3 + arXiv:2605.11781 (IV metadata manipulation)")
+def di_003(ctx: DiscoveryContext) -> tuple[Status, str]:
+    # Cross-fetch each listed resource's live 402 and compare the advertised `accepts`
+    # against reality. A listing whose (scheme/network/asset/payTo) isn't honored by the
+    # resource's own 402 is stale — or a Bazaar metadata-manipulation lure that biases an
+    # agent toward a payTo/asset the resource never asked for. Passive GETs only.
+    body = _get_json(ctx, _resources_url(ctx.base_url))
+    if body is None or not isinstance(body.get("items"), list) or not body["items"]:
+        return Status.SKIP, "no discoverable items to cross-check"
+
+    from ..probe import build_probe
+
+    checked = 0
+    problems: list[str] = []
+    for item in body["items"][:_MAX_STALENESS_ITEMS]:
+        if not isinstance(item, dict):
+            continue
+        resource = item.get("resource")
+        listed = item.get("accepts")
+        if not (isinstance(resource, str) and resource.startswith(("http://", "https://"))
+                and isinstance(listed, list) and listed):
+            continue
+        try:
+            probe = build_probe(ctx.client.get(resource))
+        except Exception:
+            continue  # resource unreachable — can't verify this listing, skip it
+        raw = probe.raw
+        live = raw.get("accepts") if isinstance(raw, dict) else None
+        if not isinstance(live, list) or not live:
+            continue  # no live 402 accepts to compare (not a 402 now / malformed)
+        checked += 1
+        live_ids = {_accept_identity(a) for a in live if isinstance(a, dict)}
+        for a in listed:
+            if isinstance(a, dict) and _accept_identity(a) not in live_ids:
+                sid = _accept_identity(a)
+                problems.append(f"{resource}: listed {sid[0]}/{sid[1]} asset {sid[2]} payTo {sid[3]} not in live 402")
+
+    if checked == 0:
+        return Status.SKIP, "no listed resource returned a comparable live 402"
+    if problems:
+        return Status.FAIL, "; ".join(problems[:4])
+    return Status.PASS, f"{checked} listing(s) consistent with their live 402"
+
+
 def evaluate_discovery(ctx: DiscoveryContext | None) -> list[CheckResult]:
     results: list[CheckResult] = []
     for check in DI_REGISTRY:

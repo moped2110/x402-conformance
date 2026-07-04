@@ -133,6 +133,7 @@ _REMEDIATION: dict[str, str] = {
     "FA-VER-004": "Return isValid:false (200/4xx) on invalid input — don't let a balanceOf/parse exception bubble up to a 5xx.",
     "FA-SET-003": "Reject a double-settle of the same payment (nonce reuse).",
     "RS-SEC-009": "Never echo the protected resource on a rejection path — the 402 body must not leak paid content.",
+    "DI-003": "Keep the discovery listing in sync with each resource's live 402 — the listed asset/payTo must match what the resource actually asks for.",
 }
 
 _SEVERITY_HEADER = {

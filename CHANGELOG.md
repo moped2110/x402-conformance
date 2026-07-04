@@ -6,6 +6,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **DI-003** (`discovery`): cross-fetches each listed resource's live 402 and flags a listing
+  whose (scheme/network/asset/payTo) the resource doesn't actually honor — a stale listing or a
+  Bazaar metadata-manipulation lure that biases an agent toward a foreign payTo/asset
+  (arXiv:2605.11781 Attack IV). `amount` is excluded (dynamic pricing is legitimate, RS-PR-012).
+  MINOR, capped at 5 resources, passive GETs only. Catalog 60 → 61.
 - **RS-SEC-006** (`check --active`): header-smuggling robustness — an invalid v2 payment sent
   together with a contradictory legacy V1 `X-PAYMENT` header must stay rejected (the legacy
   header must not smuggle it past v2 validation) and must not 5xx-crash on the duplicate
