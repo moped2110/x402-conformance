@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Optional
@@ -12,6 +13,7 @@ import typer
 from . import SPEC_BASELINE, __version__
 from .checks import CheckResult, Status
 from .diff import diff_reports, format_diff
+from .scan import ScanEntry, format_scan, scan_to_dicts, summarize_scan
 from .report import (
     exit_code,
     explain_check,
@@ -124,6 +126,55 @@ def diff(
         raise typer.Exit(2)
     typer.echo(format_diff(result))
     raise typer.Exit(1 if result.has_regressions else 0)
+
+
+@app.command()
+def scan(
+    targets: Path = typer.Argument(
+        ..., help="File of facilitator base URLs, one per line (blank lines and #comments ignored)",
+    ),
+    resource: Optional[str] = typer.Option(
+        None, "--resource", help="x402 resource URL to source requirements for the /verify "
+        "negative checks (FA-VER/FA-ERR); without it only /supported is exercised.",
+    ),
+    signer_key: Optional[str] = typer.Option(
+        None, "--signer-key", help="Throwaway testnet key for --resource negatives "
+        "(default: $X402_TESTNET_PAYER_KEY or random).",
+    ),
+    timeout: float = typer.Option(10.0, "--timeout", help="Per-request timeout in seconds"),
+    json_out: Optional[Path] = typer.Option(None, "--json", help="Write the ranked scan JSON"),
+) -> None:
+    """Batch-scan many facilitator URLs (PASSIVE) and rank them by findings — recon.
+
+    Never settles and moves no funds. Prints a table with the most non-conformant
+    facilitators first. Exit 1 if any reachable target is non-conformant, else 0.
+    """
+    from .checks.facilitator import run_facilitator_checks
+
+    raw = targets.read_text(encoding="utf-8").splitlines()
+    urls = [ln.strip() for ln in raw if ln.strip() and not ln.strip().startswith("#")]
+    if not urls:
+        typer.secho("no target URLs found in file", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+
+    signer = _make_signer(signer_key) if resource else None
+    entries: list[ScanEntry] = []
+    for url in urls:
+        try:
+            results = run_facilitator_checks(
+                url, resource_url=resource, signer=signer, allow_settle=False, timeout=timeout
+            )
+            entries.append(summarize_scan(url, results))
+        except httpx.HTTPError as exc:
+            entries.append(ScanEntry(url=url, unreachable=str(exc)))
+
+    typer.echo(format_scan(entries))
+    if json_out is not None:
+        json_out.write_text(json.dumps(scan_to_dicts(entries), indent=2), encoding="utf-8")
+        typer.echo(f"JSON report: {json_out}")
+
+    reachable = [e for e in entries if e.unreachable is None]
+    raise typer.Exit(1 if any(not e.conformant for e in reachable) else 0)
 
 
 @app.command()

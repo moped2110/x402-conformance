@@ -6,6 +6,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **`scan` command**: batch-scans many facilitator URLs from a file (PASSIVE — never
+  settles, moves no funds) and ranks them by findings, most non-conformant first (whose
+  `/verify` waves through what it should reject). Optional `--resource`/`--signer-key`
+  enable the FA-VER negatives; `--json` writes the ranked result. Exit 1 if any reachable
+  target is non-conformant. Recon aid for the audit path — aggregation is pure + unit-tested.
 - **FA-VER-004** (`facilitator`): a facilitator must handle invalid client input (an
   EOA `asset`) with a clean `isValid:false` (HTTP 200/4xx), not a **5xx server error**.
   MINOR robustness check — the rejection itself is gated by FA-VER-003; this flags the
