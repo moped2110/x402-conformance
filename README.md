@@ -92,9 +92,25 @@ x402-conformance check https://api.example.com/premium-data --active --fix
 
 # Machine-readable output + CI-friendly exit code (1 on major/critical failure)
 x402-conformance check https://api.example.com/premium-data --json report.json --markdown report.md
+
+# Explain a check in plain language (offline): what it tests, severity, spec ref, how to fix.
+# A prefix lists matches; no argument lists the whole catalog.
+x402-conformance explain RS-NEG-007
+x402-conformance explain FA-VER
+
+# Diff two JSON reports — "did my fix work?" (fixed / regressed / still-failing / added / removed).
+# Exit 1 if a previously-passing check regressed, so it doubles as a CI regression gate.
+x402-conformance diff before.json after.json
+
+# Batch-scan many facilitator URLs (PASSIVE — never settles) and rank them by findings.
+x402-conformance scan targets.txt --resource https://api.example.com/premium-data --json scan.json
 ```
 
 Exit codes: `0` conformant, `1` not conformant (a major/critical check failed), `2` target unreachable.
+`explain` always exits `0`; `diff` exits `1` on a regression; `scan` exits `1` if any reachable target is non-conformant.
+
+The `check` command auto-detects POST-only resources: if the probed verb returns 404/405 and the
+other verb (GET↔POST) reveals an x402 paywall, it switches automatically.
 
 ## Development
 
