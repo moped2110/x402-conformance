@@ -10,16 +10,16 @@
 
 ## Implementation status (v0.1.0)
 
-**Implemented & tested (59 checks):**
+**Implemented & tested (60 checks):**
 - RS-HS-001…007, RS-PR-001…016 — passive (`check`). RS-PR-008 now does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
-- RS-NEG-001/002/003/005/006/007/008/009/011/012/013/014/015 + RS-SEC-003 + RS-SEC-004 + RS-SEC-005 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
+- RS-NEG-001/002/003/005/006/007/008/009/011/012/013/014/015 + RS-SEC-003 + RS-SEC-004 + RS-SEC-005 + RS-SEC-006 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
 - RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) — on-chain (`check --pay`)
 - FA-SUP-001/002, FA-VER-002/003/004, FA-ERR-001 — `facilitator`; FA-SET-001/002/003 — `facilitator --settle`
 - DI-001/002 — `discovery`
 
 RS-SEC-009 (content-leak on the rejection path) is enforced inside every active check; `check --active --resource-marker <s>` additionally flags a rejected body that still contains the protected content.
 
-**Planned (in this catalog, not yet shipped):** RS-NEG-004/010, RS-SEC-006/008, FA-VER-001, DI-003. RS-SEC-003 now ships as a MINOR *advisory* cross-resource-binding probe (single-request resource relabel; overlaps the RS-NEG-013 "validate `accepted` against your own offer" principle applied to `resource`) — it never gates the verdict. The full economic exploit (replay of a *settled* payment across resources) needs two resources + settlement and is out of the single-endpoint black-box scope.
+**Planned (in this catalog, not yet shipped):** RS-NEG-004/010, RS-SEC-008, FA-VER-001, DI-003. RS-SEC-003 now ships as a MINOR *advisory* cross-resource-binding probe (single-request resource relabel; overlaps the RS-NEG-013 "validate `accepted` against your own offer" principle applied to `resource`) — it never gates the verdict. The full economic exploit (replay of a *settled* payment across resources) needs two resources + settlement and is out of the single-endpoint black-box scope.
 
 **Target types:**
 - **RS** = Resource Server (the x402-paywalled endpoint) — primary MVP target
@@ -101,7 +101,7 @@ These are the money tests: a server that delivers the resource despite an invali
 | RS-SEC-003 | **Cross-resource binding:** an otherwise-valid payment whose claimed `resource` differs from the requested one | Rejected — server binds payment↔resource (advisory; the resource label is unsigned, so MINOR/never-gates) | CORE §10.1 + arXiv:2605.11781 | m |
 | RS-SEC-004 | Nonce not 32-byte / reused custom nonce | Rejected | CORE §5.2.2 | M |
 | RS-SEC-005 | Oversized `PAYMENT-SIGNATURE` header (e.g. 1 MB) | Clean 4xx, no crash/timeout | robustness | m |
-| RS-SEC-006 | Header smuggling: both `PAYMENT-SIGNATURE` and legacy V1 header present, contradictory | Deterministic, documented precedence | robustness | m |
+| RS-SEC-006 | Header smuggling: an invalid v2 payment sent with a contradictory legacy V1 `X-PAYMENT` header | Still rejected — the legacy header must not smuggle an invalid payment past v2 validation; no 5xx on duplicate headers (arXiv:2605.11781 III) | robustness | m |
 | RS-SEC-007 | Unicode/control chars/JSON edge cases in payload fields | Clean rejection | robustness | m |
 | RS-SEC-008 | Timing: response time for invalid sig vs. unknown payer comparable (info-leak smoke test) | No gross oracle | robustness | m |
 | RS-SEC-009 | Resource served on 402-failure path? (content-leak check on every NEG case) | Body never contains protected resource | CORE §2 | C |

@@ -124,6 +124,7 @@ _REMEDIATION: dict[str, str] = {
     "RS-NEG-014": "Verify the asset is your expected token contract, not any address the client supplies.",
     "RS-NEG-015": "Reject an asset with no contract code (an EOA): settling against it is a silent no-op — pre-flight `eth_getCode`.",
     "RS-SEC-003": "Bind each payment to the requested resource — reject a payment whose claimed `resource` differs from the one being served.",
+    "RS-SEC-006": "Validate one header deterministically — never let a legacy X-PAYMENT header bypass v2 validation, and don't 5xx on duplicate/contradictory payment headers.",
     "RS-SEC-010": "Bind to the EIP-712 chainId and reject cross-chain-replayed signatures.",
     "RS-SEC-011": "Handle an extreme (2²⁵⁶-1) amount cleanly — reject it, don't 5xx-crash.",
     "FA-SUP-001": "If you expose /supported, return `kinds[]`, `extensions[]`, `signers{}` (it's optional — omitting it is fine).",

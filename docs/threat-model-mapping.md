@@ -25,7 +25,7 @@ outside single-endpoint black-box scope; those are marked accordingly rather tha
 | **P1 II** Replay / idempotency across the HTTP–chain boundary | A reusable `X-PAYMENT` payload yields multiple HTTP grants when the server doesn't atomically record payment identity before releasing. (P2 **I4** service duplication.) | RS-SEC-001 (replay after settlement), RS-SEC-002 (parallel race → exactly one), FA-SET-003 (double-settle nonce) | **shipped** | **Covered** — strongest area |
 | **P1 II / P2 I3** Missing resource-identifier binding | A valid payment for resource A is accepted at resource B (payment not bound to the requested resource) | RS-SEC-003 (cross-resource binding) | **shipped** (MINOR/advisory single-request relabel) | **Covered (advisory)** — flags the binding gap; the full settled-payment replay needs two resources + settlement (below) |
 | **P1 III** Cache leakage | Paywalled 402/response cacheable → CDN/proxy serves protected content or a stale paywall | RS-HS-007 (402 not cacheable: `no-store`/`private`) | **shipped** | **Covered** |
-| **P1 III** Header ambiguity | Simultaneous v1 + v2 payment headers → deployment-dependent parser confusion | RS-SEC-006 (header smuggling / precedence); RS-HS-005 (legacy v1 header absent) | RS-SEC-006 **planned/deferred**; RS-HS-005 **shipped** | **Partial gap** → build RS-SEC-006 (needs a second-header primitive in `active.py`) |
+| **P1 III** Header ambiguity | Simultaneous v1 + v2 payment headers → deployment-dependent parser confusion | RS-SEC-006 (header smuggling); RS-HS-005 (legacy v1 header absent) | both **shipped** | **Covered** — an invalid v2 payment + a legacy V1 header must stay rejected (no smuggle) and not 5xx |
 | **P1 IV** Server-selection: metadata manipulation | Bazaar listing advertises terms that differ from the resource's live 402 (bias agent toward a malicious/cheaper-looking endpoint) | DI-003 (listed `accepts` vs live 402 staleness) | **planned/deferred** | **Gap** → build DI-003; catches lying listings |
 | **P1 IV** Server-selection: Sybil flooding | Adversary floods discovery with sock-puppet listings | — | **not covered** | **Out of scope** — needs cross-endpoint/network trust analysis, not single-endpoint black-box |
 
@@ -44,9 +44,9 @@ Ranked by leverage (all money-invariant-safe; passive or testnet-only):
 2. **RS-NEG-010 — unfunded-payer / grant-before-settle.** Present a well-formed payment from a
    zero-balance payer; assert the resource is **not** delivered before settlement is confirmed.
    The black-box shadow of P1 I-A / P2 I1.
-3. **RS-SEC-006 — header ambiguity/precedence.** Send contradictory v1+v2 payment headers;
-   assert deterministic, documented precedence. Needs a second-header primitive in `active.py`
-   (today `ActiveContext` sets only `PAYMENT-SIGNATURE`).
+3. **RS-SEC-006 — header ambiguity/precedence — SHIPPED (MINOR).** An invalid v2 payment sent
+   with a contradictory legacy V1 `X-PAYMENT` header must stay rejected (no smuggle) and not
+   5xx. Added a `send_with_headers` primitive to the active runner.
 4. **DI-003 — listing-vs-live staleness.** Cross-fetch each listed resource's live 402 and
    compare `accepts`; a mismatch is metadata manipulation (P1 IV) or plain staleness.
 

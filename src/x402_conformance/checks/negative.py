@@ -272,6 +272,27 @@ def sec_007(ctx: ActiveContext) -> tuple[Status, str]:
     return _assert_rejected(resp)
 
 
+@_register("RS-SEC-006", "Header smuggling: an invalid payment is not let through by a contradictory legacy V1 header",
+           Severity.MINOR, "transports-v2/http.md §Header Summary")
+def sec_006(ctx: ActiveContext) -> tuple[Status, str]:
+    import base64
+    import json as _json
+
+    # Send an INVALID v2 payment (tampered signature) AND a legacy V1 `X-PAYMENT` header.
+    # If parser/proxy ambiguity lets the legacy header smuggle the request past v2
+    # validation (arXiv:2605.11781 Attack III), a naive endpoint serves/settles despite
+    # the invalid v2 payment. A correct endpoint rejects it regardless of the extra
+    # header, and must not 5xx-crash on the duplicate/contradictory headers.
+    bad = tamper_signature(build_exact_eip3009_payload(ctx.requirements, ctx.signer))
+    legacy_v1 = base64.b64encode(
+        _json.dumps({"x402Version": 1, "scheme": "exact", "network": "base-sepolia"}).encode()
+    ).decode()
+    resp = ctx.send_with_headers(bad, {"X-PAYMENT": legacy_v1})
+    if resp.status_code >= 500:
+        return Status.FAIL, f"endpoint returned {resp.status_code} on dual v2+legacy-V1 headers (crashed)"
+    return _assert_rejected(resp)
+
+
 @_register("RS-SEC-004", "Payment with a non-32-byte nonce is rejected cleanly, not crashed",
            Severity.MAJOR, f"{_CORE} §5.2.2 invalid nonce")
 def sec_004(ctx: ActiveContext) -> tuple[Status, str]:

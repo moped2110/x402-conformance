@@ -55,6 +55,9 @@ class ActiveContext:
     signer: Any  # EvmSigner
     send: Callable[[dict[str, Any]], ActiveResponse]
     send_header: Callable[[str], ActiveResponse]  # send a raw PAYMENT-SIGNATURE value
+    # send a payload plus arbitrary extra headers (e.g. a contradictory legacy V1
+    # X-PAYMENT header for the header-smuggling check, RS-SEC-006)
+    send_with_headers: Callable[[dict[str, Any], dict[str, str]], ActiveResponse]
     resource_marker: str | None = None  # if set, a rejected body must NOT contain it
     notes: list[str] = field(default_factory=list)
 
@@ -129,15 +132,21 @@ def build_active_context(
 
     marker_bytes = resource_marker.encode() if resource_marker else None
 
-    def send(payload: dict[str, Any]) -> ActiveResponse:
-        return send_header(_b64_json(payload))
-
-    def send_header(header_value: str) -> ActiveResponse:
-        response = client.request(method, url, headers={PAYMENT_SIGNATURE_HEADER: header_value})
+    def _do(headers: dict[str, str]) -> ActiveResponse:
+        response = client.request(method, url, headers=headers)
         ar = _response_from(response)
         if marker_bytes and marker_bytes in ar.body:
             ar = replace(ar, marker_leaked=True)
         return ar
+
+    def send(payload: dict[str, Any]) -> ActiveResponse:
+        return _do({PAYMENT_SIGNATURE_HEADER: _b64_json(payload)})
+
+    def send_header(header_value: str) -> ActiveResponse:
+        return _do({PAYMENT_SIGNATURE_HEADER: header_value})
+
+    def send_with_headers(payload: dict[str, Any], extra: dict[str, str]) -> ActiveResponse:
+        return _do({PAYMENT_SIGNATURE_HEADER: _b64_json(payload), **extra})
 
     return ActiveContext(
         resource_url=url,
@@ -146,6 +155,7 @@ def build_active_context(
         signer=signer,
         send=send,
         send_header=send_header,
+        send_with_headers=send_with_headers,
         resource_marker=resource_marker,
     )
 

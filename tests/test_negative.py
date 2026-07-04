@@ -139,6 +139,31 @@ def test_sec_003_caught_when_resource_not_bound() -> None:
     assert "resource" in r.detail.lower()
 
 
+def test_sec_006_passes_when_legacy_header_ignored() -> None:
+    # A correct server validates the v2 PAYMENT-SIGNATURE and rejects the invalid
+    # payment regardless of the extra legacy X-PAYMENT header.
+    results = run_active_checks(TARGET, SIGNER, transport=make_server())
+    assert by_id(results, "RS-SEC-006").status == Status.PASS
+
+
+def test_sec_006_legacy_header_smuggle_is_caught() -> None:
+    # Vulnerable: serves whenever a legacy X-PAYMENT header is present, bypassing v2.
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.headers.get("PAYMENT-SIGNATURE") is None:
+            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+        if request.headers.get("X-PAYMENT"):
+            ok = {"success": True, "transaction": "0x" + "ab" * 32,
+                  "network": REQ["network"], "payer": "0x0"}
+            return httpx.Response(200, headers={"PAYMENT-RESPONSE": encode_header(ok)},
+                                  json={"data": "premium"})
+        body = {"success": False, "errorReason": "invalid", "transaction": "",
+                "network": REQ["network"]}
+        return httpx.Response(402, headers={"PAYMENT-RESPONSE": encode_header(body)})
+
+    results = run_active_checks(TARGET, SIGNER, transport=httpx.MockTransport(handler))
+    assert by_id(results, "RS-SEC-006").status == Status.FAIL
+
+
 def test_server_without_signature_check_is_caught() -> None:
     results = run_active_checks(TARGET, SIGNER, transport=make_server(check_signature=False))
     # the tampered-signature case must catch it

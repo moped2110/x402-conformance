@@ -6,6 +6,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **RS-SEC-006** (`check --active`): header-smuggling robustness — an invalid v2 payment sent
+  together with a contradictory legacy V1 `X-PAYMENT` header must stay rejected (the legacy
+  header must not smuggle it past v2 validation) and must not 5xx-crash on the duplicate
+  headers. MINOR. Adds a `send_with_headers` primitive to the active runner. (arXiv:2605.11781
+  Attack III.) Catalog 59 → 60.
 - **RS-SEC-003** (`check --active`): cross-resource binding — an otherwise-valid payment whose
   claimed `resource` is relabelled to a different URL must be rejected; a server that serves it
   has no payment↔resource binding, the cross-resource replay vector from arXiv:2605.11781 /
