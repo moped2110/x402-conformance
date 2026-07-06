@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from x402_conformance.checks import Status
-from x402_conformance.runner import run_checks
-
 from conftest import TARGET_URL, transport_with_402
 from test_handshake import by_id
 
+from x402_conformance.checks import Status
+from x402_conformance.runner import run_checks
 
 # --- RS-HS-007: cacheability of the 402 ---
 

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from conftest import VALID_PAYMENT_REQUIRED
+
 from x402_conformance.models import (
     PaymentRequired,
     PaymentRequirements,
     SettlementResponse,
 )
-
-from conftest import VALID_PAYMENT_REQUIRED
 
 
 def test_payment_required_parses_spec_example() -> None:

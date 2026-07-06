@@ -16,14 +16,13 @@ import pytest
 
 pytest.importorskip("eth_account")
 
+from conftest import VALID_PAYMENT_REQUIRED, encode_header
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 
 from x402_conformance.active import run_active_checks
 from x402_conformance.checks import Status
-from x402_conformance.payload_builder import EvmSigner, _TRANSFER_WITH_AUTHORIZATION_TYPES
-
-from conftest import VALID_PAYMENT_REQUIRED, encode_header
+from x402_conformance.payload_builder import _TRANSFER_WITH_AUTHORIZATION_TYPES, EvmSigner
 
 TARGET = "https://api.example.com/premium-data"
 REQ = VALID_PAYMENT_REQUIRED["accepts"][0]

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 
 import httpx
-import pytest
 from typer.testing import CliRunner
 
 import x402_conformance.cli as cli

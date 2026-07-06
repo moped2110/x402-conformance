@@ -16,11 +16,11 @@ import pytest
 
 pytest.importorskip("eth_account")
 
+from conftest import VALID_PAYMENT_REQUIRED, encode_header
+
 from x402_conformance.active import run_payment_checks
 from x402_conformance.checks import Status
 from x402_conformance.payload_builder import EvmSigner
-
-from conftest import VALID_PAYMENT_REQUIRED, encode_header
 
 TARGET = "http://resource.example/data"
 REQ = VALID_PAYMENT_REQUIRED["accepts"][0]

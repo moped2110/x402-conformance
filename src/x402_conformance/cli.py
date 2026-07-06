@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Optional
 
 import httpx
 import typer
@@ -13,7 +12,6 @@ import typer
 from . import SPEC_BASELINE, __version__
 from .checks import CheckResult, Status
 from .diff import diff_reports, format_diff
-from .scan import ScanEntry, format_scan, scan_to_dicts, summarize_scan
 from .report import (
     exit_code,
     explain_check,
@@ -23,6 +21,7 @@ from .report import (
     to_markdown,
 )
 from .runner import run_checks
+from .scan import ScanEntry, format_scan, scan_to_dicts, summarize_scan
 
 app = typer.Typer(
     name="x402-conformance",
@@ -39,7 +38,7 @@ def version() -> None:
     typer.echo(f"spec baseline: {SPEC_BASELINE}")
 
 
-def _make_signer(signer_key: Optional[str]) -> Optional[object]:
+def _make_signer(signer_key: str | None) -> object | None:
     """Build an EVM signer (throwaway by default). Returns None if eth-account is missing."""
     try:
         from .payload_builder import EvmSigner
@@ -53,7 +52,7 @@ def _make_signer(signer_key: Optional[str]) -> Optional[object]:
 
 def _emit(
     results: list[CheckResult], target: str, quiet: bool,
-    json_out: Optional[Path], md_out: Optional[Path], developer: bool = False,
+    json_out: Path | None, md_out: Path | None, developer: bool = False,
 ) -> int:
     """Print results + write reports. Returns the CI exit code."""
     code = exit_code(results)
@@ -94,7 +93,7 @@ def _emit(
 
 @app.command()
 def explain(
-    check_id: Optional[str] = typer.Argument(
+    check_id: str | None = typer.Argument(
         None, help="A check ID (e.g. RS-NEG-007) or a prefix (e.g. RS-SEC). "
         "Omit to list the whole catalog.",
     ),
@@ -123,7 +122,7 @@ def diff(
         )
     except (OSError, ValueError) as exc:
         typer.secho(f"cannot diff: {exc}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(2)
+        raise typer.Exit(2) from exc
     typer.echo(format_diff(result))
     raise typer.Exit(1 if result.has_regressions else 0)
 
@@ -133,16 +132,16 @@ def scan(
     targets: Path = typer.Argument(
         ..., help="File of facilitator base URLs, one per line (blank lines and #comments ignored)",
     ),
-    resource: Optional[str] = typer.Option(
+    resource: str | None = typer.Option(
         None, "--resource", help="x402 resource URL to source requirements for the /verify "
         "negative checks (FA-VER/FA-ERR); without it only /supported is exercised.",
     ),
-    signer_key: Optional[str] = typer.Option(
+    signer_key: str | None = typer.Option(
         None, "--signer-key", help="Throwaway testnet key for --resource negatives "
         "(default: $X402_TESTNET_PAYER_KEY or random).",
     ),
     timeout: float = typer.Option(10.0, "--timeout", help="Per-request timeout in seconds"),
-    json_out: Optional[Path] = typer.Option(None, "--json", help="Write the ranked scan JSON"),
+    json_out: Path | None = typer.Option(None, "--json", help="Write the ranked scan JSON"),
 ) -> None:
     """Batch-scan many facilitator URLs (PASSIVE) and rank them by findings — recon.
 
@@ -187,11 +186,11 @@ def check(
         help="Also run active negative checks (RS-NEG): sends deliberately-invalid "
              "payments and verifies they are rejected. Uses a throwaway signer; never mainnet.",
     ),
-    signer_key: Optional[str] = typer.Option(
+    signer_key: str | None = typer.Option(
         None, "--signer-key", help="Testnet throwaway private key for --active "
         "(default: $X402_TESTNET_PAYER_KEY or a random key)",
     ),
-    resource_marker: Optional[str] = typer.Option(
+    resource_marker: str | None = typer.Option(
         None, "--resource-marker", help="A unique string from the protected resource "
         "body. With --active, a rejected response that still contains it is flagged "
         "as a content leak (RS-SEC-009).",
@@ -202,11 +201,11 @@ def check(
              "payment that settles ON-CHAIN. MOVES REAL FUNDS — needs a funded "
              "--signer-key. Use only against a testnet/Anvil.",
     ),
-    rpc_url: Optional[str] = typer.Option(
+    rpc_url: str | None = typer.Option(
         None, "--rpc-url", help="RPC URL to verify the settlement tx on-chain (RS-PAY-004)",
     ),
-    json_out: Optional[Path] = typer.Option(None, "--json", help="Write JSON report to file"),
-    md_out: Optional[Path] = typer.Option(None, "--markdown", help="Write Markdown report to file"),
+    json_out: Path | None = typer.Option(None, "--json", help="Write JSON report to file"),
+    md_out: Path | None = typer.Option(None, "--markdown", help="Write Markdown report to file"),
     fix: bool = typer.Option(
         False, "--fix",
         help="Print a developer-focused report instead of the full table: failures "
@@ -223,7 +222,7 @@ def check(
         results = run_checks(url, method=method, timeout=timeout)
     except httpx.HTTPError as exc:
         typer.secho(f"target unreachable: {exc}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(2)
+        raise typer.Exit(2) from exc
 
     if resource_marker and not active:
         typer.secho("note: --resource-marker has no effect without --active (it guards "
@@ -249,11 +248,11 @@ def check(
 @app.command()
 def facilitator(
     url: str = typer.Argument(..., help="Facilitator base URL (exposes /supported, /verify, /settle)"),
-    resource: Optional[str] = typer.Option(
+    resource: str | None = typer.Option(
         None, "--resource", help="An x402 resource URL to source real requirements "
         "from, enabling the /verify negative checks (FA-VER/FA-ERR).",
     ),
-    signer_key: Optional[str] = typer.Option(
+    signer_key: str | None = typer.Option(
         None, "--signer-key", help="Testnet throwaway private key (default: "
         "$X402_TESTNET_PAYER_KEY or random); only used with --resource.",
     ),
@@ -263,8 +262,8 @@ def facilitator(
              "double-settle). MOVES REAL FUNDS — testnet/Anvil only, needs a funded signer.",
     ),
     timeout: float = typer.Option(10.0, "--timeout", help="Request timeout in seconds"),
-    json_out: Optional[Path] = typer.Option(None, "--json", help="Write JSON report to file"),
-    md_out: Optional[Path] = typer.Option(None, "--markdown", help="Write Markdown report to file"),
+    json_out: Path | None = typer.Option(None, "--json", help="Write JSON report to file"),
+    md_out: Path | None = typer.Option(None, "--markdown", help="Write Markdown report to file"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Only print the summary line"),
 ) -> None:
     """Run facilitator conformance checks (FA-*) against a facilitator base URL."""
@@ -276,7 +275,7 @@ def facilitator(
                                          allow_settle=settle, timeout=timeout)
     except httpx.HTTPError as exc:
         typer.secho(f"facilitator unreachable: {exc}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(2)
+        raise typer.Exit(2) from exc
 
     raise typer.Exit(_emit(results, url, quiet, json_out, md_out))
 
@@ -285,8 +284,8 @@ def facilitator(
 def discovery(
     url: str = typer.Argument(..., help="Discovery/Bazaar base URL (exposes /discovery/resources)"),
     timeout: float = typer.Option(10.0, "--timeout", help="Request timeout in seconds"),
-    json_out: Optional[Path] = typer.Option(None, "--json", help="Write JSON report to file"),
-    md_out: Optional[Path] = typer.Option(None, "--markdown", help="Write Markdown report to file"),
+    json_out: Path | None = typer.Option(None, "--json", help="Write JSON report to file"),
+    md_out: Path | None = typer.Option(None, "--markdown", help="Write Markdown report to file"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Only print the summary line"),
 ) -> None:
     """Run discovery conformance checks (DI-*) against a Bazaar base URL."""
@@ -296,7 +295,7 @@ def discovery(
         results = run_discovery_checks(url, timeout=timeout)
     except httpx.HTTPError as exc:
         typer.secho(f"discovery endpoint unreachable: {exc}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(2)
+        raise typer.Exit(2) from exc
 
     raise typer.Exit(_emit(results, url, quiet, json_out, md_out))
 

@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from conftest import TARGET_URL, encode_header, transport_with_402
+from test_handshake import by_id
 
 from x402_conformance.checks import Status
 from x402_conformance.report import exit_code
 from x402_conformance.runner import run_checks
-
-from conftest import TARGET_URL, encode_header, transport_with_402
-from test_handshake import by_id
 
 
 def test_v1_endpoint_is_bucketed_not_failed() -> None:

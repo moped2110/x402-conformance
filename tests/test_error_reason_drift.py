@@ -21,9 +21,9 @@ from pathlib import Path
 import pytest
 
 from x402_conformance.checks.facilitator import (
+    _LOCAL_ERROR_CODES,
     KNOWN_ERROR_CODES,
     SPEC_ERROR_REASONS,
-    _LOCAL_ERROR_CODES,
 )
 
 # Relative locations of x402Specs.ts to try when X402_SPEC_TS isn't set. Best

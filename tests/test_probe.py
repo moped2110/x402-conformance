@@ -10,10 +10,9 @@ import base64
 import json
 
 import httpx
+from conftest import VALID_PAYMENT_REQUIRED, encode_header
 
 from x402_conformance.probe import build_probe
-
-from conftest import VALID_PAYMENT_REQUIRED, encode_header
 
 
 def _probe_with(header: str | None, status: int = 402, extra: dict | None = None):

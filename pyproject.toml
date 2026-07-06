@@ -37,7 +37,9 @@ onchain = [
 ]
 dev = [
     "pytest>=8.0",
+    "pytest-cov>=5.0",
     "mypy>=1.10",
+    "ruff>=0.6",
     "eth-account>=0.13,<0.14",
     "web3>=6.0",
     "jsonschema>=4.0",
@@ -57,3 +59,30 @@ pythonpath = ["src"]
 python_version = "3.11"
 strict = true
 files = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# The formatter (ruff format) owns line width, so E501 is intentionally NOT in
+# the lint gate — it can't reflow long comments/spec-ref docstrings and would
+# only produce noise. The lint gate is for real defects: undefined names,
+# unsorted imports, bugbears, dead code, stale idioms.
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    "E501",   # line length is the formatter's job, not a lint error
+    "B008",   # Typer uses typer.Option/Argument(...) in defaults by design
+    "UP042",  # Severity/Status deliberately (str, Enum) for stable .value semantics
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Imports follow an eth-account importorskip guard, so they can't be top-of-file.
+"tests/test_payload_builder.py" = ["E402"]
+
+[tool.coverage.run]
+source = ["x402_conformance"]
+omit = ["*/tests/*"]
+
+[tool.coverage.report]
+show_missing = true

@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import httpx
-
-from x402_conformance.checks import Severity, Status
-from x402_conformance.report import exit_code
-from x402_conformance.runner import run_checks
-
 from conftest import (
     TARGET_URL,
     VALID_PAYMENT_REQUIRED,
     encode_header,
     transport_with_402,
 )
+
+from x402_conformance.checks import Severity, Status
+from x402_conformance.report import exit_code
+from x402_conformance.runner import run_checks
 
 
 def by_id(results: list, check_id: str):

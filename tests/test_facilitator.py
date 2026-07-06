@@ -9,11 +9,11 @@ import pytest
 
 pytest.importorskip("eth_account")
 
+from conftest import VALID_PAYMENT_REQUIRED, encode_header
+
 from x402_conformance.checks import Status
 from x402_conformance.checks.facilitator import run_facilitator_checks
 from x402_conformance.payload_builder import EvmSigner
-
-from conftest import VALID_PAYMENT_REQUIRED, encode_header
 
 FAC = "http://facilitator.example"
 RES = "http://resource.example/data"

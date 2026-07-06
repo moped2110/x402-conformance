@@ -14,7 +14,6 @@ chain-free; on-chain checking is opt-in.
 from __future__ import annotations
 
 import concurrent.futures
-
 from typing import Any, cast
 
 from ..active import ActiveContext

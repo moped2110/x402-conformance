@@ -15,6 +15,7 @@ from eth_account import Account
 from eth_account.messages import encode_typed_data
 
 from x402_conformance.payload_builder import (
+    _TRANSFER_WITH_AUTHORIZATION_TYPES,
     EvmSigner,
     build_exact_eip3009_payload,
     eip712_digest,
@@ -24,7 +25,6 @@ from x402_conformance.payload_builder import (
     tamper_recipient,
     tamper_signature,
     tamper_value_lower,
-    _TRANSFER_WITH_AUTHORIZATION_TYPES,
 )
 
 REQUIREMENTS = {

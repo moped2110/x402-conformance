@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from . import SPEC_BASELINE, __version__
 from .checks import CheckResult, Severity, Status
@@ -40,7 +40,7 @@ def to_json(results: list[CheckResult], target_url: str) -> str:
             "tool": {"name": "x402-conformance", "version": __version__},
             "specBaseline": SPEC_BASELINE,
             "target": target_url,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "summary": summarize(results),
             "conformant": exit_code(results) == 0,
             "results": [asdict(r) for r in results],
@@ -85,7 +85,7 @@ def to_markdown(results: list[CheckResult], target_url: str) -> str:
         f"**Verdict:** {verdict} "
         f"({s['passed']} passed, {s['failed']} failed, {s['skipped']} skipped, {s['errors']} errors)",
         f"**Spec baseline:** {SPEC_BASELINE}",
-        f"**Generated:** {datetime.now(timezone.utc).isoformat()} by x402-conformance {__version__}",
+        f"**Generated:** {datetime.now(UTC).isoformat()} by x402-conformance {__version__}",
         "",
         "| ID | Check | Severity | Status | Detail | Spec ref |",
         "|----|-------|----------|--------|--------|----------|",

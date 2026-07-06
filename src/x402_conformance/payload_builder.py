@@ -65,15 +65,15 @@ def _chain_id_from_caip2(network: str) -> int:
 class EvmSigner:
     """A testnet EVM signer. Wraps an eth-account LocalAccount."""
 
-    account: "LocalAccount"
+    account: LocalAccount
 
     @classmethod
-    def from_key(cls, private_key: str) -> "EvmSigner":
+    def from_key(cls, private_key: str) -> EvmSigner:
         _require_evm()
         return cls(Account.from_key(private_key))
 
     @classmethod
-    def random(cls) -> "EvmSigner":
+    def random(cls) -> EvmSigner:
         """A fresh random throwaway signer (tests, never funded)."""
         _require_evm()
         return cls(Account.from_key("0x" + secrets.token_hex(32)))
