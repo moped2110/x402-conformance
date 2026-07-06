@@ -6,6 +6,7 @@ import importlib
 import json
 from dataclasses import asdict
 from datetime import UTC, datetime
+from typing import Any
 
 from . import SPEC_BASELINE, __version__
 from .checks import CheckResult, Severity, Status
@@ -16,6 +17,13 @@ _BAD = (Status.FAIL, Status.ERROR)
 #: Schema version of the JSON report. Bump on any breaking shape change; the
 #: contract is pinned in report.schema.json at the repo root.
 REPORT_VERSION = "1.0"
+
+#: SARIF 2.1.0 — the OASIS static-analysis interchange format GitHub code scanning
+#: and bug-bounty platforms ingest. Lets a scan's findings land in a Security tab.
+SARIF_SCHEMA = (
+    "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json"
+)
+_TOOL_URI = "https://github.com/moped2110/x402-conformance"
 
 
 def summarize(results: list[CheckResult]) -> dict[str, int]:
@@ -47,6 +55,89 @@ def to_json(results: list[CheckResult], target_url: str) -> str:
         },
         indent=2,
     )
+
+
+def _sarif_level(severity: Severity) -> str:
+    """Map our severity to a SARIF result level. Gating (critical/major) → ``error``
+    so it surfaces as a code-scanning alert; advisory (minor) → ``warning``."""
+    return "warning" if severity is Severity.MINOR else "error"
+
+
+def to_sarif(results: list[CheckResult], target_url: str) -> str:
+    """Emit the run's findings as SARIF 2.1.0 (machine-readable, GitHub-ingestible).
+
+    Findings only — FAIL and ERROR results — since SARIF is an alert format: a passing
+    or skipped check is not an alert. Each finding references a rule (the check) carrying
+    its title, spec ref, severity and remediation hint. The scanned endpoint is the
+    ``artifactLocation``; ``partialFingerprints`` gives each finding a stable identity so
+    a platform can dedupe it across runs.
+    """
+    findings = [r for r in results if r.status in _BAD]
+
+    rules: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for r in findings:
+        if r.check_id in seen:
+            continue
+        seen.add(r.check_id)
+        rule: dict[str, Any] = {
+            "id": r.check_id,
+            "name": r.check_id.replace("-", ""),
+            "shortDescription": {"text": r.title},
+            "defaultConfiguration": {"level": _sarif_level(r.severity)},
+            "properties": {
+                "severity": r.severity.value,
+                "specRef": r.spec_ref,
+                "tags": ["x402", "conformance", r.severity.value],
+            },
+        }
+        fix = _REMEDIATION.get(r.check_id)
+        if fix:
+            rule["fullDescription"] = {"text": fix}
+            rule["help"] = {"text": fix}
+        rules.append(rule)
+
+    sarif_results: list[dict[str, Any]] = []
+    for r in findings:
+        message = f"{r.title}: {r.detail}" if r.detail else r.title
+        sarif_results.append(
+            {
+                "ruleId": r.check_id,
+                "level": _sarif_level(r.severity),
+                "message": {"text": message},
+                "locations": [{"physicalLocation": {"artifactLocation": {"uri": target_url}}}],
+                "partialFingerprints": {"x402ConformanceCheckId": f"{r.check_id}@{target_url}"},
+                "properties": {
+                    "severity": r.severity.value,
+                    "status": r.status.value,
+                    "specRef": r.spec_ref,
+                },
+            }
+        )
+
+    doc: dict[str, Any] = {
+        "$schema": SARIF_SCHEMA,
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "x402-conformance",
+                        "version": __version__,
+                        "informationUri": _TOOL_URI,
+                        "rules": rules,
+                    }
+                },
+                "results": sarif_results,
+                "properties": {
+                    "target": target_url,
+                    "specBaseline": SPEC_BASELINE,
+                    "conformant": exit_code(results) == 0,
+                },
+            }
+        ],
+    }
+    return json.dumps(doc, indent=2)
 
 
 def _md_cell(text: str) -> str:

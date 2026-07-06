@@ -6,6 +6,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **SARIF 2.1.0 export** (`--sarif` on `check` / `facilitator` / `discovery`): writes the run's
+  findings (FAIL/ERROR only) as SARIF, the format GitHub code scanning and bug-bounty platforms
+  ingest — so a scan's results can land directly in a repo's Security tab. Each finding references
+  a rule carrying the check's title, spec ref, severity (major/critical → `error`, minor →
+  `warning`) and remediation hint, with a stable `partialFingerprint` for cross-run dedup.
 - **DI-003** (`discovery`): cross-fetches each listed resource's live 402 and flags a listing
   whose (scheme/network/asset/payTo) the resource doesn't actually honor — a stale listing or a
   Bazaar metadata-manipulation lure that biases an agent toward a foreign payTo/asset

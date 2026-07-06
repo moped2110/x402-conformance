@@ -19,6 +19,7 @@ from .report import (
     to_developer_report,
     to_json,
     to_markdown,
+    to_sarif,
 )
 from .runner import run_checks
 from .scan import ScanEntry, format_scan, scan_to_dicts, summarize_scan
@@ -60,6 +61,7 @@ def _emit(
     json_out: Path | None,
     md_out: Path | None,
     developer: bool = False,
+    sarif_out: Path | None = None,
 ) -> int:
     """Print results + write reports. Returns the CI exit code."""
     code = exit_code(results)
@@ -95,6 +97,9 @@ def _emit(
     if md_out is not None:
         md_out.write_text(to_markdown(results, target), encoding="utf-8")
         typer.echo(f"Markdown report: {md_out}")
+    if sarif_out is not None:
+        sarif_out.write_text(to_sarif(results, target), encoding="utf-8")
+        typer.echo(f"SARIF report: {sarif_out}")
     return code
 
 
@@ -226,6 +231,9 @@ def check(
     ),
     json_out: Path | None = typer.Option(None, "--json", help="Write JSON report to file"),
     md_out: Path | None = typer.Option(None, "--markdown", help="Write Markdown report to file"),
+    sarif_out: Path | None = typer.Option(
+        None, "--sarif", help="Write SARIF 2.1.0 findings (GitHub code-scanning ingestible)"
+    ),
     fix: bool = typer.Option(
         False,
         "--fix",
@@ -269,7 +277,9 @@ def check(
 
             results = results + run_payment_checks(url, signer, rpc_url=rpc_url, method=method)
 
-    raise typer.Exit(_emit(results, url, quiet, json_out, md_out, developer=fix))
+    raise typer.Exit(
+        _emit(results, url, quiet, json_out, md_out, developer=fix, sarif_out=sarif_out)
+    )
 
 
 @app.command()
@@ -298,6 +308,9 @@ def facilitator(
     timeout: float = typer.Option(10.0, "--timeout", help="Request timeout in seconds"),
     json_out: Path | None = typer.Option(None, "--json", help="Write JSON report to file"),
     md_out: Path | None = typer.Option(None, "--markdown", help="Write Markdown report to file"),
+    sarif_out: Path | None = typer.Option(
+        None, "--sarif", help="Write SARIF 2.1.0 findings (GitHub code-scanning ingestible)"
+    ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Only print the summary line"),
 ) -> None:
     """Run facilitator conformance checks (FA-*) against a facilitator base URL."""
@@ -312,7 +325,7 @@ def facilitator(
         typer.secho(f"facilitator unreachable: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc
 
-    raise typer.Exit(_emit(results, url, quiet, json_out, md_out))
+    raise typer.Exit(_emit(results, url, quiet, json_out, md_out, sarif_out=sarif_out))
 
 
 @app.command()
@@ -321,6 +334,9 @@ def discovery(
     timeout: float = typer.Option(10.0, "--timeout", help="Request timeout in seconds"),
     json_out: Path | None = typer.Option(None, "--json", help="Write JSON report to file"),
     md_out: Path | None = typer.Option(None, "--markdown", help="Write Markdown report to file"),
+    sarif_out: Path | None = typer.Option(
+        None, "--sarif", help="Write SARIF 2.1.0 findings (GitHub code-scanning ingestible)"
+    ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Only print the summary line"),
 ) -> None:
     """Run discovery conformance checks (DI-*) against a Bazaar base URL."""
@@ -332,7 +348,7 @@ def discovery(
         typer.secho(f"discovery endpoint unreachable: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc
 
-    raise typer.Exit(_emit(results, url, quiet, json_out, md_out))
+    raise typer.Exit(_emit(results, url, quiet, json_out, md_out, sarif_out=sarif_out))
 
 
 if __name__ == "__main__":

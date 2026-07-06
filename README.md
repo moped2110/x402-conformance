@@ -93,6 +93,9 @@ x402-conformance check https://api.example.com/premium-data --active --fix
 # Machine-readable output + CI-friendly exit code (1 on major/critical failure)
 x402-conformance check https://api.example.com/premium-data --json report.json --markdown report.md
 
+# SARIF 2.1.0 findings — upload to a GitHub code-scanning / Security tab or a bug-bounty platform
+x402-conformance check https://api.example.com/premium-data --sarif results.sarif
+
 # Explain a check in plain language (offline): what it tests, severity, spec ref, how to fix.
 # A prefix lists matches; no argument lists the whole catalog.
 x402-conformance explain RS-NEG-007
