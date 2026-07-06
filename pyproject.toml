@@ -9,7 +9,7 @@ description = "Black-box conformance and robustness test suite for x402 payment 
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
-authors = [{ name = "Mario" }]
+authors = [{ name = "moped2110" }]
 keywords = ["x402", "payments", "conformance", "testing", "http-402"]
 dependencies = [
     "httpx>=0.27",
@@ -17,20 +17,28 @@ dependencies = [
     "typer>=0.12",
 ]
 
+[project.urls]
+Homepage = "https://github.com/moped2110/x402-conformance"
+Repository = "https://github.com/moped2110/x402-conformance"
+Issues = "https://github.com/moped2110/x402-conformance/issues"
+
 [project.optional-dependencies]
 # Active payment-flow checks (RS-NEG/RS-SEC) need EIP-712 signing.
+# eth-account is pinned <0.14: active.py depends on the 0.13 signing surface
+# (a private-path import for EIP-191 hashing); a minor bump can move it. See
+# tests/test_eth_account_pin.py, which fails loudly if that path relocates.
 evm = [
-    "eth-account>=0.13",
+    "eth-account>=0.13,<0.14",
 ]
 # On-chain settlement checks (RS-PAY, FA-SET) additionally need an RPC client.
 onchain = [
-    "eth-account>=0.13",
+    "eth-account>=0.13,<0.14",
     "web3>=6.0",
 ]
 dev = [
     "pytest>=8.0",
     "mypy>=1.10",
-    "eth-account>=0.13",
+    "eth-account>=0.13,<0.14",
     "web3>=6.0",
     "jsonschema>=4.0",
 ]

@@ -27,6 +27,7 @@ from typing import Any
 
 import httpx
 
+from .. import USER_AGENT
 from ..probe import build_probe
 from .base import CheckResult, Severity, Status
 
@@ -436,7 +437,7 @@ def run_facilitator_checks(
 ) -> list[CheckResult]:
     """Probe a facilitator. If resource_url is given, also exercise /verify;
     with allow_settle, also run the FA-SET /settle tests (moves real funds)."""
-    headers = {"User-Agent": "x402-conformance/0.1.0 (facilitator)"}
+    headers = {"User-Agent": USER_AGENT}
     with httpx.Client(timeout=timeout, transport=transport, headers=headers,
                       follow_redirects=True) as client:
         requirements = None

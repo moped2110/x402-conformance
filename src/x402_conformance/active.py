@@ -17,6 +17,7 @@ from typing import Any, Callable
 
 import httpx
 
+from . import USER_AGENT
 from .models import SettlementResponse
 from .probe import build_probe
 
@@ -171,7 +172,7 @@ def run_active_checks(
     """Run the RS-NEG active checks against `url`. Returns list[CheckResult]."""
     from .checks.negative import evaluate_active  # late import avoids cycle
 
-    headers = {"User-Agent": "x402-conformance/0.1.0 (active)"}
+    headers = {"User-Agent": USER_AGENT}
     with httpx.Client(
         timeout=timeout, transport=transport, follow_redirects=True, headers=headers
     ) as client:
@@ -191,7 +192,7 @@ def run_payment_checks(
     funded signer. Returns list[CheckResult]."""
     from .checks.payment import evaluate_payment
 
-    headers = {"User-Agent": "x402-conformance/0.1.0 (pay)"}
+    headers = {"User-Agent": USER_AGENT}
     with httpx.Client(
         timeout=timeout, transport=transport, follow_redirects=True, headers=headers
     ) as client:

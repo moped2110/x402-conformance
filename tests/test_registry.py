@@ -75,6 +75,7 @@ from pathlib import Path  # noqa: E402
 import httpx  # noqa: E402
 
 _CATALOG = Path(__file__).resolve().parents[1] / "docs" / "conformance-catalog.md"
+_README = Path(__file__).resolve().parents[1] / "README.md"
 
 
 def _all_implemented_ids() -> set[str]:
@@ -113,5 +114,18 @@ def test_catalog_implemented_count_matches_code() -> None:
     assert stated == actual, (
         f"catalog says {stated} implemented checks, code emits {actual} — update "
         "the catalog's implementation-status section"
+    )
+
+
+def test_readme_check_count_matches_code() -> None:
+    # The README headline "N checks across the groups above" is a sales figure a
+    # reader trusts. Pin it to the code so it can never quietly go stale again.
+    readme = _README.read_text(encoding="utf-8")
+    m = re.search(r"(\d+) checks across the groups above", readme)
+    assert m, "README is missing its 'N checks across the groups above' marker"
+    stated = int(m.group(1))
+    actual = len(_all_implemented_ids())
+    assert stated == actual, (
+        f"README says {stated} checks, code emits {actual} — update the README headline"
     )
 

@@ -8,11 +8,10 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
+from . import USER_AGENT
 from .checks import REGISTRY, CheckResult, Status
 from .jp402 import find_jp402
 from .probe import PAYMENT_REQUIRED_HEADER, Probe, ProbeSession, build_probe
-
-USER_AGENT = "x402-conformance/0.1.0 (+https://github.com/x402-conformance)"
 
 
 def _is_paywall(p: Probe) -> bool:

@@ -17,6 +17,7 @@ from typing import Any
 
 import httpx
 
+from .. import USER_AGENT
 from .base import CheckResult, Severity, Status
 
 _CORE = "x402-specification-v2.md"
@@ -216,7 +217,7 @@ def run_discovery_checks(
     timeout: float = 10.0,
     transport: httpx.BaseTransport | None = None,
 ) -> list[CheckResult]:
-    headers = {"User-Agent": "x402-conformance/0.1.0 (discovery)"}
+    headers = {"User-Agent": USER_AGENT}
     with httpx.Client(timeout=timeout, transport=transport, headers=headers,
                       follow_redirects=True) as client:
         return evaluate_discovery(DiscoveryContext(base_url=base_url, client=client))
