@@ -4,8 +4,8 @@ How to verify the four features (T-07 report schema, T-12 EIP-55, T-15
 content-leak marker, T-16 extreme-amount) against a real server. Three layers,
 fastest first.
 
-Features and the diagrams: [`history/reporting-and-robustness-2026-06-12.md`](history/reporting-and-robustness-2026-06-12.md)
-and [`architecture.md`](architecture.md).
+Features and the diagrams: [`reporting-and-robustness-2026-06-12.md`](reporting-and-robustness-2026-06-12.md)
+and [`../architecture.md`](../architecture.md).
 
 Prereqs for the live layers: the x402 SDK and `eth-account` installed (the
 calibration deps). `pip install -e ".[dev]"` covers `eth-account`, `web3`,

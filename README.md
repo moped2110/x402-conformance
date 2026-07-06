@@ -131,7 +131,7 @@ x402-conformance facilitator http://127.0.0.1:4500 --resource http://127.0.0.1:4
 python tools/verify_new_features.py
 ```
 
-Live-verification runbook: [`docs/verify-new-features.md`](docs/verify-new-features.md).
+Live-verification runbook (dated, archived): [`docs/history/verify-new-features.md`](docs/history/verify-new-features.md).
 
 No mainnet funds are ever used. Payment-flow tests run against Base Sepolia or mocks only.
 

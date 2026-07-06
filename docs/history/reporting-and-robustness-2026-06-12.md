@@ -5,7 +5,7 @@ JSON report contract (T-07), EIP-55 checksum validation (T-12), content-leak
 detection on the rejection path (T-15), and extreme-amount robustness (T-16).
 All four are offline-testable and need no chain.
 
-See also [`architecture.md`](architecture.md) §3a (leak detection) and §5
+See also [`../architecture.md`](../architecture.md) §3a (leak detection) and §5
 (report contract) for the diagrams.
 
 ---
