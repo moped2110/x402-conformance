@@ -21,25 +21,35 @@ def _is_paywall(p: Probe) -> bool:
 
 def _maybe_fetch_openapi(
     client: httpx.Client, target_url: str, first: Probe
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, str | None]:
     """Fetch ``{origin}/openapi.json`` — but only when the live 402 advertises
-    ``jp402``, so a non-JP endpoint never incurs the extra request. Returns the
-    parsed doc, or ``None`` if not applicable / unreachable / not a JSON object.
+    ``jp402``, so a non-JP endpoint never incurs the extra request.
+
+    Returns ``(doc, reason)``. On success ``(doc, None)``. When a JP402 endpoint
+    was advertised but the doc couldn't be obtained, ``doc`` is ``None`` and
+    ``reason`` is a short diagnostic (timeout vs 404 vs not-JSON) so a swallowed
+    failure surfaces in the report instead of looking like "no openapi advertised".
+    A non-JP endpoint returns ``(None, None)`` — nothing was attempted, no note.
     """
     if first.raw is None or find_jp402(first.raw) is None:
-        return None
+        return None, None
     parts = urlsplit(target_url)
     if not parts.scheme or not parts.netloc:
-        return None
+        return None, "jp402 advertised but target URL has no scheme/host to derive /openapi.json"
     openapi_url = urlunsplit((parts.scheme, parts.netloc, "/openapi.json", "", ""))
     try:
         resp = client.request("GET", openapi_url)
-        if resp.status_code != 200:
-            return None
+    except httpx.HTTPError as exc:
+        return None, f"jp402 advertised but /openapi.json unreachable: {type(exc).__name__}"
+    if resp.status_code != 200:
+        return None, f"jp402 advertised but /openapi.json returned HTTP {resp.status_code}"
+    try:
         doc = json.loads(resp.text)
-    except Exception:
-        return None
-    return doc if isinstance(doc, dict) else None
+    except (ValueError, UnicodeDecodeError) as exc:
+        return None, f"jp402 advertised but /openapi.json is not valid JSON: {type(exc).__name__}"
+    if not isinstance(doc, dict):
+        return None, "jp402 advertised but /openapi.json is not a JSON object"
+    return doc, None
 
 
 def run_checks(
@@ -73,7 +83,9 @@ def run_checks(
                 )
                 first, effective = alt_probe, alt
         second = build_probe(client.request(effective, url))
-        openapi = _maybe_fetch_openapi(client, url, first)
+        openapi, openapi_reason = _maybe_fetch_openapi(client, url, first)
+        if openapi_reason is not None:
+            notes.append(openapi_reason)
 
     session = ProbeSession(
         target_url=url,

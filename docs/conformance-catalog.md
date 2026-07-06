@@ -97,7 +97,7 @@ These are the money tests: a server that delivers the resource despite an invali
 | ID | Test | Expected | Spec ref | Sev |
 |----|------|----------|----------|-----|
 | RS-SEC-001 | **Replay:** resend identical valid payment after settlement | Second request rejected (nonce reuse) | CORE §10.1 | C |
-| RS-SEC-002 | **Parallel replay (race):** N concurrent requests, same payload | Exactly one settlement | CORE §10.1 | C |
+| RS-SEC-002 | **Parallel replay (race):** N concurrent requests, same payload | Exactly one settlement (positive-evidence only — a PASS means no race was observed this run, not that none exists; a fast server can serialize and pass by luck. A FAIL is a hard finding.) | CORE §10.1 | C |
 | RS-SEC-003 | **Cross-resource binding:** an otherwise-valid payment whose claimed `resource` differs from the requested one | Rejected — server binds payment↔resource (advisory; the resource label is unsigned, so MINOR/never-gates) | CORE §10.1 + arXiv:2605.11781 | m |
 | RS-SEC-004 | Nonce not 32-byte / reused custom nonce | Rejected | CORE §5.2.2 | M |
 | RS-SEC-005 | Oversized `PAYMENT-SIGNATURE` header (e.g. 1 MB) | Clean 4xx, no crash/timeout | robustness | m |
