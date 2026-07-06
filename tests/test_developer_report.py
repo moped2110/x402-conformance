@@ -14,8 +14,8 @@ def test_failures_grouped_with_fix_and_spec() -> None:
     results = [
         _r("RS-NEG-003", Severity.CRITICAL, Status.FAIL, "served an invalid payment"),
         _r("RS-PR-009", Severity.MAJOR, Status.FAIL, "extra.name/version missing"),
-        _r("RS-HS-001", Severity.MAJOR, Status.PASS),   # passes omitted
-        _r("RS-PR-010", Severity.MINOR, Status.SKIP),   # skips omitted
+        _r("RS-HS-001", Severity.MAJOR, Status.PASS),  # passes omitted
+        _r("RS-PR-010", Severity.MINOR, Status.SKIP),  # skips omitted
     ]
     out = to_developer_report(results, "https://api.example/x")
     assert "NOT CONFORMANT" in out

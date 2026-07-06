@@ -128,8 +128,9 @@ def test_markdown_escapes_pipes_in_detail() -> None:
 
 def test_markdown_neutralizes_html_in_detail() -> None:
     # a hostile endpoint echoes markup into an error reason
-    r = CheckResult("X", "t", Severity.MAJOR, "spec", Status.FAIL,
-                    "reason <img src=x onerror=alert(1)>")
+    r = CheckResult(
+        "X", "t", Severity.MAJOR, "spec", Status.FAIL, "reason <img src=x onerror=alert(1)>"
+    )
     md = to_markdown([r], "u")
     assert "<img" not in md
     assert "&lt;img src=x onerror=alert(1)&gt;" in md
@@ -146,8 +147,9 @@ def test_markdown_collapses_newlines_in_detail() -> None:
 
 
 def test_markdown_escapes_links_and_code_in_detail() -> None:
-    r = CheckResult("X", "t", Severity.MAJOR, "spec", Status.FAIL,
-                    "see [click](javascript:evil) and `code`")
+    r = CheckResult(
+        "X", "t", Severity.MAJOR, "spec", Status.FAIL, "see [click](javascript:evil) and `code`"
+    )
     md = to_markdown([r], "u")
     assert "[click]" not in md  # brackets escaped, link not formed
     assert "\\[click\\]" in md

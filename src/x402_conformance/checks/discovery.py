@@ -57,7 +57,9 @@ def _resources_url(base: str) -> str:
     return f"{base.rstrip('/')}/discovery/resources"
 
 
-def _get_json(ctx: DiscoveryContext, url: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
+def _get_json(
+    ctx: DiscoveryContext, url: str, params: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
     try:
         resp = ctx.client.get(url, params=params)
         if resp.status_code != 200:
@@ -70,8 +72,12 @@ def _get_json(ctx: DiscoveryContext, url: str, params: dict[str, Any] | None = N
         return None
 
 
-@_register("DI-001", "/discovery/resources returns schema-valid items + pagination",
-           Severity.MAJOR, f"{_CORE} §8.1")
+@_register(
+    "DI-001",
+    "/discovery/resources returns schema-valid items + pagination",
+    Severity.MAJOR,
+    f"{_CORE} §8.1",
+)
 def di_001(ctx: DiscoveryContext) -> tuple[Status, str]:
     body = _get_json(ctx, _resources_url(ctx.base_url))
     if body is None:
@@ -123,8 +129,10 @@ def di_002(ctx: DiscoveryContext) -> tuple[Status, str]:
     offenders = [
         item.get("resource")
         for item in filtered["items"]
-        if not (isinstance(item.get("accepts"), list)
-                and any(isinstance(a, dict) and a.get("network") == network for a in item["accepts"]))
+        if not (
+            isinstance(item.get("accepts"), list)
+            and any(isinstance(a, dict) and a.get("network") == network for a in item["accepts"])
+        )
     ]
     if offenders:
         return Status.FAIL, (
@@ -152,8 +160,12 @@ def _accept_identity(a: dict[str, Any]) -> tuple[str, str, str, str]:
     )
 
 
-@_register("DI-003", "Listed accepts are consistent with the resource's live 402 (staleness)",
-           Severity.MINOR, f"{_CORE} §8.3 + arXiv:2605.11781 (IV metadata manipulation)")
+@_register(
+    "DI-003",
+    "Listed accepts are consistent with the resource's live 402 (staleness)",
+    Severity.MINOR,
+    f"{_CORE} §8.3 + arXiv:2605.11781 (IV metadata manipulation)",
+)
 def di_003(ctx: DiscoveryContext) -> tuple[Status, str]:
     # Cross-fetch each listed resource's live 402 and compare the advertised `accepts`
     # against reality. A listing whose (scheme/network/asset/payTo) isn't honored by the
@@ -172,8 +184,12 @@ def di_003(ctx: DiscoveryContext) -> tuple[Status, str]:
             continue
         resource = item.get("resource")
         listed = item.get("accepts")
-        if not (isinstance(resource, str) and resource.startswith(("http://", "https://"))
-                and isinstance(listed, list) and listed):
+        if not (
+            isinstance(resource, str)
+            and resource.startswith(("http://", "https://"))
+            and isinstance(listed, list)
+            and listed
+        ):
             continue
         try:
             probe = build_probe(ctx.client.get(resource))
@@ -188,7 +204,9 @@ def di_003(ctx: DiscoveryContext) -> tuple[Status, str]:
         for a in listed:
             if isinstance(a, dict) and _accept_identity(a) not in live_ids:
                 sid = _accept_identity(a)
-                problems.append(f"{resource}: listed {sid[0]}/{sid[1]} asset {sid[2]} payTo {sid[3]} not in live 402")
+                problems.append(
+                    f"{resource}: listed {sid[0]}/{sid[1]} asset {sid[2]} payTo {sid[3]} not in live 402"
+                )
 
     if checked == 0:
         return Status.SKIP, "no listed resource returned a comparable live 402"
@@ -207,8 +225,9 @@ def evaluate_discovery(ctx: DiscoveryContext | None) -> list[CheckResult]:
                 status, detail = check.func(ctx)
             except Exception as exc:
                 status, detail = Status.ERROR, f"check crashed (suite bug): {exc!r}"
-        results.append(CheckResult(check.check_id, check.title, check.severity,
-                                   check.spec_ref, status, detail))
+        results.append(
+            CheckResult(check.check_id, check.title, check.severity, check.spec_ref, status, detail)
+        )
     return results
 
 
@@ -218,6 +237,7 @@ def run_discovery_checks(
     transport: httpx.BaseTransport | None = None,
 ) -> list[CheckResult]:
     headers = {"User-Agent": USER_AGENT}
-    with httpx.Client(timeout=timeout, transport=transport, headers=headers,
-                      follow_redirects=True) as client:
+    with httpx.Client(
+        timeout=timeout, transport=transport, headers=headers, follow_redirects=True
+    ) as client:
         return evaluate_discovery(DiscoveryContext(base_url=base_url, client=client))

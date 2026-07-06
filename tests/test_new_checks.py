@@ -10,6 +10,7 @@ from x402_conformance.runner import run_checks
 
 # --- RS-HS-007: cacheability of the 402 ---
 
+
 def test_cacheable_402_fails(valid_payload: dict) -> None:
     transport = transport_with_402(
         valid_payload, extra_headers={"Cache-Control": "public, max-age=3600"}
@@ -35,6 +36,7 @@ def test_missing_cache_control_passes_with_advice(valid_payload: dict) -> None:
 
 # --- RS-PR-013: payTo/asset namespace consistency ---
 
+
 def test_solana_address_on_evm_network_fails(valid_payload: dict) -> None:
     # Solana-style (non-0x) payTo advertised on an eip155 network
     valid_payload["accepts"][0]["payTo"] = "CKPKJWNdJEqa81x7CkZ14BVPiY6y16Sxs7owznqtWYp5"
@@ -50,6 +52,7 @@ def test_consistent_evm_namespace_passes(valid_payload: dict) -> None:
 
 
 # --- RS-PR-014: amount strictly positive ---
+
 
 def test_zero_amount_fails(valid_payload: dict) -> None:
     valid_payload["accepts"][0]["amount"] = "0"

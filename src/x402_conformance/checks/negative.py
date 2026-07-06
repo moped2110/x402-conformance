@@ -51,7 +51,9 @@ class _ActiveCheck:
 ACTIVE_REGISTRY: list[_ActiveCheck] = []
 
 
-def _register(check_id: str, title: str, severity: Severity, spec_ref: str) -> Callable[[ActiveFunc], ActiveFunc]:
+def _register(
+    check_id: str, title: str, severity: Severity, spec_ref: str
+) -> Callable[[ActiveFunc], ActiveFunc]:
     def deco(func: ActiveFunc) -> ActiveFunc:
         ACTIVE_REGISTRY.append(_ActiveCheck(check_id, title, severity, spec_ref, func))
         return func
@@ -78,14 +80,23 @@ def _assert_rejected(resp: ActiveResponse) -> tuple[Status, str]:
 
 # --- malformed transport payloads (no signing needed) ---
 
-@_register("RS-NEG-001", "Garbage base64 in PAYMENT-SIGNATURE is rejected", Severity.MAJOR,
-           "transports-v2/http.md §Error Handling")
+
+@_register(
+    "RS-NEG-001",
+    "Garbage base64 in PAYMENT-SIGNATURE is rejected",
+    Severity.MAJOR,
+    "transports-v2/http.md §Error Handling",
+)
 def neg_001(ctx: ActiveContext) -> tuple[Status, str]:
     return _assert_rejected(ctx.send_header("!!!not-base64!!!"))
 
 
-@_register("RS-NEG-002", "Valid base64 but malformed JSON is rejected", Severity.MAJOR,
-           "transports-v2/http.md §Error Handling")
+@_register(
+    "RS-NEG-002",
+    "Valid base64 but malformed JSON is rejected",
+    Severity.MAJOR,
+    "transports-v2/http.md §Error Handling",
+)
 def neg_002(ctx: ActiveContext) -> tuple[Status, str]:
     import base64
 
@@ -95,43 +106,65 @@ def neg_002(ctx: ActiveContext) -> tuple[Status, str]:
 
 # --- signed-but-invalid payloads ---
 
-@_register("RS-NEG-003", "Tampered signature is rejected", Severity.CRITICAL,
-           f"{_CORE} §6.1.2 step 1")
+
+@_register(
+    "RS-NEG-003", "Tampered signature is rejected", Severity.CRITICAL, f"{_CORE} §6.1.2 step 1"
+)
 def neg_003(ctx: ActiveContext) -> tuple[Status, str]:
     payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
     return _assert_rejected(ctx.send(tamper_signature(payload)))
 
 
-@_register("RS-NEG-005", "Underpayment (authorized value < required) is rejected",
-           Severity.CRITICAL, f"{_CORE} §6.1.2 step 3")
+@_register(
+    "RS-NEG-005",
+    "Underpayment (authorized value < required) is rejected",
+    Severity.CRITICAL,
+    f"{_CORE} §6.1.2 step 3",
+)
 def neg_005(ctx: ActiveContext) -> tuple[Status, str]:
     payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
     return _assert_rejected(ctx.send(tamper_value_lower(payload, factor=0.5)))
 
 
-@_register("RS-NEG-007", "Recipient mismatch (payTo redirected) is rejected", Severity.CRITICAL,
-           f"{_CORE} §9 recipient_mismatch")
+@_register(
+    "RS-NEG-007",
+    "Recipient mismatch (payTo redirected) is rejected",
+    Severity.CRITICAL,
+    f"{_CORE} §9 recipient_mismatch",
+)
 def neg_007(ctx: ActiveContext) -> tuple[Status, str]:
     payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
     return _assert_rejected(ctx.send(tamper_recipient(payload, _ATTACKER)))
 
 
-@_register("RS-NEG-008", "Expired authorization (validBefore in past) is rejected",
-           Severity.CRITICAL, f"{_CORE} §6.1.2 step 4")
+@_register(
+    "RS-NEG-008",
+    "Expired authorization (validBefore in past) is rejected",
+    Severity.CRITICAL,
+    f"{_CORE} §6.1.2 step 4",
+)
 def neg_008(ctx: ActiveContext) -> tuple[Status, str]:
     payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
     return _assert_rejected(ctx.send(make_expired(payload)))
 
 
-@_register("RS-NEG-009", "Not-yet-valid authorization (validAfter in future) is rejected",
-           Severity.MAJOR, f"{_CORE} §9 valid_after")
+@_register(
+    "RS-NEG-009",
+    "Not-yet-valid authorization (validAfter in future) is rejected",
+    Severity.MAJOR,
+    f"{_CORE} §9 valid_after",
+)
 def neg_009(ctx: ActiveContext) -> tuple[Status, str]:
     payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
     return _assert_rejected(ctx.send(make_not_yet_valid(payload)))
 
 
-@_register("RS-NEG-013", "Client-claimed lower price (accepted+value lowered) is rejected",
-           Severity.CRITICAL, f"{_CORE} §6.1.2 step 5")
+@_register(
+    "RS-NEG-013",
+    "Client-claimed lower price (accepted+value lowered) is rejected",
+    Severity.CRITICAL,
+    f"{_CORE} §6.1.2 step 5",
+)
 def neg_013(ctx: ActiveContext) -> tuple[Status, str]:
     # Pay a token amount and claim that is the price. The server must validate
     # against ITS OWN required amount, not the client-supplied `accepted`.
@@ -140,8 +173,12 @@ def neg_013(ctx: ActiveContext) -> tuple[Status, str]:
     return _assert_rejected(ctx.send(payload))
 
 
-@_register("RS-NEG-014", "Payment with a wrong asset contract is rejected", Severity.CRITICAL,
-           f"{_CORE} §6.1.2 step 4 + testcase N10")
+@_register(
+    "RS-NEG-014",
+    "Payment with a wrong asset contract is rejected",
+    Severity.CRITICAL,
+    f"{_CORE} §6.1.2 step 4 + testcase N10",
+)
 def neg_014(ctx: ActiveContext) -> tuple[Status, str]:
     if ctx.requirements.get("asset", "").lower() == _OTHER_ASSET.lower():
         return Status.SKIP, "endpoint already uses the substitute test asset"
@@ -150,8 +187,12 @@ def neg_014(ctx: ActiveContext) -> tuple[Status, str]:
     return _assert_rejected(ctx.send(payload))
 
 
-@_register("RS-NEG-015", "Payment whose asset is an EOA (no contract code) is rejected",
-           Severity.CRITICAL, f"{_CORE} §6.1.2 step 4 + x402#2554 asset_not_deployed_contract")
+@_register(
+    "RS-NEG-015",
+    "Payment whose asset is an EOA (no contract code) is rejected",
+    Severity.CRITICAL,
+    f"{_CORE} §6.1.2 step 4 + x402#2554 asset_not_deployed_contract",
+)
 def neg_015(ctx: ActiveContext) -> tuple[Status, str]:
     # Distinct from RS-NEG-014 (a *different* token contract): here the asset is a
     # known EOA with no bytecode. On EVM, calling transferWithAuthorization on an
@@ -165,8 +206,12 @@ def neg_015(ctx: ActiveContext) -> tuple[Status, str]:
     return _assert_rejected(ctx.send(payload))
 
 
-@_register("RS-SEC-010", "Cross-chain signature replay (signed for another chainId) is rejected",
-           Severity.CRITICAL, f"{_CORE} §10.1 + testcase C0")
+@_register(
+    "RS-SEC-010",
+    "Cross-chain signature replay (signed for another chainId) is rejected",
+    Severity.CRITICAL,
+    f"{_CORE} §10.1 + testcase C0",
+)
 def sec_010(ctx: ActiveContext) -> tuple[Status, str]:
     # Sign the authorization for a DIFFERENT chain (eip155:1) but submit it to
     # this endpoint. EIP-712 binds chainId in the domain; the endpoint verifies
@@ -177,8 +222,12 @@ def sec_010(ctx: ActiveContext) -> tuple[Status, str]:
     return _assert_rejected(ctx.send(payload))
 
 
-@_register("RS-SEC-003", "Cross-resource binding: a payment claiming a foreign resource is rejected",
-           Severity.MINOR, f"{_CORE} §10.1 + arXiv:2605.11781 (III) / 2605.30998 (I3)")
+@_register(
+    "RS-SEC-003",
+    "Cross-resource binding: a payment claiming a foreign resource is rejected",
+    Severity.MINOR,
+    f"{_CORE} §10.1 + arXiv:2605.11781 (III) / 2605.30998 (I3)",
+)
 def sec_003(ctx: ActiveContext) -> tuple[Status, str]:
     # Build a fully valid payment for THIS resource, then relabel its `resource` to a
     # different URL. EIP-3009 does not sign the resource, so the payment stays valid; a
@@ -208,8 +257,12 @@ def sec_003(ctx: ActiveContext) -> tuple[Status, str]:
     return Status.PASS, f"correctly rejected a foreign-resource payment (status {resp.status_code})"
 
 
-@_register("RS-NEG-006", "Overpayment (authorized value > required) is rejected",
-           Severity.MAJOR, f"{_CORE} §6.1.2 step 3 (exact)")
+@_register(
+    "RS-NEG-006",
+    "Overpayment (authorized value > required) is rejected",
+    Severity.MAJOR,
+    f"{_CORE} §6.1.2 step 3 (exact)",
+)
 def neg_006(ctx: ActiveContext) -> tuple[Status, str]:
     # exact scheme: the value must equal the required amount exactly.
     dear = {**ctx.requirements, "amount": str(int(ctx.requirements["amount"]) * 2)}
@@ -217,8 +270,12 @@ def neg_006(ctx: ActiveContext) -> tuple[Status, str]:
     return _assert_rejected(ctx.send(payload))
 
 
-@_register("RS-SEC-011", "Extreme (near-2^256) amount is handled cleanly, not crashed",
-           Severity.MINOR, f"{_CORE} §5.1.2 + testcase N4")
+@_register(
+    "RS-SEC-011",
+    "Extreme (near-2^256) amount is handled cleanly, not crashed",
+    Severity.MINOR,
+    f"{_CORE} §5.1.2 + testcase N4",
+)
 def sec_011(ctx: ActiveContext) -> tuple[Status, str]:
     # uint256 max — the tool must sign it without overflow and the endpoint must
     # respond cleanly: reject it (not served), never 5xx-crash on a huge value.
@@ -236,8 +293,12 @@ def sec_011(ctx: ActiveContext) -> tuple[Status, str]:
     return Status.PASS, f"handled cleanly (status {resp.status_code})"
 
 
-@_register("RS-SEC-005", "Oversized PAYMENT-SIGNATURE header (~1 MB) is rejected cleanly, not crashed",
-           Severity.MINOR, "transports-v2/http.md §Error Handling")
+@_register(
+    "RS-SEC-005",
+    "Oversized PAYMENT-SIGNATURE header (~1 MB) is rejected cleanly, not crashed",
+    Severity.MINOR,
+    "transports-v2/http.md §Error Handling",
+)
 def sec_005(ctx: ActiveContext) -> tuple[Status, str]:
     # A ~1 MiB header value. The endpoint must reject it cleanly (a 4xx) without a
     # 5xx crash and without serving the resource — basic DoS hygiene on the header
@@ -255,8 +316,12 @@ def sec_005(ctx: ActiveContext) -> tuple[Status, str]:
     return Status.PASS, f"oversized header rejected cleanly (status {resp.status_code})"
 
 
-@_register("RS-SEC-007", "Control/Unicode characters in a payload field are rejected cleanly, not crashed",
-           Severity.MINOR, "transports-v2/http.md §Error Handling")
+@_register(
+    "RS-SEC-007",
+    "Control/Unicode characters in a payload field are rejected cleanly, not crashed",
+    Severity.MINOR,
+    "transports-v2/http.md §Error Handling",
+)
 def sec_007(ctx: ActiveContext) -> tuple[Status, str]:
     # Structurally valid base64+JSON, but the `from` field carries control bytes
     # and a non-ASCII char. A robust endpoint rejects it cleanly (the signature can
@@ -268,12 +333,19 @@ def sec_007(ctx: ActiveContext) -> tuple[Status, str]:
     auth["from"] = auth["from"] + "".join(chr(c) for c in (0x00, 0x202E, 0x07, 0xE9))
     resp = ctx.send(payload)
     if resp.status_code >= 500:
-        return Status.FAIL, f"endpoint returned {resp.status_code} — crashed on control/Unicode chars"
+        return (
+            Status.FAIL,
+            f"endpoint returned {resp.status_code} — crashed on control/Unicode chars",
+        )
     return _assert_rejected(resp)
 
 
-@_register("RS-SEC-006", "Header smuggling: an invalid payment is not let through by a contradictory legacy V1 header",
-           Severity.MINOR, "transports-v2/http.md §Header Summary")
+@_register(
+    "RS-SEC-006",
+    "Header smuggling: an invalid payment is not let through by a contradictory legacy V1 header",
+    Severity.MINOR,
+    "transports-v2/http.md §Header Summary",
+)
 def sec_006(ctx: ActiveContext) -> tuple[Status, str]:
     import base64
     import json as _json
@@ -289,12 +361,19 @@ def sec_006(ctx: ActiveContext) -> tuple[Status, str]:
     ).decode()
     resp = ctx.send_with_headers(bad, {"X-PAYMENT": legacy_v1})
     if resp.status_code >= 500:
-        return Status.FAIL, f"endpoint returned {resp.status_code} on dual v2+legacy-V1 headers (crashed)"
+        return (
+            Status.FAIL,
+            f"endpoint returned {resp.status_code} on dual v2+legacy-V1 headers (crashed)",
+        )
     return _assert_rejected(resp)
 
 
-@_register("RS-SEC-004", "Payment with a non-32-byte nonce is rejected cleanly, not crashed",
-           Severity.MAJOR, f"{_CORE} §5.2.2 invalid nonce")
+@_register(
+    "RS-SEC-004",
+    "Payment with a non-32-byte nonce is rejected cleanly, not crashed",
+    Severity.MAJOR,
+    f"{_CORE} §5.2.2 invalid nonce",
+)
 def sec_004(ctx: ActiveContext) -> tuple[Status, str]:
     # The EIP-3009 nonce is a bytes32. A non-32-byte nonce is malformed (and breaks
     # replay protection); the endpoint must reject it cleanly, never 5xx-crash on a
@@ -308,8 +387,12 @@ def sec_004(ctx: ActiveContext) -> tuple[Status, str]:
     return _assert_rejected(resp)
 
 
-@_register("RS-NEG-011", "Payment whose `accepted` claims a scheme/network the server never offered is rejected",
-           Severity.MAJOR, f"{_CORE} §9 invalid_network")
+@_register(
+    "RS-NEG-011",
+    "Payment whose `accepted` claims a scheme/network the server never offered is rejected",
+    Severity.MAJOR,
+    f"{_CORE} §9 invalid_network",
+)
 def neg_011(ctx: ActiveContext) -> tuple[Status, str]:
     # The client echoes an `accepted` entry on a network the endpoint does not
     # offer. The server must match the payment to one of its own requirements and
@@ -319,8 +402,12 @@ def neg_011(ctx: ActiveContext) -> tuple[Status, str]:
     return _assert_rejected(ctx.send(payload))
 
 
-@_register("RS-NEG-012", "Payment with x402Version != 2 is rejected", Severity.MAJOR,
-           f"{_CORE} §9 invalid_x402_version")
+@_register(
+    "RS-NEG-012",
+    "Payment with x402Version != 2 is rejected",
+    Severity.MAJOR,
+    f"{_CORE} §9 invalid_x402_version",
+)
 def neg_012(ctx: ActiveContext) -> tuple[Status, str]:
     # A v2 endpoint must reject an unknown top-level x402Version (here 99) cleanly,
     # not mis-parse it. (1 may legitimately route to a V1 fallback; 99 is

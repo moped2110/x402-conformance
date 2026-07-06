@@ -68,7 +68,9 @@ def pr_001(s: ProbeSession) -> tuple[Status, str]:
     return Status.FAIL, f"x402Version is {version!r}, expected 2"
 
 
-@register("RS-PR-002", "resource object present with required url", Severity.MAJOR, f"{_CORE} §5.1.2")
+@register(
+    "RS-PR-002", "resource object present with required url", Severity.MAJOR, f"{_CORE} §5.1.2"
+)
 def pr_002(s: ProbeSession) -> tuple[Status, str]:
     if s.first.raw is None:
         return Status.SKIP, "no decoded PaymentRequired payload"
@@ -414,7 +416,10 @@ def pr_015(s: ProbeSession) -> tuple[Status, str]:
         amount = None
     tax = block.get("tax")
     if not isinstance(tax, dict):
-        return Status.SKIP, "jp402 present but carries no tax block (invoice lives in the OpenAPI doc)"
+        return (
+            Status.SKIP,
+            "jp402 present but carries no tax block (invoice lives in the OpenAPI doc)",
+        )
     problems = validate_tax(tax, amount)
     if problems:
         return Status.FAIL, "; ".join(problems)
@@ -436,7 +441,10 @@ def pr_016(s: ProbeSession) -> tuple[Status, str]:
     if s.first.raw is None or find_jp402(s.first.raw) is None:
         return Status.SKIP, "no jp402 advertised (opt-in JP-rail check)"
     if s.openapi is None:
-        return Status.SKIP, "jp402 advertised but /openapi.json was unreachable or not a JSON object"
+        return (
+            Status.SKIP,
+            "jp402 advertised but /openapi.json was unreachable or not a JSON object",
+        )
     invoices = find_invoice_blocks(s.openapi)
     if not invoices:
         return Status.SKIP, "OpenAPI doc carries no x-jp402.invoice block"

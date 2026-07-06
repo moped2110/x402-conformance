@@ -21,8 +21,8 @@ class Severity(str, enum.Enum):
     sets a non-zero exit code; MINOR is advisory."""
 
     CRITICAL = "critical"  # security / funds at risk
-    MAJOR = "major"        # spec violation, interop broken
-    MINOR = "minor"        # robustness / quality
+    MAJOR = "major"  # spec violation, interop broken
+    MINOR = "minor"  # robustness / quality
 
 
 class Status(str, enum.Enum):
@@ -30,7 +30,7 @@ class Status(str, enum.Enum):
 
     PASS = "pass"
     FAIL = "fail"
-    SKIP = "skip"   # precondition not met (e.g. no 402 to inspect)
+    SKIP = "skip"  # precondition not met (e.g. no 402 to inspect)
     ERROR = "error"  # the check itself crashed — a bug in this suite
 
 

@@ -76,8 +76,12 @@ def run_checks(
         openapi = _maybe_fetch_openapi(client, url, first)
 
     session = ProbeSession(
-        target_url=url, method=effective, first=first, second=second,
-        openapi=openapi, notes=notes,
+        target_url=url,
+        method=effective,
+        first=first,
+        second=second,
+        openapi=openapi,
+        notes=notes,
     )
 
     results: list[CheckResult] = []

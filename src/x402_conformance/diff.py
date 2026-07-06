@@ -47,12 +47,12 @@ class DiffResult:
     new_target: str = ""
     old_time: str = ""
     new_time: str = ""
-    fixed: list[Transition] = field(default_factory=list)         # bad -> pass
-    regressed: list[Transition] = field(default_factory=list)     # pass -> bad
+    fixed: list[Transition] = field(default_factory=list)  # bad -> pass
+    regressed: list[Transition] = field(default_factory=list)  # pass -> bad
     still_failing: list[Transition] = field(default_factory=list)  # bad -> bad
     other_changes: list[Transition] = field(default_factory=list)  # any other status change
-    added: list[str] = field(default_factory=list)                # only in new
-    removed: list[str] = field(default_factory=list)              # only in old
+    added: list[str] = field(default_factory=list)  # only in new
+    removed: list[str] = field(default_factory=list)  # only in old
 
     @property
     def has_regressions(self) -> bool:
@@ -61,8 +61,7 @@ class DiffResult:
     @property
     def unchanged(self) -> bool:
         return not (
-            self.fixed or self.regressed or self.other_changes
-            or self.added or self.removed
+            self.fixed or self.regressed or self.other_changes or self.added or self.removed
         )
 
 

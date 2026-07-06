@@ -27,6 +27,7 @@ def _load(name: str) -> dict:
 
 # --- invoice validator (discovery / OpenAPI surface) ---
 
+
 def test_valid_t_number_passes() -> None:
     assert validate_invoice({"registrationNumber": "T1234567890123", "qualifiedIssuer": True}) == []
 
@@ -51,6 +52,7 @@ def test_non_boolean_flag_caught() -> None:
 
 # --- locating the block on either surface ---
 
+
 def test_find_jp402_in_extensions() -> None:
     raw = {"extensions": {"x-jp402": {"invoice": {"registrationNumber": "T1234567890123"}}}}
     block = find_jp402(raw)
@@ -68,6 +70,7 @@ def test_find_jp402_absent() -> None:
 
 # --- live-402 fixture: `jp402` (no x-) on accepts[], carrying `tax` ---
 
+
 def test_find_jp402_accept_on_live_fixture() -> None:
     raw = _load("live-402-envelope.json")
     found = find_jp402_accept(raw)
@@ -84,13 +87,17 @@ def test_live_fixture_tax_is_valid() -> None:
 
 def test_tax_vat_relation_mismatch_caught() -> None:
     # vat should be excl * rate = 10 * 0.1 = 1; 5 is wrong.
-    problems = validate_tax({"excl_jpyc": "10", "vat_jpyc": "5", "rate": 0.1}, "11000000000000000000")
+    problems = validate_tax(
+        {"excl_jpyc": "10", "vat_jpyc": "5", "rate": 0.1}, "11000000000000000000"
+    )
     assert problems and "vat_jpyc" in problems[0]
 
 
 def test_tax_amount_scaling_mismatch_caught() -> None:
     # excl+vat = 11 must scale to amount by a power of ten; 12e18 does not.
-    problems = validate_tax({"excl_jpyc": "10", "vat_jpyc": "1", "rate": 0.1}, "12000000000000000000")
+    problems = validate_tax(
+        {"excl_jpyc": "10", "vat_jpyc": "1", "rate": 0.1}, "12000000000000000000"
+    )
     assert problems and "scale to amount" in problems[0]
 
 
@@ -110,6 +117,7 @@ def test_tax_without_amount_skips_scaling() -> None:
 
 
 # --- discovery fixture: `x-jp402.invoice` in the OpenAPI doc ---
+
 
 def test_find_and_validate_invoice_on_openapi_fixture() -> None:
     doc = _load("openapi-discovery-x-jp402.json")

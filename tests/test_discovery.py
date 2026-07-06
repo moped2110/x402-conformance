@@ -16,9 +16,16 @@ ITEM = {
     "resource": "https://api.example.com/premium-data",
     "type": "http",
     "x402Version": 2,
-    "accepts": [{"scheme": "exact", "network": "eip155:84532", "amount": "10000",
-                 "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-                 "payTo": "0x209693Bc6afc0C5328bA36FaF03C514EF312287C", "maxTimeoutSeconds": 60}],
+    "accepts": [
+        {
+            "scheme": "exact",
+            "network": "eip155:84532",
+            "amount": "10000",
+            "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+            "payTo": "0x209693Bc6afc0C5328bA36FaF03C514EF312287C",
+            "maxTimeoutSeconds": 60,
+        }
+    ],
     "lastUpdated": 1703123456,
 }
 
@@ -40,10 +47,14 @@ def make_bazaar(*, body: dict | None = None, honor_filter: bool = True) -> httpx
             limit = int(request.url.params.get("limit", 20))
         except ValueError:
             limit = 20
-        return httpx.Response(200, json={
-            "x402Version": 2, "items": items,
-            "pagination": {"limit": limit, "offset": 0, "total": len(items)},
-        })
+        return httpx.Response(
+            200,
+            json={
+                "x402Version": 2,
+                "items": items,
+                "pagination": {"limit": limit, "offset": 0, "total": len(items)},
+            },
+        )
 
     return httpx.MockTransport(handler)
 
@@ -66,8 +77,11 @@ def test_missing_pagination_fails() -> None:
 
 def test_item_missing_resource_fails() -> None:
     broken_item = {"type": "http", "accepts": []}  # no resource
-    bad = {"x402Version": 2, "items": [broken_item],
-           "pagination": {"limit": 20, "offset": 0, "total": 1}}
+    bad = {
+        "x402Version": 2,
+        "items": [broken_item],
+        "pagination": {"limit": 20, "offset": 0, "total": 1},
+    }
     results = run_discovery_checks(BASE, transport=make_bazaar(body=bad))
     r = by_id(results, "DI-001")
     assert r.status == Status.FAIL
@@ -88,23 +102,33 @@ def test_empty_catalogue_skips_filter_check() -> None:
 
 # --- DI-003: listing vs the resource's live 402 (staleness / metadata manipulation) ---
 
+
 def _encode_header(payload: dict) -> str:
     return base64.b64encode(json.dumps(payload).encode()).decode()
 
 
 def make_bazaar_with_live(live_accepts: list) -> httpx.MockTransport:
     """A Bazaar that also serves the listed resource's live 402 (with `live_accepts`)."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if path.endswith("/discovery/resources"):
-            return httpx.Response(200, json={
-                "x402Version": 2, "items": [ITEM],
-                "pagination": {"limit": 20, "offset": 0, "total": 1},
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "x402Version": 2,
+                    "items": [ITEM],
+                    "pagination": {"limit": 20, "offset": 0, "total": 1},
+                },
+            )
         if path.endswith("/premium-data"):
-            payload = {"x402Version": 2, "error": "payment required",
-                       "resource": {"url": ITEM["resource"]},
-                       "accepts": live_accepts, "extensions": {}}
+            payload = {
+                "x402Version": 2,
+                "error": "payment required",
+                "resource": {"url": ITEM["resource"]},
+                "accepts": live_accepts,
+                "extensions": {},
+            }
             return httpx.Response(402, headers={"PAYMENT-REQUIRED": _encode_header(payload)})
         return httpx.Response(404)
 

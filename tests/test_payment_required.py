@@ -95,7 +95,10 @@ def test_missing_required_accept_field(valid_payload: dict) -> None:
     del valid_payload["accepts"][0]["payTo"]
     results = run_checks(TARGET_URL, transport=transport_with_402(valid_payload))
     r = by_id(results, "RS-PR-005")
-    assert r.status in (Status.FAIL, Status.SKIP)  # schema parse already fails -> raw check still runs
+    assert r.status in (
+        Status.FAIL,
+        Status.SKIP,
+    )  # schema parse already fails -> raw check still runs
     # the raw-level check must name the missing field
     if r.status == Status.FAIL:
         assert "payTo" in r.detail
@@ -188,8 +191,11 @@ _OPENAPI_OK = {
     "info": {"x-jp402": {"currency": "JPYC"}},
     "paths": {
         "/premium-data": {
-            "get": {"x-jp402": {"invoice": {"registrationNumber": "T0000000000000",
-                                            "qualifiedIssuer": True}}}
+            "get": {
+                "x-jp402": {
+                    "invoice": {"registrationNumber": "T0000000000000", "qualifiedIssuer": True}
+                }
+            }
         }
     },
 }
@@ -200,12 +206,15 @@ _OPENAPI_BAD = {
 
 def _jp402_402(valid_payload: dict) -> dict:
     valid_payload["accepts"][0]["amount"] = "11000000000000000000"
-    valid_payload["accepts"][0]["jp402"] = {"tax": {"excl_jpyc": "10", "vat_jpyc": "1", "rate": 0.1}}
+    valid_payload["accepts"][0]["jp402"] = {
+        "tax": {"excl_jpyc": "10", "vat_jpyc": "1", "rate": 0.1}
+    }
     return valid_payload
 
 
 def _routing_transport(payload: dict, openapi: dict | None) -> httpx.MockTransport:
     """402 for the resource, and serve (or 404) /openapi.json separately."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/openapi.json"):
             return httpx.Response(200, json=openapi) if openapi is not None else httpx.Response(404)
@@ -236,5 +245,7 @@ def test_pr016_no_jp402_skips(valid_payload: dict) -> None:
 
 def test_pr016_openapi_unreachable_skips(valid_payload: dict) -> None:
     payload = _jp402_402(valid_payload)
-    results = run_checks(TARGET_URL, transport=_routing_transport(payload, None))  # /openapi.json 404
+    results = run_checks(
+        TARGET_URL, transport=_routing_transport(payload, None)
+    )  # /openapi.json 404
     assert by_id(results, "RS-PR-016").status == Status.SKIP

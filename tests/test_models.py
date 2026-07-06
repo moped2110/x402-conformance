@@ -35,19 +35,25 @@ def test_extra_fields_are_allowed_not_rejected() -> None:
 
 
 def test_settlement_response_aliases() -> None:
-    sr = SettlementResponse.model_validate({
-        "success": False, "errorReason": "insufficient_funds",
-        "transaction": "", "network": "eip155:84532",
-    })
+    sr = SettlementResponse.model_validate(
+        {
+            "success": False,
+            "errorReason": "insufficient_funds",
+            "transaction": "",
+            "network": "eip155:84532",
+        }
+    )
     assert sr.success is False
     assert sr.error_reason == "insufficient_funds"
 
 
 def test_resourceinfo_optional_fields() -> None:
-    pr = PaymentRequired.model_validate({
-        "x402Version": 2,
-        "resource": {"url": "https://x.example/y"},  # only required field
-        "accepts": [VALID_PAYMENT_REQUIRED["accepts"][0]],
-    })
+    pr = PaymentRequired.model_validate(
+        {
+            "x402Version": 2,
+            "resource": {"url": "https://x.example/y"},  # only required field
+            "accepts": [VALID_PAYMENT_REQUIRED["accepts"][0]],
+        }
+    )
     assert pr.resource.description is None
     assert pr.resource.icon_url is None

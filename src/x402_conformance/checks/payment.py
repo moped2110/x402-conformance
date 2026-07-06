@@ -56,8 +56,13 @@ def evaluate_payment(
     }
     if context is None:
         return [
-            _result(cid, titles[cid], sev_m if cid == "RS-PAY-004" else sev_c,
-                    Status.SKIP, "no exact/eip3009 requirement / signer to pay")
+            _result(
+                cid,
+                titles[cid],
+                sev_m if cid == "RS-PAY-004" else sev_c,
+                Status.SKIP,
+                "no exact/eip3009 requirement / signer to pay",
+            )
             for cid in titles
         ]
 
@@ -69,58 +74,117 @@ def evaluate_payment(
 
     # RS-PAY-001 — resource delivered
     if resp.served_resource:
-        results.append(_result("RS-PAY-001", titles["RS-PAY-001"], sev_c, Status.PASS,
-                               f"status {resp.status_code}"))
+        results.append(
+            _result(
+                "RS-PAY-001", titles["RS-PAY-001"], sev_c, Status.PASS, f"status {resp.status_code}"
+            )
+        )
     else:
         detail = f"status {resp.status_code}"
         if resp.settlement and resp.settlement.error_reason:
             detail += f", reason {resp.settlement.error_reason!r}"
-        results.append(_result("RS-PAY-001", titles["RS-PAY-001"], sev_c, Status.FAIL,
-                               f"valid payment was not accepted ({detail})"))
+        results.append(
+            _result(
+                "RS-PAY-001",
+                titles["RS-PAY-001"],
+                sev_c,
+                Status.FAIL,
+                f"valid payment was not accepted ({detail})",
+            )
+        )
 
     # RS-PAY-002 — settlement response
     settlement: SettlementResponse | None = resp.settlement
     if resp.settlement_error:
-        results.append(_result("RS-PAY-002", titles["RS-PAY-002"], sev_c, Status.FAIL,
-                               resp.settlement_error))
+        results.append(
+            _result("RS-PAY-002", titles["RS-PAY-002"], sev_c, Status.FAIL, resp.settlement_error)
+        )
     elif settlement is None:
-        results.append(_result("RS-PAY-002", titles["RS-PAY-002"], sev_c, Status.FAIL,
-                               "no PAYMENT-RESPONSE header on a successful payment"))
+        results.append(
+            _result(
+                "RS-PAY-002",
+                titles["RS-PAY-002"],
+                sev_c,
+                Status.FAIL,
+                "no PAYMENT-RESPONSE header on a successful payment",
+            )
+        )
     elif not settlement.success:
-        results.append(_result("RS-PAY-002", titles["RS-PAY-002"], sev_c, Status.FAIL,
-                               f"settlement.success is false (reason {settlement.error_reason!r})"))
+        results.append(
+            _result(
+                "RS-PAY-002",
+                titles["RS-PAY-002"],
+                sev_c,
+                Status.FAIL,
+                f"settlement.success is false (reason {settlement.error_reason!r})",
+            )
+        )
     elif not settlement.transaction or settlement.transaction == "0x":
-        results.append(_result("RS-PAY-002", titles["RS-PAY-002"], sev_c, Status.FAIL,
-                               "settlement.success but transaction hash is empty"))
+        results.append(
+            _result(
+                "RS-PAY-002",
+                titles["RS-PAY-002"],
+                sev_c,
+                Status.FAIL,
+                "settlement.success but transaction hash is empty",
+            )
+        )
     else:
-        results.append(_result("RS-PAY-002", titles["RS-PAY-002"], sev_c, Status.PASS,
-                               f"tx {settlement.transaction}"))
+        results.append(
+            _result(
+                "RS-PAY-002",
+                titles["RS-PAY-002"],
+                sev_c,
+                Status.PASS,
+                f"tx {settlement.transaction}",
+            )
+        )
 
     # RS-PAY-003 — network + payer consistency
     if settlement is None or not settlement.success:
-        results.append(_result("RS-PAY-003", titles["RS-PAY-003"], sev_m, Status.SKIP,
-                               "no successful settlement to inspect"))
+        results.append(
+            _result(
+                "RS-PAY-003",
+                titles["RS-PAY-003"],
+                sev_m,
+                Status.SKIP,
+                "no successful settlement to inspect",
+            )
+        )
     else:
         problems = []
         if settlement.network != context.requirements.get("network"):
-            problems.append(f"network {settlement.network!r} != {context.requirements.get('network')!r}")
+            problems.append(
+                f"network {settlement.network!r} != {context.requirements.get('network')!r}"
+            )
         payer = getattr(settlement, "payer", None)
         if payer and payer.lower() != context.signer.address.lower():
             problems.append(f"payer {payer!r} != signer {context.signer.address!r}")
         if problems:
-            results.append(_result("RS-PAY-003", titles["RS-PAY-003"], sev_m, Status.FAIL,
-                                   "; ".join(problems)))
+            results.append(
+                _result("RS-PAY-003", titles["RS-PAY-003"], sev_m, Status.FAIL, "; ".join(problems))
+            )
         else:
             results.append(_result("RS-PAY-003", titles["RS-PAY-003"], sev_m, Status.PASS, ""))
 
     # RS-PAY-004 — on-chain verification (opt-in)
     tx = settlement.transaction if (settlement and settlement.success) else ""
     if not tx or tx == "0x":
-        results.append(_result("RS-PAY-004", titles["RS-PAY-004"], sev_m, Status.SKIP,
-                               "no settlement tx to verify"))
+        results.append(
+            _result(
+                "RS-PAY-004", titles["RS-PAY-004"], sev_m, Status.SKIP, "no settlement tx to verify"
+            )
+        )
     elif not rpc_url:
-        results.append(_result("RS-PAY-004", titles["RS-PAY-004"], sev_m, Status.SKIP,
-                               "no --rpc-url given; pass one to verify the tx on-chain"))
+        results.append(
+            _result(
+                "RS-PAY-004",
+                titles["RS-PAY-004"],
+                sev_m,
+                Status.SKIP,
+                "no --rpc-url given; pass one to verify the tx on-chain",
+            )
+        )
     else:
         status, detail = _verify_tx_onchain(rpc_url, tx)
         results.append(_result("RS-PAY-004", titles["RS-PAY-004"], sev_m, status, detail))
@@ -129,15 +193,36 @@ def evaluate_payment(
     if settlement is not None and settlement.success:
         replay = context.send(payload)  # identical PAYMENT-SIGNATURE / nonce
         if replay.served_resource or replay.settled_ok:
-            results.append(_result("RS-SEC-001", titles["RS-SEC-001"], sev_c, Status.FAIL,
-                                   f"replay of a settled payment was accepted "
-                                   f"(status {replay.status_code}) — nonce reuse not prevented"))
+            results.append(
+                _result(
+                    "RS-SEC-001",
+                    titles["RS-SEC-001"],
+                    sev_c,
+                    Status.FAIL,
+                    f"replay of a settled payment was accepted "
+                    f"(status {replay.status_code}) — nonce reuse not prevented",
+                )
+            )
         else:
-            results.append(_result("RS-SEC-001", titles["RS-SEC-001"], sev_c, Status.PASS,
-                                   f"replay correctly rejected (status {replay.status_code})"))
+            results.append(
+                _result(
+                    "RS-SEC-001",
+                    titles["RS-SEC-001"],
+                    sev_c,
+                    Status.PASS,
+                    f"replay correctly rejected (status {replay.status_code})",
+                )
+            )
     else:
-        results.append(_result("RS-SEC-001", titles["RS-SEC-001"], sev_c, Status.SKIP,
-                               "no successful settlement to replay"))
+        results.append(
+            _result(
+                "RS-SEC-001",
+                titles["RS-SEC-001"],
+                sev_c,
+                Status.SKIP,
+                "no successful settlement to replay",
+            )
+        )
 
     # RS-SEC-002 — fire N identical payments concurrently; at most one may settle.
     if settlement is not None and settlement.success:
@@ -147,14 +232,35 @@ def evaluate_payment(
             responses = list(ex.map(lambda _: context.send(race), range(n)))
         settled = sum(1 for r in responses if r.served_resource or r.settled_ok)
         if settled >= 2:
-            results.append(_result("RS-SEC-002", titles["RS-SEC-002"], sev_c, Status.FAIL,
-                                   f"{settled}/{n} concurrent settles of one payment succeeded "
-                                   f"— nonce reuse under concurrency (double-settle)"))
+            results.append(
+                _result(
+                    "RS-SEC-002",
+                    titles["RS-SEC-002"],
+                    sev_c,
+                    Status.FAIL,
+                    f"{settled}/{n} concurrent settles of one payment succeeded "
+                    f"— nonce reuse under concurrency (double-settle)",
+                )
+            )
         else:
-            results.append(_result("RS-SEC-002", titles["RS-SEC-002"], sev_c, Status.PASS,
-                                   f"{settled}/{n} concurrent settles succeeded (no double-settle)"))
+            results.append(
+                _result(
+                    "RS-SEC-002",
+                    titles["RS-SEC-002"],
+                    sev_c,
+                    Status.PASS,
+                    f"{settled}/{n} concurrent settles succeeded (no double-settle)",
+                )
+            )
     else:
-        results.append(_result("RS-SEC-002", titles["RS-SEC-002"], sev_c, Status.SKIP,
-                               "no successful settlement to race"))
+        results.append(
+            _result(
+                "RS-SEC-002",
+                titles["RS-SEC-002"],
+                sev_c,
+                Status.SKIP,
+                "no successful settlement to race",
+            )
+        )
 
     return results

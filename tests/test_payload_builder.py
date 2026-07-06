@@ -39,21 +39,34 @@ REQUIREMENTS = {
 
 SIGNER = EvmSigner.from_key("0x" + "11" * 32)
 
-_DOMAIN = {"name": "USDC", "version": "2", "chainId": 84532,
-           "verifyingContract": REQUIREMENTS["asset"]}
+_DOMAIN = {
+    "name": "USDC",
+    "version": "2",
+    "chainId": 84532,
+    "verifyingContract": REQUIREMENTS["asset"],
+}
 
 
 def _build(**kw):
     return build_exact_eip3009_payload(
-        REQUIREMENTS, SIGNER, valid_after=1740672089, valid_before=1740672154,
-        nonce="0x" + "ab" * 32, **kw
+        REQUIREMENTS,
+        SIGNER,
+        valid_after=1740672089,
+        valid_before=1740672154,
+        nonce="0x" + "ab" * 32,
+        **kw,
     )
 
 
 def _signable_for(auth):
-    message = {"from": auth["from"], "to": auth["to"], "value": int(auth["value"]),
-               "validAfter": int(auth["validAfter"]), "validBefore": int(auth["validBefore"]),
-               "nonce": bytes.fromhex(auth["nonce"].removeprefix("0x"))}
+    message = {
+        "from": auth["from"],
+        "to": auth["to"],
+        "value": int(auth["value"]),
+        "validAfter": int(auth["validAfter"]),
+        "validBefore": int(auth["validBefore"]),
+        "nonce": bytes.fromhex(auth["nonce"].removeprefix("0x")),
+    }
     return encode_typed_data(_DOMAIN, _TRANSFER_WITH_AUTHORIZATION_TYPES, message)
 
 
@@ -63,14 +76,21 @@ def test_digest_matches_sdk_oracle() -> None:
     sdk_types = pytest.importorskip("x402.mechanisms.evm.types")
 
     authorization = {
-        "from": SIGNER.address, "to": REQUIREMENTS["payTo"], "value": "10000",
-        "validAfter": "1740672089", "validBefore": "1740672154", "nonce": "0x" + "ab" * 32,
+        "from": SIGNER.address,
+        "to": REQUIREMENTS["payTo"],
+        "value": "10000",
+        "validAfter": "1740672089",
+        "validBefore": "1740672154",
+        "nonce": "0x" + "ab" * 32,
     }
     our_digest = eip712_digest(authorization, 84532, REQUIREMENTS["asset"], "USDC", "2")
 
     sdk_auth = sdk_types.ExactEIP3009Authorization(
-        from_address=authorization["from"], to=authorization["to"], value=authorization["value"],
-        valid_after=authorization["validAfter"], valid_before=authorization["validBefore"],
+        from_address=authorization["from"],
+        to=authorization["to"],
+        value=authorization["value"],
+        valid_after=authorization["validAfter"],
+        valid_before=authorization["validBefore"],
         nonce=authorization["nonce"],
     )
     sdk_digest = sdk_eip712.hash_eip3009_authorization(

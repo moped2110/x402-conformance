@@ -38,6 +38,7 @@ _JP402_KEYS = ("jp402", "x-jp402")
 # Live-402 surface: locate the block and validate the tax breakdown.
 # --------------------------------------------------------------------------
 
+
 def find_jp402_accept(
     raw: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]] | None:
@@ -153,6 +154,7 @@ def validate_tax(tax: dict[str, Any], amount: Any = None) -> list[str]:
 # --------------------------------------------------------------------------
 # Discovery (OpenAPI) surface: locate and validate the invoice block.
 # --------------------------------------------------------------------------
+
 
 def find_invoice_blocks(openapi: dict[str, Any]) -> list[dict[str, Any]]:
     """Collect every ``x-jp402.invoice`` block in a published OpenAPI doc.

@@ -104,8 +104,11 @@ def test_v1_envelope_skips_v2_schema_check() -> None:
         "x402Version": 1,
         "accepts": [
             {
-                "scheme": "exact", "network": "eip155:137", "amount": "1",
-                "asset": "0x" + "ab" * 20, "payTo": "0x" + "cd" * 20,
+                "scheme": "exact",
+                "network": "eip155:137",
+                "amount": "1",
+                "asset": "0x" + "ab" * 20,
+                "payTo": "0x" + "cd" * 20,
                 "extra": {"name": "JPY Coin", "version": "1"},
             }
         ],

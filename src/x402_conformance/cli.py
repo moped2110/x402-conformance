@@ -43,16 +43,23 @@ def _make_signer(signer_key: str | None) -> object | None:
     try:
         from .payload_builder import EvmSigner
     except Exception as exc:  # pragma: no cover
-        typer.secho(f"signing unavailable ({exc}); install x402-conformance[evm]",
-                    fg=typer.colors.YELLOW, err=True)
+        typer.secho(
+            f"signing unavailable ({exc}); install x402-conformance[evm]",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
         return None
     key = signer_key or os.environ.get("X402_TESTNET_PAYER_KEY")
     return EvmSigner.from_key(key) if key else EvmSigner.random()
 
 
 def _emit(
-    results: list[CheckResult], target: str, quiet: bool,
-    json_out: Path | None, md_out: Path | None, developer: bool = False,
+    results: list[CheckResult],
+    target: str,
+    quiet: bool,
+    json_out: Path | None,
+    md_out: Path | None,
+    developer: bool = False,
 ) -> int:
     """Print results + write reports. Returns the CI exit code."""
     code = exit_code(results)
@@ -94,7 +101,8 @@ def _emit(
 @app.command()
 def explain(
     check_id: str | None = typer.Argument(
-        None, help="A check ID (e.g. RS-NEG-007) or a prefix (e.g. RS-SEC). "
+        None,
+        help="A check ID (e.g. RS-NEG-007) or a prefix (e.g. RS-SEC). "
         "Omit to list the whole catalog.",
     ),
 ) -> None:
@@ -117,9 +125,7 @@ def diff(
     Exit 0 if no previously-passing check regressed, 1 if any regressed, 2 on read error.
     """
     try:
-        result = diff_reports(
-            old.read_text(encoding="utf-8"), new.read_text(encoding="utf-8")
-        )
+        result = diff_reports(old.read_text(encoding="utf-8"), new.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         typer.secho(f"cannot diff: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc
@@ -130,14 +136,19 @@ def diff(
 @app.command()
 def scan(
     targets: Path = typer.Argument(
-        ..., help="File of facilitator base URLs, one per line (blank lines and #comments ignored)",
+        ...,
+        help="File of facilitator base URLs, one per line (blank lines and #comments ignored)",
     ),
     resource: str | None = typer.Option(
-        None, "--resource", help="x402 resource URL to source requirements for the /verify "
+        None,
+        "--resource",
+        help="x402 resource URL to source requirements for the /verify "
         "negative checks (FA-VER/FA-ERR); without it only /supported is exercised.",
     ),
     signer_key: str | None = typer.Option(
-        None, "--signer-key", help="Throwaway testnet key for --resource negatives "
+        None,
+        "--signer-key",
+        help="Throwaway testnet key for --resource negatives "
         "(default: $X402_TESTNET_PAYER_KEY or random).",
     ),
     timeout: float = typer.Option(10.0, "--timeout", help="Per-request timeout in seconds"),
@@ -182,34 +193,44 @@ def check(
     method: str = typer.Option("GET", "--method", "-m", help="HTTP method for the probe"),
     timeout: float = typer.Option(10.0, "--timeout", help="Request timeout in seconds"),
     active: bool = typer.Option(
-        False, "--active", "-a",
+        False,
+        "--active",
+        "-a",
         help="Also run active negative checks (RS-NEG): sends deliberately-invalid "
-             "payments and verifies they are rejected. Uses a throwaway signer; never mainnet.",
+        "payments and verifies they are rejected. Uses a throwaway signer; never mainnet.",
     ),
     signer_key: str | None = typer.Option(
-        None, "--signer-key", help="Testnet throwaway private key for --active "
+        None,
+        "--signer-key",
+        help="Testnet throwaway private key for --active "
         "(default: $X402_TESTNET_PAYER_KEY or a random key)",
     ),
     resource_marker: str | None = typer.Option(
-        None, "--resource-marker", help="A unique string from the protected resource "
+        None,
+        "--resource-marker",
+        help="A unique string from the protected resource "
         "body. With --active, a rejected response that still contains it is flagged "
         "as a content leak (RS-SEC-009).",
     ),
     pay: bool = typer.Option(
-        False, "--pay",
+        False,
+        "--pay",
         help="Run the positive settlement path (RS-PAY): sends ONE valid, funded "
-             "payment that settles ON-CHAIN. MOVES REAL FUNDS — needs a funded "
-             "--signer-key. Use only against a testnet/Anvil.",
+        "payment that settles ON-CHAIN. MOVES REAL FUNDS — needs a funded "
+        "--signer-key. Use only against a testnet/Anvil.",
     ),
     rpc_url: str | None = typer.Option(
-        None, "--rpc-url", help="RPC URL to verify the settlement tx on-chain (RS-PAY-004)",
+        None,
+        "--rpc-url",
+        help="RPC URL to verify the settlement tx on-chain (RS-PAY-004)",
     ),
     json_out: Path | None = typer.Option(None, "--json", help="Write JSON report to file"),
     md_out: Path | None = typer.Option(None, "--markdown", help="Write Markdown report to file"),
     fix: bool = typer.Option(
-        False, "--fix",
+        False,
+        "--fix",
         help="Print a developer-focused report instead of the full table: failures "
-             "only, grouped by severity, each with what's wrong, how to fix, and the spec ref.",
+        "only, grouped by severity, each with what's wrong, how to fix, and the spec ref.",
     ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Only print the summary line"),
 ) -> None:
@@ -225,13 +246,18 @@ def check(
         raise typer.Exit(2) from exc
 
     if resource_marker and not active:
-        typer.secho("note: --resource-marker has no effect without --active (it guards "
-                    "the active rejection path)", fg=typer.colors.YELLOW, err=True)
+        typer.secho(
+            "note: --resource-marker has no effect without --active (it guards "
+            "the active rejection path)",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
 
     if active:
         signer = _make_signer(signer_key)
         if signer is not None:
             from .active import run_active_checks
+
             results = results + run_active_checks(
                 url, signer, method=method, timeout=timeout, resource_marker=resource_marker
             )
@@ -240,6 +266,7 @@ def check(
         signer = _make_signer(signer_key)
         if signer is not None:
             from .active import run_payment_checks
+
             results = results + run_payment_checks(url, signer, rpc_url=rpc_url, method=method)
 
     raise typer.Exit(_emit(results, url, quiet, json_out, md_out, developer=fix))
@@ -247,19 +274,26 @@ def check(
 
 @app.command()
 def facilitator(
-    url: str = typer.Argument(..., help="Facilitator base URL (exposes /supported, /verify, /settle)"),
+    url: str = typer.Argument(
+        ..., help="Facilitator base URL (exposes /supported, /verify, /settle)"
+    ),
     resource: str | None = typer.Option(
-        None, "--resource", help="An x402 resource URL to source real requirements "
+        None,
+        "--resource",
+        help="An x402 resource URL to source real requirements "
         "from, enabling the /verify negative checks (FA-VER/FA-ERR).",
     ),
     signer_key: str | None = typer.Option(
-        None, "--signer-key", help="Testnet throwaway private key (default: "
+        None,
+        "--signer-key",
+        help="Testnet throwaway private key (default: "
         "$X402_TESTNET_PAYER_KEY or random); only used with --resource.",
     ),
     settle: bool = typer.Option(
-        False, "--settle",
+        False,
+        "--settle",
         help="Also run FA-SET /settle tests (valid settle, invalid settle, "
-             "double-settle). MOVES REAL FUNDS — testnet/Anvil only, needs a funded signer.",
+        "double-settle). MOVES REAL FUNDS — testnet/Anvil only, needs a funded signer.",
     ),
     timeout: float = typer.Option(10.0, "--timeout", help="Request timeout in seconds"),
     json_out: Path | None = typer.Option(None, "--json", help="Write JSON report to file"),
@@ -271,8 +305,9 @@ def facilitator(
 
     signer = _make_signer(signer_key) if resource else None
     try:
-        results = run_facilitator_checks(url, resource_url=resource, signer=signer,
-                                         allow_settle=settle, timeout=timeout)
+        results = run_facilitator_checks(
+            url, resource_url=resource, signer=signer, allow_settle=settle, timeout=timeout
+        )
     except httpx.HTTPError as exc:
         typer.secho(f"facilitator unreachable: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc

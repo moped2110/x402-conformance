@@ -28,7 +28,9 @@ GOOD_SUPPORTED = {
 
 
 def make_facilitator(
-    *, supported: dict | None = None, verify_buggy: bool = False,
+    *,
+    supported: dict | None = None,
+    verify_buggy: bool = False,
     settle_no_nonce_check: bool = False,
 ) -> httpx.MockTransport:
     body = GOOD_SUPPORTED if supported is None else supported
@@ -37,7 +39,9 @@ def make_facilitator(
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if request.method == "GET" and path == "/data":
-            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+            return httpx.Response(
+                402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)}
+            )
         if request.method == "GET" and path == "/supported":
             return httpx.Response(200, json=body)
         if request.method == "POST" and path == "/verify":
@@ -47,27 +51,52 @@ def make_facilitator(
             valid = int(auth["value"]) == int(req["amount"])
             if verify_buggy or valid:
                 return httpx.Response(200, json={"isValid": True, "payer": auth["from"]})
-            return httpx.Response(200, json={
-                "isValid": False,
-                "invalidReason": "invalid_exact_evm_payload_authorization_value_mismatch",
-                "payer": auth["from"],
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "isValid": False,
+                    "invalidReason": "invalid_exact_evm_payload_authorization_value_mismatch",
+                    "payer": auth["from"],
+                },
+            )
         if request.method == "POST" and path == "/settle":
             payload = json.loads(request.content)
             auth = payload["paymentPayload"]["payload"]["authorization"]
             req = payload["paymentRequirements"]
             net = req["network"]
             if int(auth["value"]) != int(req["amount"]):
-                return httpx.Response(200, json={"success": False, "transaction": "",
-                    "errorReason": "invalid_exact_evm_payload_authorization_value_mismatch",
-                    "network": net, "payer": auth["from"]})
+                return httpx.Response(
+                    200,
+                    json={
+                        "success": False,
+                        "transaction": "",
+                        "errorReason": "invalid_exact_evm_payload_authorization_value_mismatch",
+                        "network": net,
+                        "payer": auth["from"],
+                    },
+                )
             nonce = auth["nonce"]
             if not settle_no_nonce_check and nonce in used_nonces:
-                return httpx.Response(200, json={"success": False, "transaction": "",
-                    "errorReason": "invalid_transaction_state", "network": net, "payer": auth["from"]})
+                return httpx.Response(
+                    200,
+                    json={
+                        "success": False,
+                        "transaction": "",
+                        "errorReason": "invalid_transaction_state",
+                        "network": net,
+                        "payer": auth["from"],
+                    },
+                )
             used_nonces.add(nonce)
-            return httpx.Response(200, json={"success": True, "transaction": "0x" + "ef" * 32,
-                "network": net, "payer": auth["from"]})
+            return httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "transaction": "0x" + "ef" * 32,
+                    "network": net,
+                    "payer": auth["from"],
+                },
+            )
         return httpx.Response(404)
 
     return httpx.MockTransport(handler)
@@ -95,8 +124,11 @@ def test_supported_missing_signers_fails() -> None:
 
 def test_kind_non_caip2_fails() -> None:
     # A *v2* kind must use a CAIP-2 network; a legacy name is a fault for v2.
-    bad = {"kinds": [{"x402Version": 2, "scheme": "exact", "network": "base-sepolia"}],
-           "extensions": [], "signers": {}}
+    bad = {
+        "kinds": [{"x402Version": 2, "scheme": "exact", "network": "base-sepolia"}],
+        "extensions": [],
+        "signers": {},
+    }
     results = run_facilitator_checks(FAC, transport=make_facilitator(supported=bad))
     assert by_id(results, "FA-SUP-002").status == Status.FAIL
 
@@ -105,17 +137,24 @@ def test_mixed_v1_v2_supported_passes() -> None:
     # A facilitator serving both protocol versions (the common case, e.g. x402-rs)
     # advertises a v1 kind with a legacy network NAME alongside a CAIP-2 v2 kind.
     # Both are conformant — FA-SUP-002 must not flag the v1 kind.
-    mixed = {"kinds": [
-        {"x402Version": 2, "scheme": "exact", "network": "eip155:84532"},
-        {"x402Version": 1, "scheme": "exact", "network": "base-sepolia"},
-    ], "extensions": [], "signers": {}}
+    mixed = {
+        "kinds": [
+            {"x402Version": 2, "scheme": "exact", "network": "eip155:84532"},
+            {"x402Version": 1, "scheme": "exact", "network": "base-sepolia"},
+        ],
+        "extensions": [],
+        "signers": {},
+    }
     results = run_facilitator_checks(FAC, transport=make_facilitator(supported=mixed))
     assert by_id(results, "FA-SUP-002").status == Status.PASS
 
 
 def test_unknown_version_kind_fails() -> None:
-    bad = {"kinds": [{"x402Version": 3, "scheme": "exact", "network": "eip155:84532"}],
-           "extensions": [], "signers": {}}
+    bad = {
+        "kinds": [{"x402Version": 3, "scheme": "exact", "network": "eip155:84532"}],
+        "extensions": [],
+        "signers": {},
+    }
     results = run_facilitator_checks(FAC, transport=make_facilitator(supported=bad))
     assert by_id(results, "FA-SUP-002").status == Status.FAIL
 
@@ -137,22 +176,30 @@ def test_no_resource_skips_verify_checks() -> None:
 
 # --- FA-SET (direct /settle, opt-in, nonce-aware) ---
 
+
 def test_settle_group_skipped_without_flag() -> None:
-    results = run_facilitator_checks(FAC, resource_url=RES, signer=SIGNER,
-                                     transport=make_facilitator())
+    results = run_facilitator_checks(
+        FAC, resource_url=RES, signer=SIGNER, transport=make_facilitator()
+    )
     for cid in ("FA-SET-001", "FA-SET-002", "FA-SET-003"):
         assert by_id(results, cid).status == Status.SKIP
 
 
 def test_settle_happy_and_double_settle_blocked() -> None:
-    results = run_facilitator_checks(FAC, resource_url=RES, signer=SIGNER,
-                                     allow_settle=True, transport=make_facilitator())
+    results = run_facilitator_checks(
+        FAC, resource_url=RES, signer=SIGNER, allow_settle=True, transport=make_facilitator()
+    )
     assert by_id(results, "FA-SET-001").status == Status.PASS
     assert by_id(results, "FA-SET-002").status == Status.PASS
     assert by_id(results, "FA-SET-003").status == Status.PASS  # double-settle rejected
 
 
 def test_settle_without_nonce_check_is_caught() -> None:
-    results = run_facilitator_checks(FAC, resource_url=RES, signer=SIGNER, allow_settle=True,
-                                     transport=make_facilitator(settle_no_nonce_check=True))
+    results = run_facilitator_checks(
+        FAC,
+        resource_url=RES,
+        signer=SIGNER,
+        allow_settle=True,
+        transport=make_facilitator(settle_no_nonce_check=True),
+    )
     assert by_id(results, "FA-SET-003").status == Status.FAIL  # double-settle wrongly accepted

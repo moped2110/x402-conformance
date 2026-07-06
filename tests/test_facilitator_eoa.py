@@ -24,10 +24,13 @@ from x402_conformance.checks.facilitator import (
 from x402_conformance.payload_builder import EvmSigner
 
 REQ = {
-    "scheme": "exact", "network": "eip155:84532", "amount": "10000",
+    "scheme": "exact",
+    "network": "eip155:84532",
+    "amount": "10000",
     "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
     "payTo": "0x209693Bc6afc0C5328bA36FaF03C514EF312287C",
-    "maxTimeoutSeconds": 300, "extra": {"name": "USDC", "version": "2"},
+    "maxTimeoutSeconds": 300,
+    "extra": {"name": "USDC", "version": "2"},
 }
 SIGNER = EvmSigner.from_key("0x" + "33" * 32)
 
@@ -38,8 +41,9 @@ def _by_id(results, cid):  # type: ignore[no-untyped-def]
 
 def _ctx(handler) -> FacilitatorContext:  # type: ignore[no-untyped-def]
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    return FacilitatorContext(base_url="http://fac.test", client=client,
-                              requirements=REQ, signer=SIGNER)
+    return FacilitatorContext(
+        base_url="http://fac.test", client=client, requirements=REQ, signer=SIGNER
+    )
 
 
 def test_fa_ver_003_passes_when_eoa_asset_rejected() -> None:
@@ -48,8 +52,9 @@ def test_fa_ver_003_passes_when_eoa_asset_rejected() -> None:
             body = json.loads(request.content)
             asset = body["paymentRequirements"]["asset"]
             if asset.lower() == _EOA_ASSET.lower():
-                return httpx.Response(200, json={
-                    "isValid": False, "invalidReason": "asset_not_deployed_contract"})
+                return httpx.Response(
+                    200, json={"isValid": False, "invalidReason": "asset_not_deployed_contract"}
+                )
             return httpx.Response(200, json={"isValid": True})
         return httpx.Response(404)
 
@@ -70,14 +75,18 @@ def test_fa_ver_003_fails_when_eoa_asset_accepted() -> None:
 
 # --- FA-VER-004: invalid input must not 5xx (clean 4xx/200 + isValid:false) ---
 
+
 def _verify_status_ctx(eoa_status: int, eoa_body: object | None = None) -> FacilitatorContext:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/verify"):
             body = json.loads(request.content)
             asset = body["paymentRequirements"]["asset"]
             if asset.lower() == _EOA_ASSET.lower():
-                return (httpx.Response(eoa_status) if eoa_body is None
-                        else httpx.Response(eoa_status, json=eoa_body))
+                return (
+                    httpx.Response(eoa_status)
+                    if eoa_body is None
+                    else httpx.Response(eoa_status, json=eoa_body)
+                )
             return httpx.Response(200, json={"isValid": False, "invalidReason": "invalid_payment"})
         return httpx.Response(404)
 
@@ -91,7 +100,9 @@ def test_fa_ver_004_fails_on_5xx_for_invalid_input() -> None:
 
 
 def test_fa_ver_004_passes_on_clean_200() -> None:
-    ctx = _verify_status_ctx(200, {"isValid": False, "invalidReason": "asset_not_deployed_contract"})
+    ctx = _verify_status_ctx(
+        200, {"isValid": False, "invalidReason": "asset_not_deployed_contract"}
+    )
     r = _by_id(evaluate_facilitator(ctx), "FA-VER-004")
     assert r.status == Status.PASS, r.detail
 
@@ -103,10 +114,15 @@ def test_fa_ver_004_passes_on_clean_4xx() -> None:
 
 # --- FA-SUP-001: /supported is OPTIONAL (CORE §7.3) — absent must not fail ---
 
+
 def _supported_ctx(status: int, json_body: object | None = None) -> FacilitatorContext:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/supported"):
-            return httpx.Response(status) if json_body is None else httpx.Response(status, json=json_body)
+            return (
+                httpx.Response(status)
+                if json_body is None
+                else httpx.Response(status, json=json_body)
+            )
         return httpx.Response(404)
 
     return _ctx(handler)

@@ -36,11 +36,20 @@ def _recovers_to_from(payload: dict) -> bool:
     # rejects cleanly — it must not let the exception escape.
     auth = payload["payload"]["authorization"]
     try:
-        domain = {"name": REQ["extra"]["name"], "version": REQ["extra"]["version"],
-                  "chainId": CHAIN_ID, "verifyingContract": REQ["asset"]}
-        message = {"from": auth["from"], "to": auth["to"], "value": int(auth["value"]),
-                   "validAfter": int(auth["validAfter"]), "validBefore": int(auth["validBefore"]),
-                   "nonce": bytes.fromhex(auth["nonce"].removeprefix("0x"))}
+        domain = {
+            "name": REQ["extra"]["name"],
+            "version": REQ["extra"]["version"],
+            "chainId": CHAIN_ID,
+            "verifyingContract": REQ["asset"],
+        }
+        message = {
+            "from": auth["from"],
+            "to": auth["to"],
+            "value": int(auth["value"]),
+            "validAfter": int(auth["validAfter"]),
+            "validBefore": int(auth["validBefore"]),
+            "nonce": bytes.fromhex(auth["nonce"].removeprefix("0x")),
+        }
         signable = encode_typed_data(domain, _TRANSFER_WITH_AUTHORIZATION_TYPES, message)
         recovered = Account.recover_message(signable, signature=payload["payload"]["signature"])
     except Exception:
@@ -49,22 +58,32 @@ def _recovers_to_from(payload: dict) -> bool:
 
 
 def make_server(
-    *, check_signature: bool = True, check_amount: bool = True,
-    check_recipient: bool = True, check_time: bool = True,
-    check_version: bool = True, check_accepts: bool = True,
+    *,
+    check_signature: bool = True,
+    check_amount: bool = True,
+    check_recipient: bool = True,
+    check_time: bool = True,
+    check_version: bool = True,
+    check_accepts: bool = True,
     check_resource: bool = True,
 ) -> httpx.MockTransport:
     """A configurable x402 resource server. Defaults = fully correct."""
 
     def reject(reason: str) -> httpx.Response:
-        body = {"success": False, "errorReason": reason, "transaction": "",
-                "network": REQ["network"]}
+        body = {
+            "success": False,
+            "errorReason": reason,
+            "transaction": "",
+            "network": REQ["network"],
+        }
         return httpx.Response(402, headers={"PAYMENT-RESPONSE": encode_header(body)})
 
     def handler(request: httpx.Request) -> httpx.Response:
         sig = request.headers.get("PAYMENT-SIGNATURE")
         if sig is None:
-            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+            return httpx.Response(
+                402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)}
+            )
         try:
             decoded = base64.b64decode(sig, validate=True)
         except Exception:
@@ -85,8 +104,9 @@ def make_server(
             # Bind the payment to the requested resource: a non-empty claimed resource
             # (top-level or in `accepted`) that differs from ours is a cross-resource
             # replay attempt (RS-SEC-003). An empty/absent claim is fine.
-            claimed = ((payload.get("resource") or {}).get("url")
-                       or (payload.get("accepted") or {}).get("resource"))
+            claimed = (payload.get("resource") or {}).get("url") or (
+                payload.get("accepted") or {}
+            ).get("resource")
             if claimed and claimed != VALID_PAYMENT_REQUIRED["resource"]["url"]:
                 return reject("invalid_payment_requirements")
         if check_recipient and auth.get("to") != REQ["payTo"]:
@@ -100,10 +120,15 @@ def make_server(
             return reject("invalid_exact_evm_payload_signature")
 
         # Valid payment — serve the resource (negative checks never reach here).
-        ok = {"success": True, "transaction": "0x" + "ab" * 32, "network": REQ["network"],
-              "payer": auth["from"]}
-        return httpx.Response(200, headers={"PAYMENT-RESPONSE": encode_header(ok)},
-                              json={"data": "premium"})
+        ok = {
+            "success": True,
+            "transaction": "0x" + "ab" * 32,
+            "network": REQ["network"],
+            "payer": auth["from"],
+        }
+        return httpx.Response(
+            200, headers={"PAYMENT-RESPONSE": encode_header(ok)}, json={"data": "premium"}
+        )
 
     return httpx.MockTransport(handler)
 
@@ -117,8 +142,11 @@ def by_id(results, cid):
 
 def test_correct_server_passes_all_active_checks() -> None:
     results = run_active_checks(TARGET, SIGNER, transport=make_server())
-    bad = [(r.check_id, r.status.value, r.detail) for r in results
-           if r.status not in (Status.PASS, Status.SKIP)]
+    bad = [
+        (r.check_id, r.status.value, r.detail)
+        for r in results
+        if r.status not in (Status.PASS, Status.SKIP)
+    ]
     assert bad == [], bad
     # sanity: we actually ran the group, not skipped everything
     assert any(r.status == Status.PASS for r in results)
@@ -149,14 +177,25 @@ def test_sec_006_legacy_header_smuggle_is_caught() -> None:
     # Vulnerable: serves whenever a legacy X-PAYMENT header is present, bypassing v2.
     def handler(request: httpx.Request) -> httpx.Response:
         if request.headers.get("PAYMENT-SIGNATURE") is None:
-            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+            return httpx.Response(
+                402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)}
+            )
         if request.headers.get("X-PAYMENT"):
-            ok = {"success": True, "transaction": "0x" + "ab" * 32,
-                  "network": REQ["network"], "payer": "0x0"}
-            return httpx.Response(200, headers={"PAYMENT-RESPONSE": encode_header(ok)},
-                                  json={"data": "premium"})
-        body = {"success": False, "errorReason": "invalid", "transaction": "",
-                "network": REQ["network"]}
+            ok = {
+                "success": True,
+                "transaction": "0x" + "ab" * 32,
+                "network": REQ["network"],
+                "payer": "0x0",
+            }
+            return httpx.Response(
+                200, headers={"PAYMENT-RESPONSE": encode_header(ok)}, json={"data": "premium"}
+            )
+        body = {
+            "success": False,
+            "errorReason": "invalid",
+            "transaction": "",
+            "network": REQ["network"],
+        }
         return httpx.Response(402, headers={"PAYMENT-RESPONSE": encode_header(body)})
 
     results = run_active_checks(TARGET, SIGNER, transport=httpx.MockTransport(handler))
@@ -171,9 +210,7 @@ def test_server_without_signature_check_is_caught() -> None:
 
 def test_amount_bug_caught_specifically_by_neg_013() -> None:
     # Server verifies signatures but forgets to validate the price against its own.
-    results = run_active_checks(
-        TARGET, SIGNER, transport=make_server(check_amount=False)
-    )
+    results = run_active_checks(TARGET, SIGNER, transport=make_server(check_amount=False))
     # 013 pays a valid-signed token amount and claims it is the price → must be caught
     assert by_id(results, "RS-NEG-013").status == Status.FAIL
     # post-signing underpayment (005) is still caught by the signature check, so it stays PASS
@@ -198,7 +235,9 @@ def test_sec_011_extreme_amount_crash_is_caught() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         sig = request.headers.get("PAYMENT-SIGNATURE")
         if sig is None:
-            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+            return httpx.Response(
+                402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)}
+            )
         value = int(json.loads(base64.b64decode(sig))["payload"]["authorization"]["value"])
         if value > 10**30:
             return httpx.Response(500)
@@ -214,7 +253,9 @@ def test_sec_011_marker_leak_on_extreme_amount_is_caught() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         sig = request.headers.get("PAYMENT-SIGNATURE")
         if sig is None:
-            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+            return httpx.Response(
+                402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)}
+            )
         # Rejects cleanly (402, no 5xx) but leaks the resource in the body.
         return httpx.Response(402, text=f"too much: {marker}")
 
@@ -231,7 +272,9 @@ def test_resource_marker_leak_on_rejection_is_caught() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         sig = request.headers.get("PAYMENT-SIGNATURE")
         if sig is None:
-            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+            return httpx.Response(
+                402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)}
+            )
         # Rejects with 402 but leaks the protected content in the error body.
         return httpx.Response(402, text=f"payment failed, but here it is: {marker}")
 
@@ -255,10 +298,16 @@ def test_no_eip3009_requirement_skips_all() -> None:
     solana_only = {
         "x402Version": 2,
         "resource": {"url": TARGET},
-        "accepts": [{"scheme": "exact", "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
-                     "amount": "10000", "asset": "So11111111111111111111111111111111111111112",
-                     "payTo": "CKPKJWNdJEqa81x7CkZ14BVPiY6y16Sxs7owznqtWYp5",
-                     "maxTimeoutSeconds": 60}],
+        "accepts": [
+            {
+                "scheme": "exact",
+                "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+                "amount": "10000",
+                "asset": "So11111111111111111111111111111111111111112",
+                "payTo": "CKPKJWNdJEqa81x7CkZ14BVPiY6y16Sxs7owznqtWYp5",
+                "maxTimeoutSeconds": 60,
+            }
+        ],
     }
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -275,15 +324,26 @@ def test_neg_015_eoa_asset_silent_bypass_is_caught() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         sig = request.headers.get("PAYMENT-SIGNATURE")
         if sig is None:
-            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+            return httpx.Response(
+                402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)}
+            )
         payload = json.loads(base64.b64decode(sig))
         auth = payload["payload"]["authorization"]
         asset = payload["accepted"]["asset"]  # trust the client's asset (the bug)
-        domain = {"name": REQ["extra"]["name"], "version": REQ["extra"]["version"],
-                  "chainId": CHAIN_ID, "verifyingContract": asset}
-        message = {"from": auth["from"], "to": auth["to"], "value": int(auth["value"]),
-                   "validAfter": int(auth["validAfter"]), "validBefore": int(auth["validBefore"]),
-                   "nonce": bytes.fromhex(auth["nonce"].removeprefix("0x"))}
+        domain = {
+            "name": REQ["extra"]["name"],
+            "version": REQ["extra"]["version"],
+            "chainId": CHAIN_ID,
+            "verifyingContract": asset,
+        }
+        message = {
+            "from": auth["from"],
+            "to": auth["to"],
+            "value": int(auth["value"]),
+            "validAfter": int(auth["validAfter"]),
+            "validBefore": int(auth["validBefore"]),
+            "nonce": bytes.fromhex(auth["nonce"].removeprefix("0x")),
+        }
         signable = encode_typed_data(domain, _TRANSFER_WITH_AUTHORIZATION_TYPES, message)
         try:
             recovered = Account.recover_message(signable, signature=payload["payload"]["signature"])
@@ -292,10 +352,15 @@ def test_neg_015_eoa_asset_silent_bypass_is_caught() -> None:
         if recovered != auth["from"]:
             return httpx.Response(402)
         # No eth_getCode check → serves even though the asset is an EOA.
-        ok = {"success": True, "transaction": "0x" + "ab" * 32, "network": REQ["network"],
-              "payer": auth["from"]}
-        return httpx.Response(200, headers={"PAYMENT-RESPONSE": encode_header(ok)},
-                              json={"data": "premium"})
+        ok = {
+            "success": True,
+            "transaction": "0x" + "ab" * 32,
+            "network": REQ["network"],
+            "payer": auth["from"],
+        }
+        return httpx.Response(
+            200, headers={"PAYMENT-RESPONSE": encode_header(ok)}, json={"data": "premium"}
+        )
 
     results = run_active_checks(TARGET, SIGNER, transport=httpx.MockTransport(handler))
     assert by_id(results, "RS-NEG-015").status == Status.FAIL
@@ -306,7 +371,9 @@ def test_sec_005_oversized_header_crash_is_caught() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         sig = request.headers.get("PAYMENT-SIGNATURE")
         if sig is None:
-            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+            return httpx.Response(
+                402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)}
+            )
         if len(sig) > 100_000:
             return httpx.Response(500)  # chokes on the oversized header
         return httpx.Response(402)
@@ -320,7 +387,9 @@ def test_sec_007_control_chars_crash_is_caught() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         sig = request.headers.get("PAYMENT-SIGNATURE")
         if sig is None:
-            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+            return httpx.Response(
+                402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)}
+            )
         try:
             frm = json.loads(base64.b64decode(sig))["payload"]["authorization"]["from"]
         except Exception:
@@ -350,7 +419,9 @@ def test_sec_004_malformed_nonce_crash_is_caught() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         sig = request.headers.get("PAYMENT-SIGNATURE")
         if sig is None:
-            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)})
+            return httpx.Response(
+                402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)}
+            )
         try:
             nonce = json.loads(base64.b64decode(sig))["payload"]["authorization"]["nonce"]
             ok32 = len(bytes.fromhex(nonce.removeprefix("0x"))) == 32

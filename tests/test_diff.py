@@ -14,28 +14,32 @@ def _report(target: str, statuses: dict[str, str]) -> str:
         {
             "target": target,
             "timestamp": "2026-07-04T00:00:00+00:00",
-            "results": [
-                {"check_id": cid, "status": st} for cid, st in statuses.items()
-            ],
+            "results": [{"check_id": cid, "status": st} for cid, st in statuses.items()],
         }
     )
 
 
 def test_classifies_all_transitions() -> None:
-    old = _report("http://x", {
-        "RS-NEG-007": "fail",   # -> pass  (fixed)
-        "FA-VER-002": "pass",   # -> fail  (regressed)
-        "FA-ERR-001": "fail",   # -> fail  (still failing)
-        "DI-002": "pass",       # removed in new
-        "RS-HS-001": "pass",    # unchanged
-    })
-    new = _report("http://x", {
-        "RS-NEG-007": "pass",
-        "FA-VER-002": "fail",
-        "FA-ERR-001": "fail",
-        "RS-PR-016": "skip",    # added in new
-        "RS-HS-001": "pass",
-    })
+    old = _report(
+        "http://x",
+        {
+            "RS-NEG-007": "fail",  # -> pass  (fixed)
+            "FA-VER-002": "pass",  # -> fail  (regressed)
+            "FA-ERR-001": "fail",  # -> fail  (still failing)
+            "DI-002": "pass",  # removed in new
+            "RS-HS-001": "pass",  # unchanged
+        },
+    )
+    new = _report(
+        "http://x",
+        {
+            "RS-NEG-007": "pass",
+            "FA-VER-002": "fail",
+            "FA-ERR-001": "fail",
+            "RS-PR-016": "skip",  # added in new
+            "RS-HS-001": "pass",
+        },
+    )
     d = diff_reports(old, new)
     assert [t.check_id for t in d.fixed] == ["RS-NEG-007"]
     assert [t.check_id for t in d.regressed] == ["FA-VER-002"]

@@ -41,48 +41,50 @@ _CORE = "x402-specification-v2.md"
 # this set against a live x402Specs.ts when one is reachable (skips otherwise).
 # Caveat: this enum is missing one EVM code that the spec prose / Python / Go define
 # (..._authorization_value_mismatch) — accepted via _LOCAL_ERROR_CODES below.
-SPEC_ERROR_REASONS = frozenset({
-    "insufficient_funds",
-    "invalid_exact_evm_payload_authorization_valid_after",
-    "invalid_exact_evm_payload_authorization_valid_before",
-    "invalid_exact_evm_payload_authorization_value",
-    "invalid_exact_evm_payload_signature",
-    "invalid_exact_evm_payload_undeployed_smart_wallet",
-    "invalid_exact_evm_payload_recipient_mismatch",
-    "invalid_exact_svm_payload_transaction",
-    "invalid_exact_svm_payload_transaction_amount_mismatch",
-    "invalid_exact_svm_payload_transaction_create_ata_instruction",
-    "invalid_exact_svm_payload_transaction_create_ata_instruction_incorrect_payee",
-    "invalid_exact_svm_payload_transaction_create_ata_instruction_incorrect_asset",
-    "invalid_exact_svm_payload_transaction_instructions",
-    "invalid_exact_svm_payload_transaction_instructions_length",
-    "invalid_exact_svm_payload_transaction_instructions_compute_limit_instruction",
-    "invalid_exact_svm_payload_transaction_instructions_compute_price_instruction",
-    "invalid_exact_svm_payload_transaction_instructions_compute_price_instruction_too_high",
-    "invalid_exact_svm_payload_transaction_instruction_not_spl_token_transfer_checked",
-    "invalid_exact_svm_payload_transaction_instruction_not_token_2022_transfer_checked",
-    "invalid_exact_svm_payload_transaction_fee_payer_included_in_instruction_accounts",
-    "invalid_exact_svm_payload_transaction_fee_payer_transferring_funds",
-    "invalid_exact_svm_payload_transaction_not_a_transfer_instruction",
-    "invalid_exact_svm_payload_transaction_receiver_ata_not_found",
-    "invalid_exact_svm_payload_transaction_sender_ata_not_found",
-    "invalid_exact_svm_payload_transaction_simulation_failed",
-    "invalid_exact_svm_payload_transaction_transfer_to_incorrect_ata",
-    "invalid_network",
-    "invalid_payload",
-    "invalid_payment_requirements",
-    "invalid_scheme",
-    "invalid_payment",
-    "payment_expired",
-    "unsupported_scheme",
-    "invalid_x402_version",
-    "invalid_transaction_state",
-    "settle_exact_svm_block_height_exceeded",
-    "settle_exact_svm_transaction_confirmation_timed_out",
-    "unexpected_settle_error",
-    "unexpected_verify_error",
-    "duplicate_settlement",
-})
+SPEC_ERROR_REASONS = frozenset(
+    {
+        "insufficient_funds",
+        "invalid_exact_evm_payload_authorization_valid_after",
+        "invalid_exact_evm_payload_authorization_valid_before",
+        "invalid_exact_evm_payload_authorization_value",
+        "invalid_exact_evm_payload_signature",
+        "invalid_exact_evm_payload_undeployed_smart_wallet",
+        "invalid_exact_evm_payload_recipient_mismatch",
+        "invalid_exact_svm_payload_transaction",
+        "invalid_exact_svm_payload_transaction_amount_mismatch",
+        "invalid_exact_svm_payload_transaction_create_ata_instruction",
+        "invalid_exact_svm_payload_transaction_create_ata_instruction_incorrect_payee",
+        "invalid_exact_svm_payload_transaction_create_ata_instruction_incorrect_asset",
+        "invalid_exact_svm_payload_transaction_instructions",
+        "invalid_exact_svm_payload_transaction_instructions_length",
+        "invalid_exact_svm_payload_transaction_instructions_compute_limit_instruction",
+        "invalid_exact_svm_payload_transaction_instructions_compute_price_instruction",
+        "invalid_exact_svm_payload_transaction_instructions_compute_price_instruction_too_high",
+        "invalid_exact_svm_payload_transaction_instruction_not_spl_token_transfer_checked",
+        "invalid_exact_svm_payload_transaction_instruction_not_token_2022_transfer_checked",
+        "invalid_exact_svm_payload_transaction_fee_payer_included_in_instruction_accounts",
+        "invalid_exact_svm_payload_transaction_fee_payer_transferring_funds",
+        "invalid_exact_svm_payload_transaction_not_a_transfer_instruction",
+        "invalid_exact_svm_payload_transaction_receiver_ata_not_found",
+        "invalid_exact_svm_payload_transaction_sender_ata_not_found",
+        "invalid_exact_svm_payload_transaction_simulation_failed",
+        "invalid_exact_svm_payload_transaction_transfer_to_incorrect_ata",
+        "invalid_network",
+        "invalid_payload",
+        "invalid_payment_requirements",
+        "invalid_scheme",
+        "invalid_payment",
+        "payment_expired",
+        "unsupported_scheme",
+        "invalid_x402_version",
+        "invalid_transaction_state",
+        "settle_exact_svm_block_height_exceeded",
+        "settle_exact_svm_transaction_confirmation_timed_out",
+        "unexpected_settle_error",
+        "unexpected_verify_error",
+        "duplicate_settlement",
+    }
+)
 
 # Codes we recognise beyond the TS `ErrorReasons` Zod enum:
 #  - asset_not_deployed_contract: proposed in x402#2554 (asset address is an EOA,
@@ -94,10 +96,12 @@ SPEC_ERROR_REASONS = frozenset({
 #    it entirely (it carries a sibling ..._value, not the _mismatch reason). So the
 #    TS validator (z.enum) rejects what a Python/Go facilitator legitimately emits.
 #    We accept BOTH so neither is false-flagged. (Reportable upstream nit — see T-20.)
-_LOCAL_ERROR_CODES = frozenset({
-    "asset_not_deployed_contract",
-    "invalid_exact_evm_payload_authorization_value_mismatch",
-})
+_LOCAL_ERROR_CODES = frozenset(
+    {
+        "asset_not_deployed_contract",
+        "invalid_exact_evm_payload_authorization_value_mismatch",
+    }
+)
 
 # CORE §9 / spec ErrorReasons registry — invalidReason / errorReason must come from here.
 KNOWN_ERROR_CODES = SPEC_ERROR_REASONS | _LOCAL_ERROR_CODES
@@ -162,8 +166,12 @@ def _get_supported(ctx: FacilitatorContext) -> dict[str, Any] | None:
     return ctx.supported
 
 
-@_register("FA-SUP-001", "/supported (if present) returns kinds[], extensions[], signers{}",
-           Severity.MAJOR, f"{_CORE} §7.3")
+@_register(
+    "FA-SUP-001",
+    "/supported (if present) returns kinds[], extensions[], signers{}",
+    Severity.MAJOR,
+    f"{_CORE} §7.3",
+)
 def fa_sup_001(ctx: FacilitatorContext) -> tuple[Status, str]:
     body = _get_supported(ctx)
     if body is None:
@@ -187,8 +195,12 @@ def fa_sup_001(ctx: FacilitatorContext) -> tuple[Status, str]:
     return Status.PASS, ""
 
 
-@_register("FA-SUP-002", "Each supported kind is well-formed (x402Version 1/2, scheme; v2 network is CAIP-2)",
-           Severity.MAJOR, f"{_CORE} §7.3.1")
+@_register(
+    "FA-SUP-002",
+    "Each supported kind is well-formed (x402Version 1/2, scheme; v2 network is CAIP-2)",
+    Severity.MAJOR,
+    f"{_CORE} §7.3.1",
+)
 def fa_sup_002(ctx: FacilitatorContext) -> tuple[Status, str]:
     body = _get_supported(ctx)
     if body is None or not isinstance(body.get("kinds"), list):
@@ -216,7 +228,9 @@ def fa_sup_002(ctx: FacilitatorContext) -> tuple[Status, str]:
     return Status.PASS, ""
 
 
-def _verify(ctx: FacilitatorContext, payload: dict[str, Any], requirements: dict[str, Any]) -> dict[str, Any] | None:
+def _verify(
+    ctx: FacilitatorContext, payload: dict[str, Any], requirements: dict[str, Any]
+) -> dict[str, Any] | None:
     req = {"x402Version": 2, "paymentPayload": payload, "paymentRequirements": requirements}
     try:
         resp = ctx.client.post(f"{ctx.base_url.rstrip('/')}/verify", json=req)
@@ -246,8 +260,12 @@ def _verify_raw(
     return resp.status_code, (data if isinstance(data, dict) else None)
 
 
-@_register("FA-VER-002", "/verify rejects invalid payloads with isValid:false", Severity.CRITICAL,
-           f"{_CORE} §7.1, §9")
+@_register(
+    "FA-VER-002",
+    "/verify rejects invalid payloads with isValid:false",
+    Severity.CRITICAL,
+    f"{_CORE} §7.1, §9",
+)
 def fa_ver_002(ctx: FacilitatorContext) -> tuple[Status, str]:
     if ctx.requirements is None or ctx.signer is None:
         return Status.SKIP, "no --resource requirements / signer to build a payment"
@@ -266,8 +284,12 @@ def fa_ver_002(ctx: FacilitatorContext) -> tuple[Status, str]:
     return Status.PASS, f"correctly invalid (reason: {result.get('invalidReason')!r})"
 
 
-@_register("FA-VER-003", "/verify rejects an asset that is not a deployed contract (EOA)",
-           Severity.CRITICAL, f"{_CORE} §7.1 + x402#2554 asset_not_deployed_contract")
+@_register(
+    "FA-VER-003",
+    "/verify rejects an asset that is not a deployed contract (EOA)",
+    Severity.CRITICAL,
+    f"{_CORE} §7.1 + x402#2554 asset_not_deployed_contract",
+)
 def fa_ver_003(ctx: FacilitatorContext) -> tuple[Status, str]:
     if ctx.requirements is None or ctx.signer is None:
         return Status.SKIP, "no --resource requirements / signer to build a payment"
@@ -289,14 +311,20 @@ def fa_ver_003(ctx: FacilitatorContext) -> tuple[Status, str]:
             "silent-no-op / payment-bypass risk"
         )
     reason = result.get("invalidReason")
-    note = "" if reason == "asset_not_deployed_contract" else (
-        f" (reason {reason!r}; canonical is asset_not_deployed_contract)"
+    note = (
+        ""
+        if reason == "asset_not_deployed_contract"
+        else (f" (reason {reason!r}; canonical is asset_not_deployed_contract)")
     )
     return Status.PASS, f"correctly rejected EOA asset{note}"
 
 
-@_register("FA-VER-004", "/verify handles an invalid payment with a clean 4xx, not a 5xx server error",
-           Severity.MINOR, f"{_CORE} §7.1")
+@_register(
+    "FA-VER-004",
+    "/verify handles an invalid payment with a clean 4xx, not a 5xx server error",
+    Severity.MINOR,
+    f"{_CORE} §7.1",
+)
 def fa_ver_004(ctx: FacilitatorContext) -> tuple[Status, str]:
     if ctx.requirements is None or ctx.signer is None:
         return Status.SKIP, "no --resource requirements / signer to build a payment"
@@ -322,8 +350,9 @@ def fa_ver_004(ctx: FacilitatorContext) -> tuple[Status, str]:
     return Status.PASS, f"clean HTTP {status} on invalid input (no 5xx)"
 
 
-@_register("FA-ERR-001", "invalidReason is from the CORE §9 error registry", Severity.MINOR,
-           f"{_CORE} §9")
+@_register(
+    "FA-ERR-001", "invalidReason is from the CORE §9 error registry", Severity.MINOR, f"{_CORE} §9"
+)
 def fa_err_001(ctx: FacilitatorContext) -> tuple[Status, str]:
     if ctx.requirements is None or ctx.signer is None:
         return Status.SKIP, "no --resource requirements / signer to trigger an error"
@@ -341,7 +370,9 @@ def fa_err_001(ctx: FacilitatorContext) -> tuple[Status, str]:
     return Status.PASS, f"reason {reason!r} is a known code"
 
 
-def _settle(ctx: FacilitatorContext, payload: dict[str, Any], requirements: dict[str, Any]) -> dict[str, Any] | None:
+def _settle(
+    ctx: FacilitatorContext, payload: dict[str, Any], requirements: dict[str, Any]
+) -> dict[str, Any] | None:
     req = {"x402Version": 2, "paymentPayload": payload, "paymentRequirements": requirements}
     try:
         resp = ctx.client.post(f"{ctx.base_url.rstrip('/')}/settle", json=req)
@@ -354,12 +385,21 @@ def _settle(ctx: FacilitatorContext, payload: dict[str, Any], requirements: dict
 def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
     """FA-SET: direct /settle tests. Moves REAL funds; runs only when allow_settle."""
     ids = {
-        "FA-SET-001": ("/settle of a valid payment succeeds with a tx hash", Severity.MAJOR,
-                       f"{_CORE} §7.2"),
-        "FA-SET-002": ("/settle of an invalid payment fails with empty tx", Severity.MAJOR,
-                       f"{_CORE} §7.2"),
-        "FA-SET-003": ("Double-settle of the same payment is rejected (nonce reuse)",
-                       Severity.CRITICAL, f"{_CORE} §10.1"),
+        "FA-SET-001": (
+            "/settle of a valid payment succeeds with a tx hash",
+            Severity.MAJOR,
+            f"{_CORE} §7.2",
+        ),
+        "FA-SET-002": (
+            "/settle of an invalid payment fails with empty tx",
+            Severity.MAJOR,
+            f"{_CORE} §7.2",
+        ),
+        "FA-SET-003": (
+            "Double-settle of the same payment is rejected (nonce reuse)",
+            Severity.CRITICAL,
+            f"{_CORE} §10.1",
+        ),
     }
 
     def mk(cid: str, status: Status, detail: str = "") -> CheckResult:
@@ -367,7 +407,9 @@ def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
         return CheckResult(cid, title, sev, ref, status, detail)
 
     if not ctx.allow_settle:
-        return [mk(c, Status.SKIP, "pass --settle to run /settle tests (moves real funds)") for c in ids]
+        return [
+            mk(c, Status.SKIP, "pass --settle to run /settle tests (moves real funds)") for c in ids
+        ]
     if ctx.requirements is None or ctx.signer is None:
         return [mk(c, Status.SKIP, "no --resource requirements / signer") for c in ids]
 
@@ -383,17 +425,29 @@ def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
     elif r1.get("success") is True and r1.get("transaction") and r1["transaction"] != "0x":
         results.append(mk("FA-SET-001", Status.PASS, f"tx {r1['transaction']}"))
     else:
-        results.append(mk("FA-SET-001", Status.FAIL, f"valid /settle did not succeed: {str(r1)[:160]}"))
+        results.append(
+            mk("FA-SET-001", Status.FAIL, f"valid /settle did not succeed: {str(r1)[:160]}")
+        )
 
     # FA-SET-003 — double-settle the SAME payment must be rejected
     if r1 and r1.get("success") is True:
         r3 = _settle(ctx, good, ctx.requirements)
         if r3 is not None and r3.get("success") is True:
-            results.append(mk("FA-SET-003", Status.FAIL,
-                              "second settle of the same payment succeeded — nonce reuse not prevented"))
+            results.append(
+                mk(
+                    "FA-SET-003",
+                    Status.FAIL,
+                    "second settle of the same payment succeeded — nonce reuse not prevented",
+                )
+            )
         else:
-            results.append(mk("FA-SET-003", Status.PASS,
-                              f"double-settle rejected (reason {(r3 or {}).get('errorReason')!r})"))
+            results.append(
+                mk(
+                    "FA-SET-003",
+                    Status.PASS,
+                    f"double-settle rejected (reason {(r3 or {}).get('errorReason')!r})",
+                )
+            )
     else:
         results.append(mk("FA-SET-003", Status.SKIP, "first settle did not succeed"))
 
@@ -405,9 +459,13 @@ def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
     elif r2.get("success") is True:
         results.append(mk("FA-SET-002", Status.FAIL, "/settle succeeded for an invalid payment"))
     elif r2.get("transaction"):
-        results.append(mk("FA-SET-002", Status.FAIL, "failed settle still carries a non-empty tx hash"))
+        results.append(
+            mk("FA-SET-002", Status.FAIL, "failed settle still carries a non-empty tx hash")
+        )
     else:
-        results.append(mk("FA-SET-002", Status.PASS, f"correctly failed (reason {r2.get('errorReason')!r})"))
+        results.append(
+            mk("FA-SET-002", Status.PASS, f"correctly failed (reason {r2.get('errorReason')!r})")
+        )
 
     return results
 
@@ -422,8 +480,9 @@ def evaluate_facilitator(ctx: FacilitatorContext | None) -> list[CheckResult]:
                 status, detail = check.func(ctx)
             except Exception as exc:
                 status, detail = Status.ERROR, f"check crashed (suite bug): {exc!r}"
-        results.append(CheckResult(check.check_id, check.title, check.severity,
-                                   check.spec_ref, status, detail))
+        results.append(
+            CheckResult(check.check_id, check.title, check.severity, check.spec_ref, status, detail)
+        )
     return results
 
 
@@ -438,14 +497,20 @@ def run_facilitator_checks(
     """Probe a facilitator. If resource_url is given, also exercise /verify;
     with allow_settle, also run the FA-SET /settle tests (moves real funds)."""
     headers = {"User-Agent": USER_AGENT}
-    with httpx.Client(timeout=timeout, transport=transport, headers=headers,
-                      follow_redirects=True) as client:
+    with httpx.Client(
+        timeout=timeout, transport=transport, headers=headers, follow_redirects=True
+    ) as client:
         requirements = None
         if resource_url is not None:
             from ..active import choose_eip3009_requirement
+
             probe = build_probe(client.request("GET", resource_url))
             requirements = choose_eip3009_requirement(probe.raw)
-        ctx = FacilitatorContext(base_url=base_url, client=client,
-                                 requirements=requirements, signer=signer,
-                                 allow_settle=allow_settle)
+        ctx = FacilitatorContext(
+            base_url=base_url,
+            client=client,
+            requirements=requirements,
+            signer=signer,
+            allow_settle=allow_settle,
+        )
         return evaluate_facilitator(ctx) + evaluate_settle(ctx)

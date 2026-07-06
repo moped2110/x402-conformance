@@ -20,6 +20,7 @@ def _ids(reg, attr="check_id"):
 def _active_registry():
     pytest.importorskip("eth_account")
     from x402_conformance.checks.negative import ACTIVE_REGISTRY
+
     return ACTIVE_REGISTRY
 
 
@@ -57,6 +58,7 @@ def test_duplicate_registration_is_rejected() -> None:
     from x402_conformance.checks.base import register
 
     with pytest.raises(ValueError):
+
         @register("RS-HS-001", "dup", Severity.MAJOR, "x")
         def _dup(_s):  # pragma: no cover
             return Status.PASS, ""
@@ -93,8 +95,9 @@ def _all_implemented_ids() -> set[str]:
         ids |= {c.check_id for c in reg}
     ids |= {r.check_id for r in evaluate_payment(None)}
     with httpx.Client() as client:
-        ctx = FacilitatorContext(base_url="", client=client, requirements=None,
-                                 signer=None, allow_settle=False)
+        ctx = FacilitatorContext(
+            base_url="", client=client, requirements=None, signer=None, allow_settle=False
+        )
         ids |= {r.check_id for r in evaluate_settle(ctx)}
     return ids
 
@@ -128,4 +131,3 @@ def test_readme_check_count_matches_code() -> None:
     assert stated == actual, (
         f"README says {stated} checks, code emits {actual} — update the README headline"
     )
-

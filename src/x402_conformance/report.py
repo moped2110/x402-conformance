@@ -147,24 +147,55 @@ _SEVERITY_HEADER = {
 # so `explain` can describe them too. Metadata mirrors docs/conformance-catalog.md; keep
 # in sync if those checks change (they are stable, so drift risk is low).
 _ONCHAIN_CHECKS: list[tuple[str, str, Severity, str]] = [
-    ("RS-PAY-001", "Valid funded payment is accepted and the resource delivered",
-     Severity.CRITICAL, "CORE §2, HTTP"),
-    ("RS-PAY-002", "Success response carries a valid PAYMENT-RESPONSE settlement",
-     Severity.MAJOR, "HTTP §Settlement Response Delivery"),
-    ("RS-PAY-003", "Settlement network and payer match the payment", Severity.MAJOR,
-     "CORE §5.3.2"),
-    ("RS-PAY-004", "Settlement transaction exists on-chain (status 1)", Severity.CRITICAL,
-     "CORE §6.1.3"),
-    ("RS-SEC-001", "Replaying a settled payment is rejected (nonce reuse)",
-     Severity.CRITICAL, "CORE §10.1"),
-    ("RS-SEC-002", "Concurrent settle of one payment yields at most one success (race)",
-     Severity.CRITICAL, "CORE §10.1"),
-    ("FA-SET-001", "/settle of a valid payment succeeds with a tx hash", Severity.MAJOR,
-     "CORE §7.2"),
-    ("FA-SET-002", "/settle of an invalid payment fails with an empty tx", Severity.MAJOR,
-     "CORE §7.2"),
-    ("FA-SET-003", "Double-settle of the same payment is rejected (nonce reuse)",
-     Severity.CRITICAL, "CORE §10.1"),
+    (
+        "RS-PAY-001",
+        "Valid funded payment is accepted and the resource delivered",
+        Severity.CRITICAL,
+        "CORE §2, HTTP",
+    ),
+    (
+        "RS-PAY-002",
+        "Success response carries a valid PAYMENT-RESPONSE settlement",
+        Severity.MAJOR,
+        "HTTP §Settlement Response Delivery",
+    ),
+    ("RS-PAY-003", "Settlement network and payer match the payment", Severity.MAJOR, "CORE §5.3.2"),
+    (
+        "RS-PAY-004",
+        "Settlement transaction exists on-chain (status 1)",
+        Severity.CRITICAL,
+        "CORE §6.1.3",
+    ),
+    (
+        "RS-SEC-001",
+        "Replaying a settled payment is rejected (nonce reuse)",
+        Severity.CRITICAL,
+        "CORE §10.1",
+    ),
+    (
+        "RS-SEC-002",
+        "Concurrent settle of one payment yields at most one success (race)",
+        Severity.CRITICAL,
+        "CORE §10.1",
+    ),
+    (
+        "FA-SET-001",
+        "/settle of a valid payment succeeds with a tx hash",
+        Severity.MAJOR,
+        "CORE §7.2",
+    ),
+    (
+        "FA-SET-002",
+        "/settle of an invalid payment fails with an empty tx",
+        Severity.MAJOR,
+        "CORE §7.2",
+    ),
+    (
+        "FA-SET-003",
+        "Double-settle of the same payment is rejected (nonce reuse)",
+        Severity.CRITICAL,
+        "CORE §10.1",
+    ),
 ]
 
 
@@ -250,8 +281,7 @@ def to_developer_report(results: list[CheckResult], target_url: str) -> str:
     lines = ["x402 conformance — developer report", f"Target: {target_url}", ""]
     if not failures:
         lines.append(
-            f"✅ CONFORMANT — no issues to fix. "
-            f"{s['passed']} passed, {s['skipped']} skipped."
+            f"✅ CONFORMANT — no issues to fix. {s['passed']} passed, {s['skipped']} skipped."
         )
         return "\n".join(lines) + "\n"
 

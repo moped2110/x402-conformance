@@ -19,14 +19,14 @@ def _r(cid: str, status: Status, severity: Severity = Severity.MAJOR) -> CheckRe
 def test_summarize_counts_and_gating() -> None:
     results = [
         _r("A", Status.PASS),
-        _r("B", Status.FAIL, Severity.CRITICAL),   # gating
-        _r("C", Status.FAIL, Severity.MINOR),      # non-gating fail
+        _r("B", Status.FAIL, Severity.CRITICAL),  # gating
+        _r("C", Status.FAIL, Severity.MINOR),  # non-gating fail
         _r("D", Status.SKIP),
-        _r("E", Status.ERROR, Severity.MAJOR),     # gating
+        _r("E", Status.ERROR, Severity.MAJOR),  # gating
     ]
     e = summarize_scan("http://x", results)
     assert e.passed == 1 and e.failed == 2 and e.skipped == 1 and e.errors == 1
-    assert e.gating_failures == 2          # B + E
+    assert e.gating_failures == 2  # B + E
     assert e.conformant is False
     assert set(e.fail_ids) == {"B", "C", "E"}
 
@@ -45,13 +45,18 @@ def test_rank_orders_by_findings_then_unreachable_last() -> None:
     dead = ScanEntry(url="http://dead", unreachable="timeout")
     ranked = rank_scan([clean, dead, mid, worst])
     assert [e.url for e in ranked] == [
-        "http://worst", "http://mid", "http://clean", "http://dead",
+        "http://worst",
+        "http://mid",
+        "http://clean",
+        "http://dead",
     ]
 
 
 def test_format_marks_hits_and_unreachable() -> None:
     entries = [
-        ScanEntry(url="http://bad", gating_failures=1, failed=1, conformant=False, fail_ids=["FA-VER-002"]),
+        ScanEntry(
+            url="http://bad", gating_failures=1, failed=1, conformant=False, fail_ids=["FA-VER-002"]
+        ),
         ScanEntry(url="http://dead", unreachable="connect error"),
     ]
     out = format_scan(entries)
@@ -67,6 +72,6 @@ def test_scan_to_dicts_is_ranked_and_serializable() -> None:
         ScanEntry(url="http://bad", gating_failures=2, conformant=False),
     ]
     dicts = scan_to_dicts(entries)
-    assert dicts[0]["url"] == "http://bad"   # ranked first
+    assert dicts[0]["url"] == "http://bad"  # ranked first
     assert dicts[1]["url"] == "http://clean"
     assert set(dicts[0].keys()) >= {"url", "gating_failures", "conformant", "fail_ids"}
