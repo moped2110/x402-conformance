@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -24,6 +25,43 @@ from .probe import build_probe
 
 PAYMENT_SIGNATURE_HEADER = "PAYMENT-SIGNATURE"
 PAYMENT_RESPONSE_HEADER = "payment-response"
+
+# --- transient-fault retry ---------------------------------------------------
+# A conformance run may cross flaky infra (load balancers, rate limiters, cold
+# starts). These faults are transient and NOT a verdict on the payment, so a
+# real x402 client retries them; we mirror that so a hiccup doesn't turn into a
+# spurious finding. A *deterministic* fault still reproduces on every retry and
+# is reported unchanged — retrying only smooths over genuine transients.
+#
+# 429 = backpressure/rate-limit; 502/503/504 = transient upstream fault.
+_TRANSIENT_STATUS = frozenset({429, 502, 503, 504})
+# Connection-level faults worth a retry (network blip / pool timeout). A
+# non-retryable httpx error (e.g. RemoteProtocolError — the endpoint broke the
+# connection mid-response) is surfaced immediately as an endpoint fault instead.
+_RETRYABLE_ERRORS = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+    httpx.PoolTimeout,
+)
+_MAX_RETRIES = 2  # up to 3 attempts total
+_RETRY_BACKOFF = 0.5  # seconds; doubled each attempt
+_RETRY_AFTER_CAP = 30.0  # never let a hostile Retry-After stall the run past this
+
+
+def _retry_delay(response: httpx.Response, attempt: int) -> float:
+    """Seconds to wait before the next attempt. Honour a numeric ``Retry-After``
+    (delta-seconds) when present and sane; otherwise exponential backoff. The
+    HTTP-date form of Retry-After is ignored (falls back to backoff), and any
+    value is capped so a server can't park us indefinitely."""
+    raw = response.headers.get("Retry-After")
+    if raw is not None:
+        try:
+            return max(0.0, min(float(int(raw)), _RETRY_AFTER_CAP))
+        except ValueError:
+            pass
+    return float(_RETRY_BACKOFF * (2**attempt))
 
 
 @dataclass(frozen=True)
@@ -151,19 +189,37 @@ def build_active_context(
     marker_bytes = resource_marker.encode() if resource_marker else None
 
     def _do(headers: dict[str, str]) -> ActiveResponse:
-        try:
-            response = client.request(method, url, headers=headers)
-        except httpx.HTTPError as exc:
-            # The endpoint dropped/reset the connection (or protocol-errored) on our
-            # input. That's the TARGET crashing, not our bug — surface it as an
-            # endpoint fault so robustness checks report a FAIL, not a suite ERROR.
-            return ActiveResponse(
-                status_code=0, headers={}, body=b"", transport_error=type(exc).__name__
-            )
-        ar = _response_from(response)
-        if marker_bytes and marker_bytes in ar.body:
-            ar = replace(ar, marker_leaked=True)
-        return ar
+        transport_err: str | None = None
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                response = client.request(method, url, headers=headers)
+            except _RETRYABLE_ERRORS as exc:
+                # Transient network fault — retry with backoff before giving up.
+                transport_err = type(exc).__name__
+                if attempt < _MAX_RETRIES:
+                    time.sleep(_RETRY_BACKOFF * (2**attempt))
+                    continue
+                break
+            except httpx.HTTPError as exc:
+                # Non-retryable: the endpoint dropped/reset the connection (or
+                # protocol-errored) on our input. That's the TARGET crashing, not our
+                # bug — surface it as an endpoint fault so robustness checks report a
+                # FAIL, not a suite ERROR.
+                return ActiveResponse(
+                    status_code=0, headers={}, body=b"", transport_error=type(exc).__name__
+                )
+            if response.status_code in _TRANSIENT_STATUS and attempt < _MAX_RETRIES:
+                # Backpressure / transient upstream fault — wait and retry. If it
+                # persists through all attempts we fall through and report it as-is
+                # (a permanently-5xx endpoint is still a real fault).
+                time.sleep(_retry_delay(response, attempt))
+                continue
+            ar = _response_from(response)
+            if marker_bytes and marker_bytes in ar.body:
+                ar = replace(ar, marker_leaked=True)
+            return ar
+        # Retries on a connection-level fault exhausted → report the endpoint fault.
+        return ActiveResponse(status_code=0, headers={}, body=b"", transport_error=transport_err)
 
     def send(payload: dict[str, Any]) -> ActiveResponse:
         return _do({PAYMENT_SIGNATURE_HEADER: _b64_json(payload)})

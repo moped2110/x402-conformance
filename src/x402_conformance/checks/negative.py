@@ -19,6 +19,7 @@ from ..payload_builder import (
     build_exact_eip3009_payload,
     make_expired,
     make_not_yet_valid,
+    tamper_from,
     tamper_recipient,
     tamper_signature,
     tamper_value_lower,
@@ -113,6 +114,22 @@ def neg_002(ctx: ActiveContext) -> tuple[Status, str]:
 def neg_003(ctx: ActiveContext) -> tuple[Status, str]:
     payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
     return _assert_rejected(ctx.send(tamper_signature(payload)))
+
+
+@_register(
+    "RS-NEG-004",
+    "Valid signature whose recovered signer != authorization.from is rejected",
+    Severity.CRITICAL,
+    f"{_CORE} §6.1.2 step 1 + §10.1",
+)
+def neg_004(ctx: ActiveContext) -> tuple[Status, str]:
+    # A structurally VALID signature (recovers fine) but claiming a different `from`.
+    # The recovered signer is our throwaway key, not the claimed `from` — i.e. a
+    # foreign/stolen signature reused under someone else's identity. A correct server
+    # rejects it (recovered must equal `from`); a naive one that only checks the
+    # signature is well-formed, not who it recovers to, would let it through.
+    payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
+    return _assert_rejected(ctx.send(tamper_from(payload, _ATTACKER)))
 
 
 @_register(

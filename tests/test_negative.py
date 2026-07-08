@@ -251,6 +251,21 @@ def test_server_without_signature_check_is_caught() -> None:
     assert by_id(results, "RS-NEG-003").status == Status.FAIL
 
 
+def test_neg_004_foreign_signature_passes_against_correct_server() -> None:
+    # A valid signature whose recovered signer != authorization.from must be
+    # rejected: recovery over the tampered `from` no longer matches, so the
+    # correct server rejects and RS-NEG-004 passes.
+    results = run_active_checks(TARGET, SIGNER, transport=make_server())
+    assert by_id(results, "RS-NEG-004").status == Status.PASS
+
+
+def test_neg_004_foreign_signature_caught_when_unchecked() -> None:
+    # A server that skips signature verification accepts a foreign/reused
+    # signature claimed under someone else's `from` → RS-NEG-004 must catch it.
+    results = run_active_checks(TARGET, SIGNER, transport=make_server(check_signature=False))
+    assert by_id(results, "RS-NEG-004").status == Status.FAIL
+
+
 def test_amount_bug_caught_specifically_by_neg_013() -> None:
     # Server verifies signatures but forgets to validate the price against its own.
     results = run_active_checks(TARGET, SIGNER, transport=make_server(check_amount=False))

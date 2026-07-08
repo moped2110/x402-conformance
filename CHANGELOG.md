@@ -6,6 +6,18 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Transient-fault retry** (`check --active` / `--pay`): the active runner now retries
+  429/502/503/504 responses and connection-level blips (connect/read/write/pool timeouts,
+  connect errors) with exponential backoff, honouring a numeric `Retry-After` (capped at 30 s).
+  A conformance run over flaky infra (rate limiters, cold starts) no longer produces spurious
+  findings, while a *deterministic* fault still reproduces on every attempt and is reported
+  unchanged — a permanently-5xx endpoint stays a fault, and a non-retryable protocol error (the
+  endpoint breaking the connection mid-response) is surfaced immediately.
+- **RS-NEG-004** (`check --active`): foreign/reused signature — a payload that keeps a *valid*
+  signature but claims a different `authorization.from` (so the recovered signer ≠ the claimed
+  payer) must be rejected. This is the stolen/replayed-signature vector: a server that skips the
+  recovered==from binding lets an attacker spend under someone else's identity. CRITICAL. Adds a
+  `tamper_from` primitive to the payload builder. Catalog 61 → 62.
 - **SARIF 2.1.0 export** (`--sarif` on `check` / `facilitator` / `discovery`): writes the run's
   findings (FAIL/ERROR only) as SARIF, the format GitHub code scanning and bug-bounty platforms
   ingest — so a scan's results can land directly in a repo's Security tab. Each finding references

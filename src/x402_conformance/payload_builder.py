@@ -232,6 +232,15 @@ def tamper_recipient(payload: dict[str, Any], attacker: str) -> dict[str, Any]:
     return out
 
 
+def tamper_from(payload: dict[str, Any], claimed_from: str) -> dict[str, Any]:
+    """RS-NEG-004: keep the (valid) signature but claim a DIFFERENT `from`. The
+    signature still recovers to the real signer, so recovered != authorization.from
+    — a foreign/stolen signature reused under someone else's identity."""
+    out = copy.deepcopy(payload)
+    out["payload"]["authorization"]["from"] = claimed_from
+    return out
+
+
 def make_expired(payload: dict[str, Any], now: int | None = None) -> dict[str, Any]:
     """RS-NEG-008: validBefore in the past."""
     out = copy.deepcopy(payload)
