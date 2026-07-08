@@ -232,6 +232,8 @@ def run_payment_checks(
 
             detail = f"check crashed (suite bug): {exc!r}"
             return [
-                CheckResult(cid, cid, Severity.CRITICAL, "x402-specification-v2.md", Status.ERROR, detail)
+                CheckResult(
+                    cid, cid, Severity.CRITICAL, "x402-specification-v2.md", Status.ERROR, detail
+                )
                 for cid in PAY_CHECK_IDS
             ]
