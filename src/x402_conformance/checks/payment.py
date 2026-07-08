@@ -31,6 +31,29 @@ def _result(cid: str, title: str, sev: Severity, status: Status, detail: str = "
     return CheckResult(cid, title, sev, f"{_CORE} §6.1.3", status, detail)
 
 
+#: ERC-20 balanceOf(address) selector.
+_SEL_BALANCE_OF = "70a08231"
+
+
+def _read_token_balance(rpc_url: str, token: str, owner: str) -> int | None:
+    """Read ``owner``'s ERC-20 balance of ``token`` via a read-only ``eth_call``.
+
+    Returns None when the balance can't be read (web3 missing, bad address, RPC
+    error) — the caller then skips the precheck rather than blocking a run on a
+    flaky read. READ-ONLY: never signs or sends (money invariant)."""
+    try:
+        from web3 import Web3
+    except Exception:
+        return None
+    try:
+        w3 = Web3(Web3.HTTPProvider(rpc_url))
+        data = "0x" + _SEL_BALANCE_OF + owner.lower().removeprefix("0x").rjust(64, "0")
+        raw = w3.eth.call({"to": Web3.to_checksum_address(token), "data": data})
+        return int(raw.hex(), 16) if raw else 0
+    except Exception:
+        return None
+
+
 def _verify_tx_onchain(rpc_url: str, tx_hash: str) -> tuple[Status, str]:
     try:
         from web3 import Web3
@@ -69,6 +92,31 @@ def evaluate_payment(
             )
             for cid in titles
         ]
+
+    # Balance precheck (opt-in, needs --rpc-url): a valid payment from an underfunded
+    # signer can't settle. Rather than move toward a doomed on-chain attempt, read the
+    # signer's token balance first and SKIP the whole group with a clear reason. This
+    # only READS the chain (money invariant) and never blocks on a flaky read.
+    try:
+        needed = int(context.requirements.get("amount", 0))
+    except (TypeError, ValueError):
+        needed = 0
+    if rpc_url and needed > 0:
+        balance = _read_token_balance(
+            rpc_url, str(context.requirements.get("asset", "")), context.signer.address
+        )
+        if balance is not None and balance < needed:
+            detail = f"insufficient signer balance: have {balance}, need {needed} (no payment sent)"
+            return [
+                _result(
+                    cid,
+                    titles[cid],
+                    sev_m if cid == "RS-PAY-004" else sev_c,
+                    Status.SKIP,
+                    detail,
+                )
+                for cid in titles
+            ]
 
     from ..payload_builder import build_exact_eip3009_payload
 

@@ -227,7 +227,9 @@ def check(
     rpc_url: str | None = typer.Option(
         None,
         "--rpc-url",
-        help="RPC URL to verify the settlement tx on-chain (RS-PAY-004)",
+        help="RPC URL to verify the settlement tx on-chain (RS-PAY-004). Also "
+        "enables a read-only balance precheck: if the signer can't cover the "
+        "amount, RS-PAY is skipped cleanly instead of sending a doomed payment.",
     ),
     json_out: Path | None = typer.Option(None, "--json", help="Write JSON report to file"),
     md_out: Path | None = typer.Option(None, "--markdown", help="Write Markdown report to file"),

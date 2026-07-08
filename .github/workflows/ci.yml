@@ -41,6 +41,20 @@ jobs:
       - name: Tests (with coverage gate)
         run: python -m pytest -q --cov --cov-fail-under=85
 
+  # Live regression gate: drive the suite against the reference target (which
+  # validates with the REAL x402 SDK) and assert each new check both PASSes a
+  # correct server and CATCHes the matching bug. No chain, no funds.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,calibration]"
+      - name: Verify new features live against the reference target
+        run: python tools/verify_new_features.py
+
   # Manual job (Actions tab → Run workflow): calibrate the active checks against
   # the verify-capable reference target. No chain needed.
   calibrate:
@@ -51,7 +65,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[dev,calibration]"
       - name: Calibrate RS-NEG against the reference target
         run: |
           python tools/calibration_target.py 4500 &

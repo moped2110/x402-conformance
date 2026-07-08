@@ -44,6 +44,14 @@ dev = [
     "web3>=6.0",
     "jsonschema>=4.0",
 ]
+# Live calibration / verify-new-features tooling. tools/calibration_target.py is a
+# reference target that validates payments with the REAL x402 SDK, so a green
+# `--active`/verify run proves the suite against an independent oracle. Pins the
+# SDK major so an upstream break surfaces here, not silently.
+calibration = [
+    "x402[evm]>=2.14,<3",
+    "jsonschema>=4.0",
+]
 
 [project.scripts]
 x402-conformance = "x402_conformance.cli:app"

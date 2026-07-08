@@ -20,6 +20,7 @@ from conftest import VALID_PAYMENT_REQUIRED, encode_header
 
 from x402_conformance.active import run_payment_checks
 from x402_conformance.checks import Status
+from x402_conformance.checks import payment as payment_mod
 from x402_conformance.payload_builder import EvmSigner
 
 TARGET = "http://resource.example/data"
@@ -127,6 +128,49 @@ def test_wrong_payer_in_settlement_is_caught() -> None:
     }
     results = run_payment_checks(TARGET, SIGNER, transport=settling_server(settlement=wrong))
     assert by_id(results, "RS-PAY-003").status == Status.FAIL
+
+
+def test_balance_precheck_skips_underfunded_without_paying(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Signer holds 0 tokens but the endpoint wants 10000 → the group must SKIP with a
+    # clear reason and NEVER send a (doomed) payment when an --rpc-url is available.
+    monkeypatch.setattr(payment_mod, "_read_token_balance", lambda *a: 0)
+    sends = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.headers.get("PAYMENT-SIGNATURE") is None:
+            return httpx.Response(
+                402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)}
+            )
+        sends["n"] += 1  # a payment attempt reached the server
+        ok = {"success": True, "transaction": "0x" + "cd" * 32, "network": REQ["network"]}
+        return httpx.Response(200, headers={"PAYMENT-RESPONSE": _enc(ok)}, content=b"x")
+
+    results = run_payment_checks(
+        TARGET, SIGNER, rpc_url="http://rpc.local", transport=httpx.MockTransport(handler)
+    )
+    assert all(r.status == Status.SKIP for r in results)
+    assert "insufficient" in by_id(results, "RS-PAY-001").detail
+    assert sends["n"] == 0  # no funds were moved
+
+
+def test_balance_precheck_does_not_block_when_funded(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A funded signer (balance >= amount) proceeds through the normal happy path.
+    monkeypatch.setattr(payment_mod, "_read_token_balance", lambda *a: 10**9)
+    results = run_payment_checks(
+        TARGET, SIGNER, rpc_url="http://rpc.local", transport=settling_server()
+    )
+    assert by_id(results, "RS-PAY-001").status == Status.PASS
+
+
+def test_balance_precheck_skipped_when_unreadable(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An unreadable balance (None) must not block the run — proceed as before.
+    monkeypatch.setattr(payment_mod, "_read_token_balance", lambda *a: None)
+    results = run_payment_checks(
+        TARGET, SIGNER, rpc_url="http://rpc.local", transport=settling_server()
+    )
+    assert by_id(results, "RS-PAY-001").status == Status.PASS
 
 
 def test_no_eip3009_endpoint_skips_all() -> None:
