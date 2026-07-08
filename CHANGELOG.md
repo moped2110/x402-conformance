@@ -6,6 +6,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **`--pay` balance precheck** (with `--rpc-url`): before sending the one real payment,
+  the runner reads the signer's ERC-20 balance of the payment asset via a read-only
+  `eth_call`. If it can't cover the required amount, the whole RS-PAY group is skipped with
+  a clear reason and **no payment is sent** — no doomed on-chain attempt, no confusing FAIL.
+  Read-only (money invariant); an unreadable balance never blocks the run.
 - **Transient-fault retry** (`check --active` / `--pay`): the active runner now retries
   429/502/503/504 responses and connection-level blips (connect/read/write/pool timeouts,
   connect errors) with exponential backoff, honouring a numeric `Retry-After` (capped at 30 s).
