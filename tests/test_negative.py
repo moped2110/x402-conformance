@@ -20,7 +20,7 @@ from conftest import VALID_PAYMENT_REQUIRED, encode_header
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 
-from x402_conformance.active import run_active_checks
+from x402_conformance.active import run_active_checks, run_payment_checks
 from x402_conformance.checks import Status
 from x402_conformance.payload_builder import _TRANSFER_WITH_AUTHORIZATION_TYPES, EvmSigner
 
@@ -169,6 +169,30 @@ def test_endpoint_connection_crash_is_endpoint_fail_not_suite_error() -> None:
     by_id = {r.check_id: r for r in results}
     assert by_id["RS-SEC-007"].status is Status.FAIL
     assert "crashed" in by_id["RS-SEC-007"].detail
+
+
+def test_active_probe_crash_skips_cleanly() -> None:
+    # If the very first probe can't complete (connection reset), the active group
+    # SKIPs cleanly — the tool must not crash on an unreachable/hostile target.
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection reset on probe")
+
+    results = run_active_checks(TARGET, SIGNER, transport=httpx.MockTransport(handler))
+    assert results and all(r.status is Status.SKIP for r in results)
+
+
+def test_run_payment_checks_group_net_on_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    # RS-PAY is a linear flow with no per-check try/except; if it crashes, the group
+    # net must turn it into ERROR results for every id, never a hard tool crash.
+    import x402_conformance.checks.payment as pay_mod
+
+    def boom(*_a: object, **_k: object) -> list:
+        raise RuntimeError("kaboom in the pay flow")
+
+    monkeypatch.setattr(pay_mod, "evaluate_payment", boom)
+    results = run_payment_checks(TARGET, SIGNER, transport=make_server())
+    assert {r.check_id for r in results} == set(pay_mod.PAY_CHECK_IDS)
+    assert all(r.status is Status.ERROR for r in results)
 
 
 def test_sec_003_passes_when_foreign_resource_rejected() -> None:

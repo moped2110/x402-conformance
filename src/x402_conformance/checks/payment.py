@@ -22,6 +22,10 @@ from .base import CheckResult, Severity, Status
 
 _CORE = "x402-specification-v2.md"
 
+#: Every check id this group can emit. Used by the caller's group-level safety net
+#: (run_payment_checks) to report ERROR for all of them if the linear pay flow crashes.
+PAY_CHECK_IDS = ["RS-PAY-001", "RS-PAY-002", "RS-PAY-003", "RS-PAY-004", "RS-SEC-001", "RS-SEC-002"]
+
 
 def _result(cid: str, title: str, sev: Severity, status: Status, detail: str = "") -> CheckResult:
     return CheckResult(cid, title, sev, f"{_CORE} §6.1.3", status, detail)

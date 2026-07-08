@@ -136,9 +136,14 @@ def build_active_context(
 ) -> ActiveContext | None:
     """Probe the endpoint for requirements and wire up payment senders.
 
-    Returns None if the endpoint offers no exact/eip3009 requirement we can pay.
+    Returns None if the endpoint offers no exact/eip3009 requirement we can pay,
+    or if the initial probe can't complete (unreachable / connection reset) — in
+    both cases the active/pay checks SKIP cleanly instead of the tool crashing.
     """
-    probe = build_probe(client.request(method, url))
+    try:
+        probe = build_probe(client.request(method, url))
+    except httpx.HTTPError:
+        return None
     requirements = choose_eip3009_requirement(probe.raw)
     if requirements is None:
         return None
@@ -210,11 +215,23 @@ def run_payment_checks(
 ) -> list[Any]:
     """Run the RS-PAY positive settlement checks. MOVES REAL FUNDS — needs a
     funded signer. Returns list[CheckResult]."""
-    from .checks.payment import evaluate_payment
+    from .checks.payment import PAY_CHECK_IDS, evaluate_payment
 
     headers = {"User-Agent": USER_AGENT}
     with httpx.Client(
         timeout=timeout, transport=transport, follow_redirects=True, headers=headers
     ) as client:
         context = build_active_context(client, url, method, signer)
-        return evaluate_payment(context, rpc_url)
+        try:
+            return evaluate_payment(context, rpc_url)
+        except Exception as exc:  # group-level net: parity with the registry groups
+            # RS-PAY is a single linear settlement flow, not a registry loop, so it
+            # has no per-check try/except. An unexpected crash here is OUR bug — turn
+            # it into ERROR results for every RS-PAY id, never a hard tool crash.
+            from .checks.base import CheckResult, Severity, Status
+
+            detail = f"check crashed (suite bug): {exc!r}"
+            return [
+                CheckResult(cid, cid, Severity.CRITICAL, "x402-specification-v2.md", Status.ERROR, detail)
+                for cid in PAY_CHECK_IDS
+            ]
