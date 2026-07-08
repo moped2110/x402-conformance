@@ -125,16 +125,20 @@ def _b64(obj: dict) -> str:
 
 
 def _signature_recovers(auth: dict, signature: str) -> bool:
-    """Verify the EIP-3009 signature recovers to `from`, using the SDK digest."""
-    sdk_auth = ExactEIP3009Authorization(
-        from_address=auth["from"], to=auth["to"], value=str(auth["value"]),
-        valid_after=str(auth["validAfter"]), valid_before=str(auth["validBefore"]),
-        nonce=auth["nonce"],
-    )
-    digest = hash_eip3009_authorization(
-        sdk_auth, CHAIN_ID, REQ["asset"], REQ["extra"]["name"], REQ["extra"]["version"]
-    )
+    """Verify the EIP-3009 signature recovers to `from`, using the SDK digest.
+
+    Wrapped whole: a malformed `from` (control/Unicode bytes, RS-SEC-007) makes the
+    SDK's ExactEIP3009Authorization / digest raise. A robust server treats that as a
+    failed recovery (→ clean rejection), never an unhandled 500."""
     try:
+        sdk_auth = ExactEIP3009Authorization(
+            from_address=auth["from"], to=auth["to"], value=str(auth["value"]),
+            valid_after=str(auth["validAfter"]), valid_before=str(auth["validBefore"]),
+            nonce=auth["nonce"],
+        )
+        digest = hash_eip3009_authorization(
+            sdk_auth, CHAIN_ID, REQ["asset"], REQ["extra"]["name"], REQ["extra"]["version"]
+        )
         return Account._recover_hash(digest, signature=signature) == auth["from"]
     except Exception:
         return False
@@ -181,6 +185,34 @@ def make_handler(bugs: set[str], port: int) -> type[BaseHTTPRequestHandler]:
             if "crash-huge" in bugs and int(auth.get("value", 0)) > 10**30:
                 self._send(500)
                 return
+
+            # RS-NEG-012: reject an unknown top-level x402Version (99), don't mis-parse it.
+            if "version" not in bugs and payload.get("x402Version") != 2:
+                return self._reject("invalid_x402_version")
+
+            # RS-NEG-011: the client-claimed `accepted` entry must match a scheme/network
+            # we actually offer — a payment for a network we never advertised is invalid.
+            if "scheme-network" not in bugs:
+                accepted = payload.get("accepted")
+                if isinstance(accepted, dict):
+                    if accepted.get("scheme") not in (None, REQ["scheme"]):
+                        return self._reject("invalid_scheme")
+                    if accepted.get("network") not in (None, REQ["network"]):
+                        return self._reject("invalid_network")
+
+            # RS-SEC-003 (advisory): bind the payment to the resource being served. A
+            # payment whose claimed `resource` is a different URL is a cross-resource
+            # replay lure. (Empty/absent url = the canonical unset default → allowed.)
+            if "resource-bind" not in bugs:
+                served = f"http://127.0.0.1:{port}/data"
+                claimed = payload.get("resource")
+                claimed_url = claimed.get("url") if isinstance(claimed, dict) else None
+                accepted = payload.get("accepted")
+                accepted_res = accepted.get("resource") if isinstance(accepted, dict) else None
+                if (claimed_url and claimed_url != served) or (
+                    accepted_res and accepted_res != served
+                ):
+                    return self._reject("invalid_exact_evm_payload_resource_mismatch")
 
             # Same validation order as SDK facilitator `_verify` (RPC steps omitted).
             if "recipient" not in bugs and str(auth.get("to", "")).lower() != REQ["payTo"].lower():

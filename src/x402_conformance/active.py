@@ -36,11 +36,22 @@ class ActiveResponse:
     settlement: SettlementResponse | None = None
     settlement_error: str | None = None
     marker_leaked: bool = False  # resource_marker found in body (content leak)
+    # Set when the request could not complete because the ENDPOINT broke the
+    # connection (reset / protocol error / no response). That's the target crashing
+    # on our input — an endpoint fault, never a suite bug. status_code is 0 then.
+    transport_error: str | None = None
 
     @property
     def served_resource(self) -> bool:
         """True if the endpoint delivered content (2xx) — i.e. accepted the payment."""
-        return 200 <= self.status_code < 300
+        return self.transport_error is None and 200 <= self.status_code < 300
+
+    @property
+    def endpoint_crashed(self) -> bool:
+        """The endpoint failed to answer cleanly: a 5xx, or it dropped/reset the
+        connection (transport error). Robustness checks treat this as a FAIL of the
+        endpoint — it must not crash on hostile-but-well-formed input."""
+        return self.transport_error is not None or self.status_code >= 500
 
     @property
     def settled_ok(self) -> bool:
@@ -135,7 +146,15 @@ def build_active_context(
     marker_bytes = resource_marker.encode() if resource_marker else None
 
     def _do(headers: dict[str, str]) -> ActiveResponse:
-        response = client.request(method, url, headers=headers)
+        try:
+            response = client.request(method, url, headers=headers)
+        except httpx.HTTPError as exc:
+            # The endpoint dropped/reset the connection (or protocol-errored) on our
+            # input. That's the TARGET crashing, not our bug — surface it as an
+            # endpoint fault so robustness checks report a FAIL, not a suite ERROR.
+            return ActiveResponse(
+                status_code=0, headers={}, body=b"", transport_error=type(exc).__name__
+            )
         ar = _response_from(response)
         if marker_bytes and marker_bytes in ar.body:
             ar = replace(ar, marker_leaked=True)

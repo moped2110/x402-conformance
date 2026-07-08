@@ -245,8 +245,11 @@ def sec_003(ctx: ActiveContext) -> tuple[Status, str]:
     if isinstance(payload.get("accepted"), dict):
         payload["accepted"]["resource"] = _FOREIGN_RESOURCE
     resp = ctx.send(payload)
-    if resp.status_code >= 500:
-        return Status.FAIL, f"endpoint returned {resp.status_code} on a mismatched-resource payment"
+    if resp.endpoint_crashed:
+        return Status.FAIL, (
+            "endpoint crashed on a mismatched-resource payment "
+            f"({resp.transport_error or resp.status_code})"
+        )
     if resp.served_resource or resp.settled_ok:
         return Status.FAIL, (
             "served/settled a payment whose claimed `resource` differs from the requested "
@@ -305,8 +308,10 @@ def sec_005(ctx: ActiveContext) -> tuple[Status, str]:
     # path. (Length, not content: the value need not be valid base64.)
     oversized = "A" * (1024 * 1024)
     resp = ctx.send_header(oversized)
-    if resp.status_code >= 500:
-        return Status.FAIL, f"endpoint returned {resp.status_code} — crashed on a ~1 MB header"
+    if resp.endpoint_crashed:
+        return Status.FAIL, (
+            f"endpoint crashed on a ~1 MB header ({resp.transport_error or resp.status_code})"
+        )
     if resp.served_resource or resp.settled_ok:
         return Status.FAIL, f"endpoint accepted a 1 MB junk header (status {resp.status_code})"
     if resp.marker_leaked:
@@ -332,10 +337,11 @@ def sec_007(ctx: ActiveContext) -> tuple[Status, str]:
     # source stays pure ASCII (no literal bidi/control chars; cf. "Trojan Source").
     auth["from"] = auth["from"] + "".join(chr(c) for c in (0x00, 0x202E, 0x07, 0xE9))
     resp = ctx.send(payload)
-    if resp.status_code >= 500:
+    if resp.endpoint_crashed:
         return (
             Status.FAIL,
-            f"endpoint returned {resp.status_code} — crashed on control/Unicode chars",
+            "endpoint crashed on control/Unicode chars in a payload field "
+            f"({resp.transport_error or resp.status_code})",
         )
     return _assert_rejected(resp)
 
@@ -360,10 +366,11 @@ def sec_006(ctx: ActiveContext) -> tuple[Status, str]:
         _json.dumps({"x402Version": 1, "scheme": "exact", "network": "base-sepolia"}).encode()
     ).decode()
     resp = ctx.send_with_headers(bad, {"X-PAYMENT": legacy_v1})
-    if resp.status_code >= 500:
+    if resp.endpoint_crashed:
         return (
             Status.FAIL,
-            f"endpoint returned {resp.status_code} on dual v2+legacy-V1 headers (crashed)",
+            "endpoint crashed on dual v2+legacy-V1 headers "
+            f"({resp.transport_error or resp.status_code})",
         )
     return _assert_rejected(resp)
 

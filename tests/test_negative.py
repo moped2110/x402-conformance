@@ -152,6 +152,25 @@ def test_correct_server_passes_all_active_checks() -> None:
     assert any(r.status == Status.PASS for r in results)
 
 
+def test_endpoint_connection_crash_is_endpoint_fail_not_suite_error() -> None:
+    # An endpoint that resets the connection on any payment attempt (crashes on our
+    # input) must be attributed to the ENDPOINT — a robustness FAIL — never reported
+    # as a suite ERROR. Guards the transport-error handling in active._do.
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.headers.get("PAYMENT-SIGNATURE") is None:
+            return httpx.Response(
+                402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)}
+            )
+        raise httpx.ConnectError("connection reset")  # endpoint crashed on the payment
+
+    results = run_active_checks(TARGET, SIGNER, transport=httpx.MockTransport(handler))
+    errors = [(r.check_id, r.detail) for r in results if r.status is Status.ERROR]
+    assert errors == [], errors  # a crashing endpoint is not a suite bug
+    by_id = {r.check_id: r for r in results}
+    assert by_id["RS-SEC-007"].status is Status.FAIL
+    assert "crashed" in by_id["RS-SEC-007"].detail
+
+
 def test_sec_003_passes_when_foreign_resource_rejected() -> None:
     results = run_active_checks(TARGET, SIGNER, transport=make_server())
     assert by_id(results, "RS-SEC-003").status == Status.PASS
