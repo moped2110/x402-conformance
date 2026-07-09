@@ -6,6 +6,16 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **`check --config`**: a TOML config (`[check]` table; auto-discovers `./.x402-conformance.toml`)
+  supplies defaults for the repetitive flags (timeout, rpc-url, resource-marker, concurrency,
+  active/pay/progress/quiet/fix). Explicit CLI flags always win; secrets like `--signer-key` are
+  never read from config, to keep keys out of committable files.
+- **`check --concurrency N` / `-c`**: run the `--active` checks on N threads (default 1 =
+  sequential). Results stay in stable catalog order regardless of completion order, so reports and
+  diffs remain deterministic. Guarded against misuse in the help text — parallel payment attempts
+  against a third party look like abuse; use it only on your own endpoints.
+- **`check --progress`**: print per-check progress (`[done/total] CHECK-ID status`) to stderr as
+  the active checks run — useful for long or concurrent runs.
 - **`--pay` balance precheck** (with `--rpc-url`): before sending the one real payment,
   the runner reads the signer's ERC-20 balance of the payment asset via a read-only
   `eth_call`. If it can't cover the required amount, the whole RS-PAY group is skipped with

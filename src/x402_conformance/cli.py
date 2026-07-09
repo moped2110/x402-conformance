@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import cast
 
 import httpx
 import typer
@@ -37,6 +38,44 @@ def version() -> None:
     """Print version and pinned spec baseline."""
     typer.echo(f"x402-conformance {__version__}")
     typer.echo(f"spec baseline: {SPEC_BASELINE}")
+
+
+_DEFAULT_CONFIG_NAME = ".x402-conformance.toml"
+
+
+def _load_config(explicit: Path | None, section: str) -> dict[str, object]:
+    """Load `[section]` from a TOML config. With no --config, auto-discover
+    ``.x402-conformance.toml`` in the current directory (absent → no defaults).
+    An explicitly-given --config that's missing or malformed is a hard error (2).
+
+    Note: secrets (e.g. --signer-key) are intentionally NOT read from config — keep
+    keys in the environment, never in a file that might be committed.
+    """
+    import tomllib
+
+    path = explicit or Path(_DEFAULT_CONFIG_NAME)
+    if not path.exists():
+        if explicit is not None:
+            typer.secho(f"config file not found: {path}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2)
+        return {}
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (tomllib.TOMLDecodeError, OSError) as exc:
+        typer.secho(f"cannot read config {path}: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+    sect = data.get(section)
+    return sect if isinstance(sect, dict) else {}
+
+
+def _config_default(ctx: typer.Context, cfg: dict[str, object], name: str, current: object) -> object:
+    """Return the config value for ``name`` only when the CLI flag was left at its
+    default — an explicit CLI flag always wins over the config file."""
+    from click.core import ParameterSource
+
+    if name in cfg and ctx.get_parameter_source(name) == ParameterSource.DEFAULT:
+        return cfg[name]
+    return current
 
 
 def _make_signer(signer_key: str | None) -> object | None:
@@ -194,7 +233,15 @@ def scan(
 
 @app.command()
 def check(
+    ctx: typer.Context,
     url: str = typer.Argument(..., help="x402-protected endpoint URL to test"),
+    config: Path | None = typer.Option(
+        None,
+        "--config",
+        help=f"TOML config supplying defaults under a [check] table (default: "
+        f"auto-discover ./{_DEFAULT_CONFIG_NAME}). Explicit CLI flags always win. "
+        f"Secrets like --signer-key are never read from config.",
+    ),
     method: str = typer.Option("GET", "--method", "-m", help="HTTP method for the probe"),
     timeout: float = typer.Option(10.0, "--timeout", help="Request timeout in seconds"),
     active: bool = typer.Option(
@@ -236,6 +283,20 @@ def check(
     sarif_out: Path | None = typer.Option(
         None, "--sarif", help="Write SARIF 2.1.0 findings (GitHub code-scanning ingestible)"
     ),
+    concurrency: int = typer.Option(
+        1,
+        "--concurrency",
+        "-c",
+        min=1,
+        help="Run the --active checks on N threads (default 1 = sequential, "
+        "deterministic). Results stay in catalog order. Use >1 only against your "
+        "OWN endpoints — parallel payment attempts against a third party look like abuse.",
+    ),
+    progress: bool = typer.Option(
+        False,
+        "--progress",
+        help="Print per-check progress to stderr as the --active checks run.",
+    ),
     fix: bool = typer.Option(
         False,
         "--fix",
@@ -249,6 +310,20 @@ def check(
     Exit code 0: conformant (no major/critical failures). Exit code 1: not
     conformant. Exit code 2: target unreachable.
     """
+    cfg = _load_config(config, "check")
+    method = str(_config_default(ctx, cfg, "method", method))
+    timeout = float(cast(float, _config_default(ctx, cfg, "timeout", timeout)))
+    active = bool(_config_default(ctx, cfg, "active", active))
+    resource_marker = cast(
+        "str | None", _config_default(ctx, cfg, "resource_marker", resource_marker)
+    )
+    pay = bool(_config_default(ctx, cfg, "pay", pay))
+    rpc_url = cast("str | None", _config_default(ctx, cfg, "rpc_url", rpc_url))
+    concurrency = int(cast(int, _config_default(ctx, cfg, "concurrency", concurrency)))
+    progress = bool(_config_default(ctx, cfg, "progress", progress))
+    fix = bool(_config_default(ctx, cfg, "fix", fix))
+    quiet = bool(_config_default(ctx, cfg, "quiet", quiet))
+
     try:
         results = run_checks(url, method=method, timeout=timeout)
     except httpx.HTTPError as exc:
@@ -268,8 +343,21 @@ def check(
         if signer is not None:
             from .active import run_active_checks
 
+            def _progress(r: CheckResult, done: int, total: int) -> None:
+                typer.secho(
+                    f"[{done:>2}/{total}] {r.check_id:<10} {r.status.value}",
+                    fg=typer.colors.BLUE,
+                    err=True,
+                )
+
             results = results + run_active_checks(
-                url, signer, method=method, timeout=timeout, resource_marker=resource_marker
+                url,
+                signer,
+                method=method,
+                timeout=timeout,
+                resource_marker=resource_marker,
+                concurrency=concurrency,
+                progress=_progress if progress else None,
             )
 
     if pay:

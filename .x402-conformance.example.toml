@@ -1,0 +1,33 @@
+# Example config for `x402-conformance check`.
+# Copy to `.x402-conformance.toml` (auto-discovered in the current directory) or
+# pass explicitly with `--config path.toml`. Explicit CLI flags always override
+# these values.
+#
+# SECURITY: never put --signer-key here. Secrets are read from the environment
+# ($X402_TESTNET_PAYER_KEY) only, never from a config file that might be committed.
+
+[check]
+# HTTP method for the initial probe.
+method = "GET"
+
+# Per-request timeout, seconds.
+timeout = 10.0
+
+# Also run the active negative checks (RS-NEG / RS-SEC).
+active = true
+
+# Run the active checks on N threads. 1 = sequential/deterministic. Use > 1 ONLY
+# against your own endpoints — parallel payment attempts against a third party
+# look like load/abuse.
+concurrency = 1
+
+# Print per-check progress to stderr as the active checks run.
+progress = true
+
+# A unique string from the protected resource body; with `active`, a rejected
+# response that still contains it is flagged as a content leak (RS-SEC-009).
+# resource_marker = "PREMIUM-CONTENT-MARKER"
+
+# RPC URL: verifies the settlement tx on-chain (RS-PAY-004) AND enables the
+# read-only --pay balance precheck. Testnet/Anvil only.
+# rpc_url = "http://127.0.0.1:8545"

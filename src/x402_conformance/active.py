@@ -249,8 +249,14 @@ def run_active_checks(
     timeout: float = 10.0,
     transport: httpx.BaseTransport | None = None,
     resource_marker: str | None = None,
+    concurrency: int = 1,
+    progress: Callable[[Any, int, int], None] | None = None,
 ) -> list[Any]:
-    """Run the RS-NEG active checks against `url`. Returns list[CheckResult]."""
+    """Run the RS-NEG active checks against `url`. Returns list[CheckResult].
+
+    ``concurrency`` > 1 runs the checks on a thread pool; default 1 is sequential.
+    ``progress`` is an optional ``(result, done, total)`` UI callback.
+    """
     from .checks.negative import evaluate_active  # late import avoids cycle
 
     headers = {"User-Agent": USER_AGENT}
@@ -258,7 +264,7 @@ def run_active_checks(
         timeout=timeout, transport=transport, follow_redirects=True, headers=headers
     ) as client:
         context = build_active_context(client, url, method, signer, resource_marker)
-        return evaluate_active(context)
+        return evaluate_active(context, concurrency=concurrency, progress=progress)
 
 
 def run_payment_checks(

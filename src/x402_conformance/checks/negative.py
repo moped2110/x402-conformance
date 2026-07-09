@@ -441,25 +441,63 @@ def neg_012(ctx: ActiveContext) -> tuple[Status, str]:
     return _assert_rejected(ctx.send(payload))
 
 
-def evaluate_active(context: ActiveContext | None) -> list[CheckResult]:
-    """Run every active check; skip all cleanly if no payable requirement found."""
-    results: list[CheckResult] = []
-    for check in ACTIVE_REGISTRY:
-        if context is None:
-            status, detail = Status.SKIP, "no exact/eip3009 requirement to attack"
-        else:
-            try:
-                status, detail = check.func(context)
-            except Exception as exc:  # a crashing check is OUR bug, never the target's
-                status, detail = Status.ERROR, f"check crashed (suite bug): {exc!r}"
-        results.append(
-            CheckResult(
-                check_id=check.check_id,
-                title=check.title,
-                severity=check.severity,
-                spec_ref=check.spec_ref,
-                status=status,
-                detail=detail,
-            )
-        )
-    return results
+def _run_active_check(check: _ActiveCheck, context: ActiveContext | None) -> CheckResult:
+    if context is None:
+        status, detail = Status.SKIP, "no exact/eip3009 requirement to attack"
+    else:
+        try:
+            status, detail = check.func(context)
+        except Exception as exc:  # a crashing check is OUR bug, never the target's
+            status, detail = Status.ERROR, f"check crashed (suite bug): {exc!r}"
+    return CheckResult(
+        check_id=check.check_id,
+        title=check.title,
+        severity=check.severity,
+        spec_ref=check.spec_ref,
+        status=status,
+        detail=detail,
+    )
+
+
+def evaluate_active(
+    context: ActiveContext | None,
+    concurrency: int = 1,
+    progress: Callable[[CheckResult, int, int], None] | None = None,
+) -> list[CheckResult]:
+    """Run every active check; skip all cleanly if no payable requirement found.
+
+    ``concurrency`` > 1 runs the checks on a thread pool (each check is independent
+    and the shared httpx.Client is thread-safe). Result order is always the stable
+    registry order regardless of completion order, so reports stay deterministic.
+    Default 1 = fully sequential (byte-for-byte the historical behaviour). Use
+    higher values only against your OWN endpoints — many parallel payment attempts
+    against a third party look like load/abuse.
+
+    ``progress`` (optional) is called ``(result, done, total)`` as each check
+    finishes — in completion order, which for concurrency > 1 need not be registry
+    order. It is a UI side-channel only; it never affects the returned list.
+    """
+    total = len(ACTIVE_REGISTRY)
+    if concurrency <= 1 or context is None:
+        results: list[CheckResult] = []
+        for check in ACTIVE_REGISTRY:
+            r = _run_active_check(check, context)
+            results.append(r)
+            if progress is not None:
+                progress(r, len(results), total)
+        return results
+
+    import concurrent.futures
+
+    order = {check.check_id: i for i, check in enumerate(ACTIVE_REGISTRY)}
+    collected: list[CheckResult] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as ex:
+        futures = {ex.submit(_run_active_check, check, context): check for check in ACTIVE_REGISTRY}
+        for fut in concurrent.futures.as_completed(futures):
+            r = fut.result()
+            collected.append(r)
+            if progress is not None:
+                progress(r, len(collected), total)
+    # Restore stable registry order so reports/diffs are deterministic.
+    collected.sort(key=lambda r: order[r.check_id])
+    return collected

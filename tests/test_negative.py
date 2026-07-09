@@ -266,6 +266,30 @@ def test_neg_004_foreign_signature_caught_when_unchecked() -> None:
     assert by_id(results, "RS-NEG-004").status == Status.FAIL
 
 
+def test_concurrency_matches_sequential_order_and_verdicts() -> None:
+    # Parallel execution must produce byte-identical results (order + statuses) to
+    # the sequential run — same catalog order, same verdicts, just faster.
+    seq = run_active_checks(TARGET, SIGNER, transport=make_server(), concurrency=1)
+    par = run_active_checks(TARGET, SIGNER, transport=make_server(), concurrency=8)
+    assert [r.check_id for r in par] == [r.check_id for r in seq]
+    assert [r.status for r in par] == [r.status for r in seq]
+
+
+def test_progress_callback_fires_once_per_check() -> None:
+    seen: list[tuple[str, int, int]] = []
+    results = run_active_checks(
+        TARGET,
+        SIGNER,
+        transport=make_server(),
+        progress=lambda r, done, total: seen.append((r.check_id, done, total)),
+    )
+    assert len(seen) == len(results)
+    # done counts up 1..N and total is constant = number of checks.
+    assert [d for _, d, _ in seen] == list(range(1, len(results) + 1))
+    assert {t for _, _, t in seen} == {len(results)}
+    assert {cid for cid, _, _ in seen} == {r.check_id for r in results}
+
+
 def test_amount_bug_caught_specifically_by_neg_013() -> None:
     # Server verifies signatures but forgets to validate the price against its own.
     results = run_active_checks(TARGET, SIGNER, transport=make_server(check_amount=False))
