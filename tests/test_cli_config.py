@@ -22,7 +22,7 @@ def _ok():
 
 def test_load_config_reads_section(tmp_path: Path) -> None:
     cfg = tmp_path / "c.toml"
-    cfg.write_text('[check]\ntimeout = 42.0\nconcurrency = 4\n[other]\nx = 1\n', encoding="utf-8")
+    cfg.write_text("[check]\ntimeout = 42.0\nconcurrency = 4\n[other]\nx = 1\n", encoding="utf-8")
     assert cli._load_config(cfg, "check") == {"timeout": 42.0, "concurrency": 4}
     assert cli._load_config(cfg, "missing") == {}
 

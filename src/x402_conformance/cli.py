@@ -68,12 +68,20 @@ def _load_config(explicit: Path | None, section: str) -> dict[str, object]:
     return sect if isinstance(sect, dict) else {}
 
 
-def _config_default(ctx: typer.Context, cfg: dict[str, object], name: str, current: object) -> object:
+def _config_default(
+    ctx: typer.Context, cfg: dict[str, object], name: str, current: object
+) -> object:
     """Return the config value for ``name`` only when the CLI flag was left at its
-    default — an explicit CLI flag always wins over the config file."""
-    from click.core import ParameterSource
+    default — an explicit CLI flag always wins over the config file.
 
-    if name in cfg and ctx.get_parameter_source(name) == ParameterSource.DEFAULT:
+    We read the parameter *source* enum by name ("DEFAULT") rather than importing
+    click's ParameterSource: some Typer builds don't expose `click` as an
+    importable top-level module.
+    """
+    if name not in cfg:
+        return current
+    source = ctx.get_parameter_source(name)
+    if source is None or getattr(source, "name", "") == "DEFAULT":
         return cfg[name]
     return current
 

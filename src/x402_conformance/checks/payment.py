@@ -48,7 +48,7 @@ def _read_token_balance(rpc_url: str, token: str, owner: str) -> int | None:
     try:
         w3 = Web3(Web3.HTTPProvider(rpc_url))
         data = "0x" + _SEL_BALANCE_OF + owner.lower().removeprefix("0x").rjust(64, "0")
-        raw = w3.eth.call({"to": Web3.to_checksum_address(token), "data": data})
+        raw = w3.eth.call(cast(Any, {"to": Web3.to_checksum_address(token), "data": data}))
         return int(raw.hex(), 16) if raw else 0
     except Exception:
         return None
