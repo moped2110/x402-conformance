@@ -267,6 +267,25 @@ def run_active_checks(
         return evaluate_active(context, concurrency=concurrency, progress=progress)
 
 
+def run_timing_checks(
+    url: str,
+    signer: Any,
+    method: str = "GET",
+    timeout: float = 10.0,
+    transport: httpx.BaseTransport | None = None,
+    samples: int = 15,
+) -> list[Any]:
+    """Run the opt-in RS-SEC-008 timing-oracle probe. Returns list[CheckResult]."""
+    from .checks.timing import evaluate_timing
+
+    headers = {"User-Agent": USER_AGENT}
+    with httpx.Client(
+        timeout=timeout, transport=transport, follow_redirects=True, headers=headers
+    ) as client:
+        context = build_active_context(client, url, method, signer)
+        return evaluate_timing(context, samples=samples)
+
+
 def run_payment_checks(
     url: str,
     signer: Any,

@@ -6,6 +6,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **RS-SEC-008 timing-oracle probe** (`check --timing`, opt-in): checks whether an endpoint's
+  rejection *time* leaks which validation failed — a wrong-signature payment (fails early, at
+  signature recovery) vs. a valid-signature wrong-amount payment (fails later) that reject with
+  markedly different timings expose a side channel. MINOR/advisory — never gates the verdict —
+  and conservative: it flags only a gross, reproducible gap (median difference both above a 25 ms
+  floor AND several times the within-class noise), so normal jitter can't false-positive. The
+  decision (`classify_timing`) is pure/deterministic; the measurement clock is injectable.
+  Catalog 62 → 63.
 - **Run records (on by default)**: every `check` run now persists a structured, tamper-evident
   JSON record — UTC timestamps, tool + spec version, the exact invocation inputs, environment,
   the full per-check results, the verdict, and a `runId` content hash — plus a one-line append to

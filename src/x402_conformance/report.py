@@ -287,6 +287,12 @@ _ONCHAIN_CHECKS: list[tuple[str, str, Severity, str]] = [
         Severity.CRITICAL,
         "CORE §10.1",
     ),
+    (
+        "RS-SEC-008",
+        "Rejection timing does not leak the rejection reason (timing oracle)",
+        Severity.MINOR,
+        "CORE §10.1",
+    ),
 ]
 
 

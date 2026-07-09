@@ -89,11 +89,13 @@ def _all_implemented_ids() -> set[str]:
     """
     from x402_conformance.checks.facilitator import FacilitatorContext, evaluate_settle
     from x402_conformance.checks.payment import evaluate_payment
+    from x402_conformance.checks.timing import evaluate_timing
 
     ids: set[str] = set()
     for reg in (REGISTRY, FA_REGISTRY, DI_REGISTRY, _active_registry()):
         ids |= {c.check_id for c in reg}
     ids |= {r.check_id for r in evaluate_payment(None)}
+    ids |= {r.check_id for r in evaluate_timing(None)}
     with httpx.Client() as client:
         ctx = FacilitatorContext(
             base_url="", client=client, requirements=None, signer=None, allow_settle=False

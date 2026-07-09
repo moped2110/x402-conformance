@@ -58,7 +58,7 @@ funds.
 - **RS-PAY** + **RS-SEC-001** (positive settlement + replay) — `check --pay`: signs a valid funded payment, settles it ON-CHAIN, verifies the tx, and confirms a replay is rejected. Confirmed live against Anvil.
 - **FA-SET** (facilitator `/settle`) — `facilitator --settle`: valid settle, invalid settle, double-settle.
 
-Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **62 checks across the groups above; 185+ offline tests, mypy strict, CI green.**
+Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **63 checks across the groups above; 185+ offline tests, mypy strict, CI green.**
 
 Since v0.1.0 (see [`CHANGELOG.md`](CHANGELOG.md)): a developer-focused fix-it report (`check --fix`), v1-envelope handling (real JPYC endpoints no longer read as broken), asset-is-an-EOA rejection (x402#2554), an opt-in `x-jp402` invoice check, and added robustness checks (oversized header, control/Unicode input, non-32-byte nonce, bad `x402Version`, unoffered scheme/network).
 

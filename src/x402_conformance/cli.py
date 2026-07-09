@@ -288,6 +288,13 @@ def check(
         "enables a read-only balance precheck: if the signer can't cover the "
         "amount, RS-PAY is skipped cleanly instead of sending a doomed payment.",
     ),
+    timing: bool = typer.Option(
+        False,
+        "--timing",
+        help="Opt-in RS-SEC-008 timing-oracle probe: checks whether rejection time "
+        "leaks which validation failed. Advisory (MINOR), never gates the verdict; "
+        "sends only invalid payments, no funds. Uses a throwaway signer.",
+    ),
     json_out: Path | None = typer.Option(None, "--json", help="Write JSON report to file"),
     md_out: Path | None = typer.Option(None, "--markdown", help="Write Markdown report to file"),
     sarif_out: Path | None = typer.Option(
@@ -340,6 +347,7 @@ def check(
     )
     pay = bool(_config_default(ctx, cfg, "pay", pay))
     rpc_url = cast("str | None", _config_default(ctx, cfg, "rpc_url", rpc_url))
+    timing = bool(_config_default(ctx, cfg, "timing", timing))
     concurrency = int(cast(int, _config_default(ctx, cfg, "concurrency", concurrency)))
     progress = bool(_config_default(ctx, cfg, "progress", progress))
     fix = bool(_config_default(ctx, cfg, "fix", fix))
@@ -375,6 +383,7 @@ def check(
                 "timeout": timeout,
                 "active": active,
                 "pay": pay,
+                "timing": timing,
                 "concurrency": concurrency,
                 "resource_marker": resource_marker,
                 "rpc_url": rpc_url,
@@ -436,6 +445,14 @@ def check(
             from .active import run_payment_checks
 
             results = results + run_payment_checks(url, signer, rpc_url=rpc_url, method=method)
+
+    if timing:
+        signer = _make_signer(signer_key)
+        if signer is not None:
+            signer_address = getattr(signer, "address", None)
+            from .active import run_timing_checks
+
+            results = results + run_timing_checks(url, signer, method=method, timeout=timeout)
 
     _write_record(results)
 
