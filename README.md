@@ -48,7 +48,7 @@ funds.
 
 ## Status
 
-**v0.1.0** — working tool. CI (pytest + mypy on Python 3.11–3.13) in `.github/workflows/ci.yml`; full release notes in [`CHANGELOG.md`](CHANGELOG.md). Implemented check groups:
+**v0.2.0** — working tool. CI (pytest + mypy on Python 3.11–3.13) in `.github/workflows/ci.yml`; full release notes in [`CHANGELOG.md`](CHANGELOG.md). Implemented check groups:
 
 - **RS-HS** (handshake) and **RS-PR** (PaymentRequired schema) — passive, no payment.
 - **RS-NEG** + **RS-SEC-010** (negative / security) — `--active`: signs deliberately-invalid payments and verifies the endpoint rejects them. Throwaway signer, no funds, no chain needed.

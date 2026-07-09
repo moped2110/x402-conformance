@@ -5,6 +5,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-07-09
+
+Robustness, security and UX release on top of 0.1.0: a new CRITICAL check
+(RS-NEG-004, foreign/reused signature), transient-fault retry, a read-only
+`--pay` balance precheck, a config file, parallel active checks, progress output,
+SARIF export, DI-003, and a live verify gate in CI. 62 checks, 231 offline tests.
+
 ### Added
 - **`check --config`**: a TOML config (`[check]` table; auto-discovers `./.x402-conformance.toml`)
   supplies defaults for the repetitive flags (timeout, rpc-url, resource-marker, concurrency,
