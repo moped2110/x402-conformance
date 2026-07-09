@@ -23,6 +23,7 @@ from .report import (
     to_markdown,
     to_sarif,
 )
+from .run_record import DEFAULT_LOG_DIR, NO_LOG_ENV
 from .runner import run_checks
 from .scan import ScanEntry, format_scan, scan_to_dicts, summarize_scan
 
@@ -309,9 +310,13 @@ def check(
     log_dir: Path | None = typer.Option(
         None,
         "--log-dir",
-        help="Persist a tamper-evident JSON run record (timestamp, inputs, "
-        "environment, full results, verdict, content hash) into this directory and "
-        "append a line to runs.jsonl — an audit trail beyond the console output.",
+        help="Directory for the tamper-evident JSON run record + runs.jsonl journal. "
+        "Logging is ON by default (writes to ./x402-runs); use this to change the path.",
+    ),
+    no_log: bool = typer.Option(
+        False,
+        "--no-log",
+        help="Disable the run record for this run (logging is on by default).",
     ),
     fix: bool = typer.Option(
         False,
@@ -339,15 +344,57 @@ def check(
     progress = bool(_config_default(ctx, cfg, "progress", progress))
     fix = bool(_config_default(ctx, cfg, "fix", fix))
     quiet = bool(_config_default(ctx, cfg, "quiet", quiet))
+    # Logging is ON by default (writes to ./x402-runs). An explicit --log-dir or a
+    # config log_dir overrides the path; --no-log or the NO_LOG_ENV env var (used by
+    # the test suite) suppresses the default. An explicit path always writes.
     _raw_log_dir = _config_default(ctx, cfg, "log_dir", log_dir)
-    log_dir = Path(str(_raw_log_dir)) if _raw_log_dir else None
+    if no_log:
+        run_log_dir: Path | None = None
+    elif _raw_log_dir:
+        run_log_dir = Path(str(_raw_log_dir))
+    elif os.environ.get(NO_LOG_ENV):
+        run_log_dir = None
+    else:
+        run_log_dir = Path(DEFAULT_LOG_DIR)
 
     started_at = datetime.now(UTC)
     signer_address: str | None = None
 
+    def _write_record(
+        res: list[CheckResult], *, error: str | None = None, ec: int | None = None
+    ) -> None:
+        if run_log_dir is None:
+            return
+        from .run_record import build_run_record, write_run_record
+
+        record = build_run_record(
+            command="check",
+            target=url,
+            inputs={
+                "method": method,
+                "timeout": timeout,
+                "active": active,
+                "pay": pay,
+                "concurrency": concurrency,
+                "resource_marker": resource_marker,
+                "rpc_url": rpc_url,
+            },
+            results=res,
+            signer_address=signer_address,
+            started_at=started_at,
+            finished_at=datetime.now(UTC),
+            error=error,
+            override_exit_code=ec,
+        )
+        path = write_run_record(record, run_log_dir)
+        typer.echo(f"Run record: {path}")
+
     try:
         results = run_checks(url, method=method, timeout=timeout)
     except httpx.HTTPError as exc:
+        # A failed attempt is worth recording too — the audit trail wants to know we
+        # tried to test this target at this time and it was unreachable.
+        _write_record([], error=f"target unreachable: {exc}", ec=2)
         typer.secho(f"target unreachable: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc
 
@@ -390,28 +437,7 @@ def check(
 
             results = results + run_payment_checks(url, signer, rpc_url=rpc_url, method=method)
 
-    if log_dir is not None:
-        from .run_record import build_run_record, write_run_record
-
-        record = build_run_record(
-            command="check",
-            target=url,
-            inputs={
-                "method": method,
-                "timeout": timeout,
-                "active": active,
-                "pay": pay,
-                "concurrency": concurrency,
-                "resource_marker": resource_marker,
-                "rpc_url": rpc_url,
-            },
-            results=results,
-            signer_address=signer_address,
-            started_at=started_at,
-            finished_at=datetime.now(UTC),
-        )
-        path = write_run_record(record, log_dir)
-        typer.echo(f"Run record: {path}")
+    _write_record(results)
 
     raise typer.Exit(
         _emit(results, url, quiet, json_out, md_out, developer=fix, sarif_out=sarif_out)

@@ -26,3 +26,6 @@ TODO.md
 
 # Local run config (may hold endpoint URLs / rpc-url); the .example is committed.
 .x402-conformance.toml
+
+# Default run-record directory (audit trail of runs) — machine-local, not tracked.
+x402-runs/

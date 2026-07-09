@@ -68,6 +68,42 @@ def test_check_writes_run_record(monkeypatch, tmp_path) -> None:
     assert (tmp_path / "runs.jsonl").exists()
 
 
+def test_logging_is_on_by_default(monkeypatch, tmp_path) -> None:
+    # With no flags and the suppression env cleared, a run writes to ./x402-runs.
+    monkeypatch.setattr(cli, "run_checks", lambda *a, **k: _results(Status.PASS))
+    monkeypatch.delenv("X402_CONFORMANCE_NO_LOG", raising=False)
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(cli.app, ["check", "https://t.example"])
+    assert result.exit_code == 0
+    assert (tmp_path / "x402-runs" / "runs.jsonl").exists()
+    assert list((tmp_path / "x402-runs").glob("run-*.json"))
+
+
+def test_no_log_flag_suppresses(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(cli, "run_checks", lambda *a, **k: _results(Status.PASS))
+    monkeypatch.delenv("X402_CONFORMANCE_NO_LOG", raising=False)
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(cli.app, ["check", "https://t.example", "--no-log"])
+    assert result.exit_code == 0
+    assert not (tmp_path / "x402-runs").exists()
+
+
+def test_unreachable_target_is_still_logged(monkeypatch, tmp_path) -> None:
+    def boom(*a, **k):
+        raise httpx.ConnectError("no route")
+
+    monkeypatch.setattr(cli, "run_checks", boom)
+    result = runner.invoke(cli.app, ["check", "https://t.example", "--log-dir", str(tmp_path)])
+    assert result.exit_code == 2
+    records = list(tmp_path.glob("run-*.json"))
+    assert len(records) == 1
+    rec = json.loads(records[0].read_text())
+    assert rec["error"].startswith("target unreachable")
+    assert rec["exitCode"] == 2
+    assert rec["conformant"] is False
+    assert rec["results"] == []
+
+
 def test_minor_only_failure_still_exit_0(monkeypatch) -> None:
     monkeypatch.setattr(cli, "run_checks", lambda *a, **k: _results(Status.FAIL, Severity.MINOR))
     result = runner.invoke(cli.app, ["check", "https://t.example"])

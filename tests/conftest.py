@@ -15,7 +15,18 @@ from typing import Any
 import httpx
 import pytest
 
+from x402_conformance.run_record import NO_LOG_ENV
+
 TARGET_URL = "https://api.example.com/premium-data"
+
+
+@pytest.fixture(autouse=True)
+def _suppress_default_run_log(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run logging is on by default and would litter ./x402-runs during CLI tests.
+    Suppress the *default* dir here; a test that passes an explicit --log-dir still
+    writes to its own tmp path."""
+    monkeypatch.setenv(NO_LOG_ENV, "1")
+
 
 # Spec example, x402-specification-v2.md §5.1.1
 VALID_PAYMENT_REQUIRED: dict[str, Any] = {

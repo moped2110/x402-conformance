@@ -28,6 +28,13 @@ from .report import exit_code, summarize
 
 SCHEMA_VERSION = "1.0"
 
+#: Default directory for run records (relative to the current working dir). Logging
+#: is on by default; disable per run with ``--no-log`` or the env var below.
+DEFAULT_LOG_DIR = "x402-runs"
+#: Set this env var (to anything) to suppress the *default* run log — an explicit
+#: ``--log-dir`` still writes. Used by the test suite to avoid polluting the tree.
+NO_LOG_ENV = "X402_CONFORMANCE_NO_LOG"
+
 
 def _redact_url(url: str | None) -> str | None:
     """Keep only scheme://host of an RPC URL — providers embed API keys in the
@@ -77,8 +84,16 @@ def build_run_record(
     signer_address: str | None,
     started_at: datetime,
     finished_at: datetime,
+    error: str | None = None,
+    override_exit_code: int | None = None,
 ) -> dict[str, Any]:
-    """Assemble the full, self-describing record for one run (adds ``runId``)."""
+    """Assemble the full, self-describing record for one run (adds ``runId``).
+
+    A run that never produced results — e.g. the target was unreachable — is still
+    recorded: pass ``error`` (a message) and ``override_exit_code`` (2). Such a run
+    is never ``conformant`` and its ``results`` are simply empty.
+    """
+    ec = override_exit_code if override_exit_code is not None else exit_code(results)
     record: dict[str, Any] = {
         "schemaVersion": SCHEMA_VERSION,
         "tool": {
@@ -99,8 +114,9 @@ def build_run_record(
             "machine": platform.machine(),
         },
         "summary": summarize(results),
-        "conformant": exit_code(results) == 0,
-        "exitCode": exit_code(results),
+        "conformant": error is None and ec == 0,
+        "exitCode": ec,
+        "error": error,
         "results": [asdict(r) for r in results],
     }
     record["runId"] = _content_hash(record)
