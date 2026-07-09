@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
@@ -305,6 +306,13 @@ def check(
         "--progress",
         help="Print per-check progress to stderr as the --active checks run.",
     ),
+    log_dir: Path | None = typer.Option(
+        None,
+        "--log-dir",
+        help="Persist a tamper-evident JSON run record (timestamp, inputs, "
+        "environment, full results, verdict, content hash) into this directory and "
+        "append a line to runs.jsonl — an audit trail beyond the console output.",
+    ),
     fix: bool = typer.Option(
         False,
         "--fix",
@@ -331,6 +339,11 @@ def check(
     progress = bool(_config_default(ctx, cfg, "progress", progress))
     fix = bool(_config_default(ctx, cfg, "fix", fix))
     quiet = bool(_config_default(ctx, cfg, "quiet", quiet))
+    _raw_log_dir = _config_default(ctx, cfg, "log_dir", log_dir)
+    log_dir = Path(str(_raw_log_dir)) if _raw_log_dir else None
+
+    started_at = datetime.now(UTC)
+    signer_address: str | None = None
 
     try:
         results = run_checks(url, method=method, timeout=timeout)
@@ -349,6 +362,7 @@ def check(
     if active:
         signer = _make_signer(signer_key)
         if signer is not None:
+            signer_address = getattr(signer, "address", None)
             from .active import run_active_checks
 
             def _progress(r: CheckResult, done: int, total: int) -> None:
@@ -371,9 +385,33 @@ def check(
     if pay:
         signer = _make_signer(signer_key)
         if signer is not None:
+            signer_address = getattr(signer, "address", None)
             from .active import run_payment_checks
 
             results = results + run_payment_checks(url, signer, rpc_url=rpc_url, method=method)
+
+    if log_dir is not None:
+        from .run_record import build_run_record, write_run_record
+
+        record = build_run_record(
+            command="check",
+            target=url,
+            inputs={
+                "method": method,
+                "timeout": timeout,
+                "active": active,
+                "pay": pay,
+                "concurrency": concurrency,
+                "resource_marker": resource_marker,
+                "rpc_url": rpc_url,
+            },
+            results=results,
+            signer_address=signer_address,
+            started_at=started_at,
+            finished_at=datetime.now(UTC),
+        )
+        path = write_run_record(record, log_dir)
+        typer.echo(f"Run record: {path}")
 
     raise typer.Exit(
         _emit(results, url, quiet, json_out, md_out, developer=fix, sarif_out=sarif_out)

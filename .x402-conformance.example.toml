@@ -31,3 +31,7 @@ progress = true
 # RPC URL: verifies the settlement tx on-chain (RS-PAY-004) AND enables the
 # read-only --pay balance precheck. Testnet/Anvil only.
 # rpc_url = "http://127.0.0.1:8545"
+
+# Persist a tamper-evident JSON run record per run into this directory, and append
+# a line to runs.jsonl — an audit trail beyond the console.
+# log_dir = "runs"

@@ -58,6 +58,16 @@ def test_check_writes_json_report(monkeypatch, tmp_path) -> None:
     assert doc["conformant"] is True
 
 
+def test_check_writes_run_record(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(cli, "run_checks", lambda *a, **k: _results(Status.PASS))
+    result = runner.invoke(cli.app, ["check", "https://t.example", "--log-dir", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "Run record:" in result.output
+    records = list(tmp_path.glob("run-*.json"))
+    assert len(records) == 1
+    assert (tmp_path / "runs.jsonl").exists()
+
+
 def test_minor_only_failure_still_exit_0(monkeypatch) -> None:
     monkeypatch.setattr(cli, "run_checks", lambda *a, **k: _results(Status.FAIL, Severity.MINOR))
     result = runner.invoke(cli.app, ["check", "https://t.example"])

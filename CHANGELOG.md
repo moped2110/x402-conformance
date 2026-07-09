@@ -5,6 +5,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **`check --log-dir`** (also config `log_dir`): persist a structured, tamper-evident JSON run
+  record per run — UTC timestamps, tool + spec version, the exact invocation inputs, environment,
+  the full per-check results, the verdict, and a `runId` content hash — plus a one-line append to
+  `runs.jsonl`. An audit trail beyond the console. No secrets are recorded: only the signer's
+  public address, and an `rpc_url` is reduced to scheme+host so a provider key in its path/query
+  can't leak. `verify_run_record()` re-hashes a record to detect tampering.
+
 ## [0.2.0] — 2026-07-09
 
 Robustness, security and UX release on top of 0.1.0: a new CRITICAL check
