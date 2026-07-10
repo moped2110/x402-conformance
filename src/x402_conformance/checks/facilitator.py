@@ -39,14 +39,15 @@ _CORE = "x402-specification-v2.md"
 # SettleResponse.errorReason / VerifyResponse.invalidReason / x402Response.error).
 # Re-sync on every SPEC_BASELINE bump; tests/test_error_reason_drift.py compares
 # this set against a live x402Specs.ts when one is reachable (skips otherwise).
-# Caveat: this enum is missing one EVM code that the spec prose / Python / Go define
-# (..._authorization_value_mismatch) — accepted via _LOCAL_ERROR_CODES below.
 SPEC_ERROR_REASONS = frozenset(
     {
         "insufficient_funds",
         "invalid_exact_evm_payload_authorization_valid_after",
         "invalid_exact_evm_payload_authorization_valid_before",
         "invalid_exact_evm_payload_authorization_value",
+        # Adopted into the TS ErrorReasons enum upstream (previously TS-missing, our
+        # T-20 nit) — now a first-class spec code, moved out of _LOCAL_ERROR_CODES.
+        "invalid_exact_evm_payload_authorization_value_mismatch",
         "invalid_exact_evm_payload_signature",
         "invalid_exact_evm_payload_undeployed_smart_wallet",
         "invalid_exact_evm_payload_recipient_mismatch",
@@ -89,17 +90,11 @@ SPEC_ERROR_REASONS = frozenset(
 # Codes we recognise beyond the TS `ErrorReasons` Zod enum:
 #  - asset_not_deployed_contract: proposed in x402#2554 (asset address is an EOA,
 #    no bytecode) — not yet in the enum.
-#  - invalid_exact_evm_payload_authorization_value_mismatch: upstream is internally
-#    inconsistent on this one. The spec PROSE (§ error registry), the Python
-#    facilitator constants (mechanisms/evm/constants.py::ERR_AUTHORIZATION_VALUE_MISMATCH)
-#    and the Go errors all define ..._value_mismatch, but the TS Zod enum is MISSING
-#    it entirely (it carries a sibling ..._value, not the _mismatch reason). So the
-#    TS validator (z.enum) rejects what a Python/Go facilitator legitimately emits.
-#    We accept BOTH so neither is false-flagged. (Reportable upstream nit — see T-20.)
+# (..._authorization_value_mismatch used to live here while the TS enum lacked it;
+#  upstream has since adopted it, so it now sits in SPEC_ERROR_REASONS above.)
 _LOCAL_ERROR_CODES = frozenset(
     {
         "asset_not_deployed_contract",
-        "invalid_exact_evm_payload_authorization_value_mismatch",
     }
 )
 

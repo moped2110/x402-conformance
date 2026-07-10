@@ -57,14 +57,15 @@ def _parse_error_reasons(text: str) -> set[str]:
 
 
 def test_spec_error_reasons_pinned():
-    """CI-safe: the vendored set is exactly what we reviewed (40 unique codes),
+    """CI-safe: the vendored set is exactly what we reviewed (41 unique codes),
     and the local extensions stay out of the canonical half."""
-    assert len(SPEC_ERROR_REASONS) == 40
+    assert len(SPEC_ERROR_REASONS) == 41
     # canonical settle/verify reasons live in the spec half, short form
     assert {"unexpected_settle_error", "unexpected_verify_error"} <= SPEC_ERROR_REASONS
-    # the current spec spelling, not the legacy *_value_mismatch
+    # both the short spelling and *_value_mismatch are now first-class spec codes
+    # (upstream adopted _value_mismatch into the TS enum — our former T-20 nit)
     assert "invalid_exact_evm_payload_authorization_value" in SPEC_ERROR_REASONS
-    assert "invalid_exact_evm_payload_authorization_value_mismatch" not in SPEC_ERROR_REASONS
+    assert "invalid_exact_evm_payload_authorization_value_mismatch" in SPEC_ERROR_REASONS
     # local-only codes are not smuggled into the canonical set
     assert SPEC_ERROR_REASONS.isdisjoint(_LOCAL_ERROR_CODES)
     assert _LOCAL_ERROR_CODES <= KNOWN_ERROR_CODES
