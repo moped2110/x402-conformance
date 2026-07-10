@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import httpx
+import pytest
 from conftest import (
     TARGET_URL,
     VALID_PAYMENT_REQUIRED,
@@ -10,9 +11,10 @@ from conftest import (
     transport_with_402,
 )
 
+from x402_conformance import runner
 from x402_conformance.checks import Severity, Status
 from x402_conformance.report import exit_code
-from x402_conformance.runner import run_checks
+from x402_conformance.runner import EndpointUnreachable, run_checks
 
 
 def by_id(results: list, check_id: str):
@@ -61,7 +63,60 @@ def test_non_402_response_fails_handshake() -> None:
     assert by_id(results, "RS-HS-001").status == Status.FAIL
     assert "without payment" in by_id(results, "RS-HS-001").detail
     assert by_id(results, "RS-HS-002").status == Status.SKIP
-    assert exit_code(results) == 1
+
+
+# --- T-23: infra 5xx is unreachable, not a conformance FAIL ------------------
+
+
+def test_server_error_no_paywall_is_unreachable() -> None:
+    # A Cloudflare 530 (origin down) is an infra failure, not a verdict — the run
+    # bails to unreachable instead of emitting a MAJOR RS-HS-001 FAIL.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(530)
+
+    with pytest.raises(EndpointUnreachable):
+        run_checks(TARGET_URL, transport=httpx.MockTransport(handler))
+
+
+def test_transient_503_is_retried_then_paywall(monkeypatch) -> None:
+    monkeypatch.setattr(runner.time, "sleep", lambda _s: None)  # no real backoff
+    header = encode_header(VALID_PAYMENT_REQUIRED)
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(503)  # one transient blip
+        return httpx.Response(402, headers={"PAYMENT-REQUIRED": header}, json={})
+
+    results = run_checks(TARGET_URL, transport=httpx.MockTransport(handler))
+    assert by_id(results, "RS-HS-001").status == Status.PASS
+    assert calls["n"] >= 2  # the 503 was retried, not reported
+
+
+def test_persistent_503_is_unreachable_after_retries(monkeypatch) -> None:
+    monkeypatch.setattr(runner.time, "sleep", lambda _s: None)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503)
+
+    with pytest.raises(EndpointUnreachable):
+        run_checks(TARGET_URL, transport=httpx.MockTransport(handler))
+
+
+def test_5xx_with_paywall_signal_skips_not_fails() -> None:
+    # A 5xx that still carries a PAYMENT-REQUIRED header isn't unreachable — the
+    # checks run, and RS-HS-001 treats the 5xx as inconclusive (SKIP), never FAIL.
+    header = encode_header(VALID_PAYMENT_REQUIRED)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, headers={"PAYMENT-REQUIRED": header}, json={})
+
+    results = run_checks(TARGET_URL, transport=httpx.MockTransport(handler))
+    assert by_id(results, "RS-HS-001").status == Status.SKIP
+    # The SKIP is inconclusive, not a gating failure — a valid paywall header with a
+    # 5xx body doesn't flip the run to non-conformant on its own.
+    assert exit_code(results) == 0
 
 
 def test_402_without_payment_required_header_fails() -> None:

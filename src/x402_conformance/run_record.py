@@ -139,12 +139,18 @@ def write_run_record(record: dict[str, Any], log_dir: Path) -> Path:
     path = log_dir / f"run-{ts}-{short}.json"
     path.write_text(json.dumps(record, indent=2), encoding="utf-8")
 
+    # The journal is what you grep to find failing/unreachable runs, so it must
+    # carry the verdict itself — not just ``conformant``. ``exitCode`` disambiguates
+    # 0 (conformant) / 1 (check failures) / 2 (unreachable or error), and ``error``
+    # surfaces the reason for an exit-2 run without opening the full record.
     journal_line = {
         "runId": record["runId"],
         "startedAt": record["startedAt"],
         "command": record["command"],
         "target": record["target"],
         "conformant": record["conformant"],
+        "exitCode": record["exitCode"],
+        "error": record["error"],
         "summary": record["summary"],
         "file": path.name,
     }

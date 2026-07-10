@@ -105,6 +105,34 @@ def test_write_run_record_writes_file_and_journal(tmp_path) -> None:
     assert line["runId"] == rec["runId"]
     assert line["file"] == path.name
     assert line["conformant"] is False
+    # The journal is what you grep — it must carry the verdict itself, not just
+    # ``conformant``. Regression guard for T-22 (VPS run 2026-07-09: exitCode/error
+    # were absent from the index while the full record had them).
+    assert line["exitCode"] == 1
+    assert line["error"] is None
+
+
+def test_journal_carries_exitcode_and_error_for_unreachable_run(tmp_path) -> None:
+    # A target that never answered is recorded with an error and exit 2. The
+    # journal line must surface both so an unreachable run is greppable without
+    # opening the full record.
+    start = datetime(2026, 7, 9, 12, 0, 0, tzinfo=UTC)
+    rec = build_run_record(
+        command="check",
+        target="https://down.example.com/data",
+        inputs={"method": "GET"},
+        results=[],
+        signer_address=None,
+        started_at=start,
+        finished_at=start,
+        error="connection refused",
+        override_exit_code=2,
+    )
+    write_run_record(rec, tmp_path)
+    line = json.loads((tmp_path / "runs.jsonl").read_text().strip())
+    assert line["exitCode"] == 2
+    assert line["error"] == "connection refused"
+    assert line["conformant"] is False
 
 
 def test_journal_appends_across_runs(tmp_path) -> None:

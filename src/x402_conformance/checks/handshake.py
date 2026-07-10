@@ -21,6 +21,14 @@ def hs_001(s: ProbeSession) -> tuple[Status, str]:
             f"got {code}: endpoint served content without payment — "
             "either not x402-protected or paywall is broken"
         )
+    if code >= 500:
+        # A server error is an infra failure, not a payment verdict. The runner
+        # normally bails to an unreachable (exit 2) run before we get here; this
+        # keeps a direct caller from reading a 5xx as a conformance FAIL.
+        return Status.SKIP, (
+            f"endpoint returned server error HTTP {code} — unreachable/inconclusive, "
+            "not an x402 verdict"
+        )
     return Status.FAIL, f"expected 402, got {code}"
 
 

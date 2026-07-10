@@ -7,6 +7,7 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
+from urllib.parse import urlsplit
 
 import httpx
 import typer
@@ -43,6 +44,29 @@ def version() -> None:
 
 
 _DEFAULT_CONFIG_NAME = ".x402-conformance.toml"
+
+#: Path suffixes that mark a facilitator/discovery endpoint rather than a paywalled
+#: resource. Pointing the passive resource `check` at these yields a false RS-HS-001
+#: (a facilitator's /supported correctly returns 200, not 402) — so we warn instead.
+_FACILITATOR_PATH_HINTS = ("/supported", "/verify", "/settle")
+
+
+def _facilitator_url_hint(url: str) -> str | None:
+    """Return a nudge if ``url`` looks like a facilitator/discovery endpoint, so the
+    user runs the right subcommand instead of getting a spurious resource finding."""
+    path = urlsplit(url).path.lower().rstrip("/")
+    if path.endswith("/.well-known/x402"):
+        return (
+            "this looks like an x402 discovery document (.well-known/x402), not a "
+            "paywalled resource — a passive 'check' will report a false RS-HS-001"
+        )
+    for hint in _FACILITATOR_PATH_HINTS:
+        if path.endswith(hint):
+            return (
+                f"this looks like a facilitator endpoint ({hint}) — it correctly answers "
+                "200, not 402; use the 'facilitator' subcommand to test it instead"
+            )
+    return None
 
 
 def _load_config(explicit: Path | None, section: str) -> dict[str, object]:
@@ -364,6 +388,10 @@ def check(
         run_log_dir = None
     else:
         run_log_dir = Path(DEFAULT_LOG_DIR)
+
+    hint = _facilitator_url_hint(url)
+    if hint:
+        typer.secho(f"note: {hint}", fg=typer.colors.YELLOW, err=True)
 
     started_at = datetime.now(UTC)
     signer_address: str | None = None

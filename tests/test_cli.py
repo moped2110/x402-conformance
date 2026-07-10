@@ -48,6 +48,34 @@ def test_check_unreachable_exit_2(monkeypatch) -> None:
     assert "unreachable" in result.output
 
 
+def test_server_error_is_unreachable_exit_2(monkeypatch) -> None:
+    # T-23: a 5xx endpoint surfaces as EndpointUnreachable (an httpx.HTTPError) and
+    # rides the same exit-2 path as a connection failure — not a conformance FAIL.
+    from x402_conformance.runner import EndpointUnreachable
+
+    def boom(*a, **k):
+        raise EndpointUnreachable("endpoint returned server error HTTP 530 with no x402 paywall")
+
+    monkeypatch.setattr(cli, "run_checks", boom)
+    result = runner.invoke(cli.app, ["check", "https://t.example"])
+    assert result.exit_code == 2
+    assert "unreachable" in result.output
+
+
+def test_facilitator_url_emits_warning(monkeypatch) -> None:
+    # T-24: pointing the passive `check` at a facilitator /supported endpoint warns
+    # (it correctly answers 200, not 402) and suggests the facilitator subcommand.
+    monkeypatch.setattr(cli, "run_checks", lambda *a, **k: _results(Status.PASS))
+    result = runner.invoke(cli.app, ["check", "https://facilitator.x402.rs/supported"])
+    assert "facilitator" in result.output.lower()
+
+
+def test_plain_resource_url_no_facilitator_warning(monkeypatch) -> None:
+    monkeypatch.setattr(cli, "run_checks", lambda *a, **k: _results(Status.PASS))
+    result = runner.invoke(cli.app, ["check", "https://api.example.com/premium/data"])
+    assert "use the 'facilitator' subcommand" not in result.output
+
+
 def test_check_writes_json_report(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(cli, "run_checks", lambda *a, **k: _results(Status.PASS))
     out = tmp_path / "report.json"
