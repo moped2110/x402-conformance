@@ -41,9 +41,7 @@ def _unreachable_reason(p: Probe) -> str | None:
     return None
 
 
-def _request_with_transient_retry(
-    client: httpx.Client, method: str, url: str
-) -> httpx.Response:
+def _request_with_transient_retry(client: httpx.Client, method: str, url: str) -> httpx.Response:
     """One unpaid request, retrying only *transient* statuses (429/502/503/504) a
     few times — a rate-limit or cold-start blip shouldn't be read as a down endpoint.
     A persistent 5xx (e.g. 500/530) is returned as-is for the caller to classify.

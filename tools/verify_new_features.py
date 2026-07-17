@@ -74,17 +74,24 @@ def main() -> int:
     print("correct server (no bugs):")
     with _Server(set(), port) as srv:
         passive = run_checks(srv.url)
-        _check("RS-PR-008 valid EIP-55 checksum → PASS",
-               by_id(passive, "RS-PR-008").status == Status.PASS,
-               by_id(passive, "RS-PR-008").detail)
+        _check(
+            "RS-PR-008 valid EIP-55 checksum → PASS",
+            by_id(passive, "RS-PR-008").status == Status.PASS,
+            by_id(passive, "RS-PR-008").detail,
+        )
 
         active = run_active_checks(srv.url, SIGNER, resource_marker=RESOURCE_MARKER)
-        _check("RS-SEC-011 extreme amount handled cleanly → PASS",
-               by_id(active, "RS-SEC-011").status == Status.PASS,
-               by_id(active, "RS-SEC-011").detail)
+        _check(
+            "RS-SEC-011 extreme amount handled cleanly → PASS",
+            by_id(active, "RS-SEC-011").status == Status.PASS,
+            by_id(active, "RS-SEC-011").detail,
+        )
         no_false_pos = [r.check_id for r in active if r.status == Status.FAIL]
-        _check("no active check falsely fails (with --resource-marker)",
-               not no_false_pos, f"unexpected fails: {no_false_pos}")
+        _check(
+            "no active check falsely fails (with --resource-marker)",
+            not no_false_pos,
+            f"unexpected fails: {no_false_pos}",
+        )
 
         # T-07: the JSON report validates against the published schema.
         doc = json.loads(to_json(passive, srv.url))
@@ -95,29 +102,38 @@ def main() -> int:
     print("--bug-bad-checksum:")
     with _Server({"bad-checksum"}, port + 1) as srv:
         passive = run_checks(srv.url)
-        _check("RS-PR-008 catches a broken EIP-55 checksum → FAIL",
-               by_id(passive, "RS-PR-008").status == Status.FAIL,
-               by_id(passive, "RS-PR-008").detail)
+        _check(
+            "RS-PR-008 catches a broken EIP-55 checksum → FAIL",
+            by_id(passive, "RS-PR-008").status == Status.FAIL,
+            by_id(passive, "RS-PR-008").detail,
+        )
 
     # 3) --bug-crash-huge — RS-SEC-011 must catch the 5xx crash.
     print("--bug-crash-huge:")
     with _Server({"crash-huge"}, port + 2) as srv:
         active = run_active_checks(srv.url, SIGNER)
-        _check("RS-SEC-011 catches a 5xx crash on a huge amount → FAIL",
-               by_id(active, "RS-SEC-011").status == Status.FAIL,
-               by_id(active, "RS-SEC-011").detail)
+        _check(
+            "RS-SEC-011 catches a 5xx crash on a huge amount → FAIL",
+            by_id(active, "RS-SEC-011").status == Status.FAIL,
+            by_id(active, "RS-SEC-011").detail,
+        )
 
     # 4) --bug-leak — the marker must be caught on the rejection path.
     print("--bug-leak (with --resource-marker):")
     with _Server({"leak"}, port + 3) as srv:
         active = run_active_checks(srv.url, SIGNER, resource_marker=RESOURCE_MARKER)
         leaked = [r for r in active if r.status == Status.FAIL and "leaked" in r.detail]
-        _check("content leak on rejection path is caught → FAIL", bool(leaked),
-               "no check reported a marker leak")
+        _check(
+            "content leak on rejection path is caught → FAIL",
+            bool(leaked),
+            "no check reported a marker leak",
+        )
         # Without the marker the same server looks clean — proving the flag is what catches it.
         active_no_marker = run_active_checks(srv.url, SIGNER)
-        _check("without --resource-marker the leak is not flagged (expected)",
-               not [r for r in active_no_marker if r.status == Status.FAIL and "leaked" in r.detail])
+        _check(
+            "without --resource-marker the leak is not flagged (expected)",
+            not [r for r in active_no_marker if r.status == Status.FAIL and "leaked" in r.detail],
+        )
 
     print()
     if _failures:
@@ -131,7 +147,11 @@ def _validate_schema(doc: dict) -> None:
     try:
         import jsonschema
     except Exception:
-        _check("report validates against report.schema.json", True, "(jsonschema not installed — skipped)")
+        _check(
+            "report validates against report.schema.json",
+            True,
+            "(jsonschema not installed — skipped)",
+        )
         return
     schema_path = Path(__file__).resolve().parents[1] / "report.schema.json"
     schema = json.loads(schema_path.read_text(encoding="utf-8"))

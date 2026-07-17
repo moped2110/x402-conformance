@@ -41,8 +41,15 @@ if not TOKEN:
     raise SystemExit("set X402_TOKEN to the deployed MockUSDC address")
 
 w3 = Web3(Web3.HTTPProvider(RPC))
-BALANCE_ABI = [{"type": "function", "name": "balanceOf", "stateMutability": "view",
-                "inputs": [{"name": "a", "type": "address"}], "outputs": [{"type": "uint256"}]}]
+BALANCE_ABI = [
+    {
+        "type": "function",
+        "name": "balanceOf",
+        "stateMutability": "view",
+        "inputs": [{"name": "a", "type": "address"}],
+        "outputs": [{"type": "uint256"}],
+    }
+]
 token = w3.eth.contract(address=Web3.to_checksum_address(TOKEN), abi=BALANCE_ABI)
 
 
@@ -66,8 +73,11 @@ def main() -> int:
         check("endpoint returns an exact/eip3009 requirement", req is not None)
         if req is None:
             return 1
-        check("advertised asset == deployed token",
-              req["asset"].lower() == TOKEN.lower(), req.get("asset", ""))
+        check(
+            "advertised asset == deployed token",
+            req["asset"].lower() == TOKEN.lower(),
+            req.get("asset", ""),
+        )
 
         signer = EvmSigner.from_key(PAYER_KEY)
         payer = signer.address
@@ -80,14 +90,18 @@ def main() -> int:
         header = base64.b64encode(json.dumps(payload).encode()).decode()
         resp = c.get(URL, headers={"PAYMENT-SIGNATURE": header})
 
-        check("HTTP 200 (resource delivered)", resp.status_code == 200,
-              f"status={resp.status_code}")
+        check(
+            "HTTP 200 (resource delivered)", resp.status_code == 200, f"status={resp.status_code}"
+        )
         check("body contains the protected resource", b"premium" in resp.content)
 
         pr = resp.headers.get("payment-response")
         settlement = json.loads(base64.b64decode(pr)) if pr else {}
-        check("PAYMENT-RESPONSE present + success", settlement.get("success") is True,
-              str(settlement)[:160])
+        check(
+            "PAYMENT-RESPONSE present + success",
+            settlement.get("success") is True,
+            str(settlement)[:160],
+        )
         tx = settlement.get("transaction", "")
         check("settlement carries a tx hash", bool(tx) and tx != "0x", tx)
 
@@ -96,10 +110,16 @@ def main() -> int:
             check("tx is mined on-chain (status 1)", rcpt.status == 1)
 
         payer_after, payto_after = balance(payer), balance(pay_to)
-        check("payer balance decreased by amount", payer_before - payer_after == amount,
-              f"{payer_before} -> {payer_after}")
-        check("payTo balance increased by amount", payto_after - payto_before == amount,
-              f"{payto_before} -> {payto_after}")
+        check(
+            "payer balance decreased by amount",
+            payer_before - payer_after == amount,
+            f"{payer_before} -> {payer_after}",
+        )
+        check(
+            "payTo balance increased by amount",
+            payto_after - payto_before == amount,
+            f"{payto_before} -> {payto_after}",
+        )
 
     print("\nRESULT:", "ALL GREEN — settlement loop works end-to-end" if ok else "FAILURES above")
     return 0 if ok else 1

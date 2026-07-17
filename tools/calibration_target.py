@@ -61,6 +61,7 @@ CHAIN_ID = 84532
 # emits it on a rejection; `--bug-leak` does, so `--resource-marker` catches it.
 RESOURCE_MARKER = "x402-calib-marker-7f3a"
 
+
 def _break_checksum(addr: str) -> str:
     """Flip the case of the first hex *letter* (skipping '0x'): keeps the address
     well-formed and mixed-case but makes its EIP-55 checksum invalid. Robust
@@ -92,19 +93,30 @@ def _verify_payload(payload: dict, bugs: set) -> dict:
     except Exception:
         return {"isValid": False, "invalidReason": "invalid_payload"}
     if "recipient" not in bugs and str(auth.get("to", "")).lower() != REQ["payTo"].lower():
-        return {"isValid": False, "invalidReason": "invalid_exact_evm_payload_recipient_mismatch",
-                "payer": auth.get("from")}
+        return {
+            "isValid": False,
+            "invalidReason": "invalid_exact_evm_payload_recipient_mismatch",
+            "payer": auth.get("from"),
+        }
     if "amount" not in bugs and int(auth.get("value", -1)) != int(REQ["amount"]):
-        return {"isValid": False,
-                "invalidReason": "invalid_exact_evm_payload_authorization_value_mismatch",
-                "payer": auth.get("from")}
+        return {
+            "isValid": False,
+            "invalidReason": "invalid_exact_evm_payload_authorization_value_mismatch",
+            "payer": auth.get("from"),
+        }
     now = int(time.time())
     if "time" not in bugs and not (int(auth["validAfter"]) <= now <= int(auth["validBefore"]) - 6):
-        return {"isValid": False, "invalidReason": "invalid_exact_evm_payload_authorization_valid_before",
-                "payer": auth.get("from")}
+        return {
+            "isValid": False,
+            "invalidReason": "invalid_exact_evm_payload_authorization_valid_before",
+            "payer": auth.get("from"),
+        }
     if "signature" not in bugs and not _signature_recovers(auth, signature):
-        return {"isValid": False, "invalidReason": "invalid_exact_evm_payload_signature",
-                "payer": auth.get("from")}
+        return {
+            "isValid": False,
+            "invalidReason": "invalid_exact_evm_payload_signature",
+            "payer": auth.get("from"),
+        }
     return {"isValid": True, "payer": auth["from"]}
 
 
@@ -132,8 +144,11 @@ def _signature_recovers(auth: dict, signature: str) -> bool:
     failed recovery (→ clean rejection), never an unhandled 500."""
     try:
         sdk_auth = ExactEIP3009Authorization(
-            from_address=auth["from"], to=auth["to"], value=str(auth["value"]),
-            valid_after=str(auth["validAfter"]), valid_before=str(auth["validBefore"]),
+            from_address=auth["from"],
+            to=auth["to"],
+            value=str(auth["value"]),
+            valid_after=str(auth["validAfter"]),
+            valid_before=str(auth["validBefore"]),
             nonce=auth["nonce"],
         )
         digest = hash_eip3009_authorization(
@@ -159,14 +174,29 @@ def make_handler(bugs: set[str], port: int) -> type[BaseHTTPRequestHandler]:
             # `--resource-marker` (RS-SEC-009 path) has something to catch.
             body = b""
             if "leak" in bugs:
-                body = json.dumps({"error": reason, "preview": f"premium {RESOURCE_MARKER}"}).encode()
-            self._send(402, {"PAYMENT-RESPONSE": _b64(
-                {"success": False, "errorReason": reason, "transaction": "", "network": REQ["network"]}
-            )}, body)
+                body = json.dumps(
+                    {"error": reason, "preview": f"premium {RESOURCE_MARKER}"}
+                ).encode()
+            self._send(
+                402,
+                {
+                    "PAYMENT-RESPONSE": _b64(
+                        {
+                            "success": False,
+                            "errorReason": reason,
+                            "transaction": "",
+                            "network": REQ["network"],
+                        }
+                    )
+                },
+                body,
+            )
 
         def do_GET(self) -> None:  # noqa: N802
             if self.path.rstrip("/").endswith("/supported"):
-                self._send(200, {"Content-Type": "application/json"}, json.dumps(SUPPORTED).encode())
+                self._send(
+                    200, {"Content-Type": "application/json"}, json.dumps(SUPPORTED).encode()
+                )
                 return
             sig = self.headers.get("PAYMENT-SIGNATURE")
             if sig is None:
@@ -229,10 +259,20 @@ def make_handler(bugs: set[str], port: int) -> type[BaseHTTPRequestHandler]:
                 return self._reject("invalid_exact_evm_payload_signature")
 
             paid = json.dumps({"data": "premium", "secret": RESOURCE_MARKER}).encode()
-            self._send(200, {"PAYMENT-RESPONSE": _b64(
-                {"success": True, "transaction": "0x" + "ab" * 32, "network": REQ["network"],
-                 "payer": auth["from"]}
-            )}, paid)
+            self._send(
+                200,
+                {
+                    "PAYMENT-RESPONSE": _b64(
+                        {
+                            "success": True,
+                            "transaction": "0x" + "ab" * 32,
+                            "network": REQ["network"],
+                            "payer": auth["from"],
+                        }
+                    )
+                },
+                paid,
+            )
 
         def do_POST(self) -> None:  # noqa: N802
             if not self.path.rstrip("/").endswith("/verify"):
@@ -243,8 +283,11 @@ def make_handler(bugs: set[str], port: int) -> type[BaseHTTPRequestHandler]:
                 body = json.loads(self.rfile.read(length))
                 payload = body["paymentPayload"]
             except Exception:
-                self._send(200, {"Content-Type": "application/json"},
-                           json.dumps({"isValid": False, "invalidReason": "invalid_payload"}).encode())
+                self._send(
+                    200,
+                    {"Content-Type": "application/json"},
+                    json.dumps({"isValid": False, "invalidReason": "invalid_payload"}).encode(),
+                )
                 return
             result = _verify_payload(payload, bugs)
             self._send(200, {"Content-Type": "application/json"}, json.dumps(result).encode())
@@ -260,9 +303,9 @@ if __name__ == "__main__":
     bugs: set[str] = set()
     for a in sys.argv[1:]:
         if a.startswith("--bug-no-"):
-            bugs.add(a.removeprefix("--bug-no-"))      # drop a validation step
+            bugs.add(a.removeprefix("--bug-no-"))  # drop a validation step
         elif a.startswith("--bug-"):
-            bugs.add(a.removeprefix("--bug-"))          # inject a behavioural bug
+            bugs.add(a.removeprefix("--bug-"))  # inject a behavioural bug
         elif a.isdigit():
             port = int(a)
     label = "correct" if not bugs else f"BUGGY (missing: {', '.join(sorted(bugs))})"

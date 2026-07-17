@@ -49,18 +49,35 @@ if not TOKEN:
     raise SystemExit("set X402_TOKEN to the deployed MockUSDC address")
 
 ABI = [
-    {"type": "function", "name": "balanceOf", "stateMutability": "view",
-     "inputs": [{"name": "a", "type": "address"}], "outputs": [{"type": "uint256"}]},
-    {"type": "function", "name": "authorizationState", "stateMutability": "view",
-     "inputs": [{"name": "a", "type": "address"}, {"name": "n", "type": "bytes32"}],
-     "outputs": [{"type": "bool"}]},
-    {"type": "function", "name": "transferWithAuthorization", "stateMutability": "nonpayable",
-     "inputs": [
-         {"name": "from", "type": "address"}, {"name": "to", "type": "address"},
-         {"name": "value", "type": "uint256"}, {"name": "validAfter", "type": "uint256"},
-         {"name": "validBefore", "type": "uint256"}, {"name": "nonce", "type": "bytes32"},
-         {"name": "signature", "type": "bytes"}],
-     "outputs": []},
+    {
+        "type": "function",
+        "name": "balanceOf",
+        "stateMutability": "view",
+        "inputs": [{"name": "a", "type": "address"}],
+        "outputs": [{"type": "uint256"}],
+    },
+    {
+        "type": "function",
+        "name": "authorizationState",
+        "stateMutability": "view",
+        "inputs": [{"name": "a", "type": "address"}, {"name": "n", "type": "bytes32"}],
+        "outputs": [{"type": "bool"}],
+    },
+    {
+        "type": "function",
+        "name": "transferWithAuthorization",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "from", "type": "address"},
+            {"name": "to", "type": "address"},
+            {"name": "value", "type": "uint256"},
+            {"name": "validAfter", "type": "uint256"},
+            {"name": "validBefore", "type": "uint256"},
+            {"name": "nonce", "type": "bytes32"},
+            {"name": "signature", "type": "bytes"},
+        ],
+        "outputs": [],
+    },
 ]
 
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
@@ -68,13 +85,18 @@ fac = w3.eth.account.from_key(FAC_KEY)
 token = w3.eth.contract(address=Web3.to_checksum_address(TOKEN), abi=ABI)
 
 REQ = {
-    "scheme": "exact", "network": f"eip155:{CHAIN_ID}", "amount": AMOUNT,
-    "asset": Web3.to_checksum_address(TOKEN), "payTo": Web3.to_checksum_address(PAY_TO),
-    "maxTimeoutSeconds": 60, "extra": {"name": TOKEN_NAME, "version": TOKEN_VERSION},
+    "scheme": "exact",
+    "network": f"eip155:{CHAIN_ID}",
+    "amount": AMOUNT,
+    "asset": Web3.to_checksum_address(TOKEN),
+    "payTo": Web3.to_checksum_address(PAY_TO),
+    "maxTimeoutSeconds": 60,
+    "extra": {"name": TOKEN_NAME, "version": TOKEN_VERSION},
 }
 SUPPORTED = {
     "kinds": [{"x402Version": 2, "scheme": "exact", "network": REQ["network"]}],
-    "extensions": [], "signers": {"eip155:*": [fac.address]},
+    "extensions": [],
+    "signers": {"eip155:*": [fac.address]},
 }
 
 
@@ -83,8 +105,12 @@ def _b64(obj: dict) -> str:
 
 
 def payment_required() -> dict:
-    return {"x402Version": 2, "resource": {"url": f"http://127.0.0.1:{PORT}/data"},
-            "accepts": [REQ], "extensions": {}}
+    return {
+        "x402Version": 2,
+        "resource": {"url": f"http://127.0.0.1:{PORT}/data"},
+        "accepts": [REQ],
+        "extensions": {},
+    }
 
 
 def _verify_offchain(auth: dict) -> str | None:
@@ -120,31 +146,59 @@ def settle(auth: dict, signature: str) -> dict:
     """Submit transferWithAuthorization on-chain. Returns a SettlementResponse dict."""
     err = _verify_offchain(auth) or _check_balance(auth)
     if err:
-        return {"success": False, "errorReason": err, "transaction": "",
-                "network": REQ["network"], "payer": auth.get("from")}
+        return {
+            "success": False,
+            "errorReason": err,
+            "transaction": "",
+            "network": REQ["network"],
+            "payer": auth.get("from"),
+        }
     try:
         tx = token.functions.transferWithAuthorization(
-            Web3.to_checksum_address(auth["from"]), Web3.to_checksum_address(auth["to"]),
-            int(auth["value"]), int(auth["validAfter"]), int(auth["validBefore"]),
-            bytes.fromhex(auth["nonce"][2:]), bytes.fromhex(signature[2:]),
-        ).build_transaction({
-            "from": fac.address, "nonce": w3.eth.get_transaction_count(fac.address),
-            "gas": 200000, "gasPrice": w3.eth.gas_price, "chainId": CHAIN_ID,
-        })
+            Web3.to_checksum_address(auth["from"]),
+            Web3.to_checksum_address(auth["to"]),
+            int(auth["value"]),
+            int(auth["validAfter"]),
+            int(auth["validBefore"]),
+            bytes.fromhex(auth["nonce"][2:]),
+            bytes.fromhex(signature[2:]),
+        ).build_transaction(
+            {
+                "from": fac.address,
+                "nonce": w3.eth.get_transaction_count(fac.address),
+                "gas": 200000,
+                "gasPrice": w3.eth.gas_price,
+                "chainId": CHAIN_ID,
+            }
+        )
         signed = fac.sign_transaction(tx)
         raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
         h = w3.eth.send_raw_transaction(raw)
         tx_hash = Web3.to_hex(h)  # always 0x-prefixed
         receipt = w3.eth.wait_for_transaction_receipt(h, timeout=30)
         if receipt.status == 1:
-            return {"success": True, "transaction": tx_hash,
-                    "network": REQ["network"], "payer": auth["from"]}
-        return {"success": False, "errorReason": "invalid_transaction_state",
-                "transaction": "", "network": REQ["network"], "payer": auth["from"]}
+            return {
+                "success": True,
+                "transaction": tx_hash,
+                "network": REQ["network"],
+                "payer": auth["from"],
+            }
+        return {
+            "success": False,
+            "errorReason": "invalid_transaction_state",
+            "transaction": "",
+            "network": REQ["network"],
+            "payer": auth["from"],
+        }
     except Exception as exc:
-        return {"success": False, "errorReason": "unexpected_settle_error",
-                "transaction": "", "network": REQ["network"], "payer": auth.get("from"),
-                "message": str(exc)[:200]}
+        return {
+            "success": False,
+            "errorReason": "unexpected_settle_error",
+            "transaction": "",
+            "network": REQ["network"],
+            "payer": auth.get("from"),
+            "message": str(exc)[:200],
+        }
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -185,14 +239,20 @@ class Handler(BaseHTTPRequestHandler):
             auth = payload["payload"]["authorization"]
             signature = payload["payload"]["signature"]
         except Exception:
-            self._send(200, {"Content-Type": "application/json"},
-                       json.dumps({"isValid": False, "invalidReason": "invalid_payload"}).encode())
+            self._send(
+                200,
+                {"Content-Type": "application/json"},
+                json.dumps({"isValid": False, "invalidReason": "invalid_payload"}).encode(),
+            )
             return
         if path.endswith("/verify"):
             self._send(200, {"Content-Type": "application/json"}, json.dumps(verify(auth)).encode())
         elif path.endswith("/settle"):
-            self._send(200, {"Content-Type": "application/json"},
-                       json.dumps(settle(auth, signature)).encode())
+            self._send(
+                200,
+                {"Content-Type": "application/json"},
+                json.dumps(settle(auth, signature)).encode(),
+            )
         else:
             self._send(404)
 
