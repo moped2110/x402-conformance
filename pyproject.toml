@@ -35,6 +35,12 @@ onchain = [
     "eth-account>=0.13,<0.14",
     "web3>=6.0",
 ]
+# SVM (Solana) exact-scheme support: ATA derivation + partial-signed transaction
+# building. Purely additive — no EVM path depends on this. See ../SOLANA-PLAN.md.
+svm = [
+    "solders>=0.21",
+    "solana>=0.34",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
@@ -43,6 +49,7 @@ dev = [
     "eth-account>=0.13,<0.14",
     "web3>=6.0",
     "jsonschema>=4.0",
+    "solders>=0.21",
 ]
 # Live calibration / verify-new-features tooling. tools/calibration_target.py is a
 # reference target that validates payments with the REAL x402 SDK, so a green
@@ -68,6 +75,11 @@ python_version = "3.11"
 strict = true
 files = ["src"]
 
+# solders/solana ship partial type info; don't let missing stubs break strict mode.
+[[tool.mypy.overrides]]
+module = ["solders.*", "solana.*"]
+ignore_missing_imports = true
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -85,8 +97,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Imports follow an eth-account importorskip guard, so they can't be top-of-file.
+# Imports follow an importorskip guard (eth-account / solders), so they can't be top-of-file.
 "tests/test_payload_builder.py" = ["E402"]
+"tests/test_svm_foundation.py" = ["E402"]
 
 [tool.coverage.run]
 source = ["x402_conformance"]
