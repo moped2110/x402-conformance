@@ -22,6 +22,36 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   too** (with an `error` field and exit code) — the audit trail captures the attempt. No secrets:
   only the signer's public address, and an `rpc_url` is reduced to scheme+host so a provider key
   in its path/query can't leak. `verify_run_record()` re-hashes a record to detect tampering.
+- **Solana / SVM `exact` foundations** (opt-in `[svm]` extra: `solders`/`solana`): the building
+  blocks for the forthcoming SVM check group — CAIP-2 `solana:*` network refs, program addresses,
+  ATA derivation (SPL + Token-2022), the `TransferChecked`/ComputeBudget instruction encoders, a
+  partial-signed transaction builder (`build_exact_svm_transaction`, mirrors the x402 reference
+  client), and tamper primitives (`SvmTamper`) for the negative checks. **Additive and
+  self-contained**: no EVM path is touched, and the SVM tests skip unless `[svm]` is installed, so
+  the core suite stays chain- and Solana-free. No runnable SVM checks yet — they need the
+  local-validator harness; the plan is in `../SOLANA-PLAN.md`.
+
+### Fixed
+- **`runs.jsonl` journal now carries the verdict.** The append-only index dropped `exitCode` and
+  `error` (only the full per-run JSON had them), so a directory of runs couldn't be grepped for
+  failed/unreachable runs. Both fields are now in the journal line.
+- **A server-error handshake is now *unreachable* (exit 2), not a MAJOR FAIL.** A 5xx to the unpaid
+  probe (e.g. a Cloudflare 530) is an infra failure, not a payment verdict. The passive runner now
+  retries transient 5xx (429/502/503/504) and classifies a persistent 5xx-without-paywall as
+  unreachable; a genuine 200-without-payment stays a FAIL.
+- **`invalid_exact_evm_payload_authorization_value_mismatch` is now a first-class spec code.**
+  Upstream adopted it into the TS `ErrorReasons` enum, so it moved from the local-extension set into
+  `SPEC_ERROR_REASONS` (the live drift guard caught the divergence).
+
+### Changed
+- `check` warns when its target URL looks like a facilitator/discovery endpoint (`/supported`,
+  `/verify`, `/settle`, `.well-known/x402`) — a passive resource check there yields a false
+  RS-HS-001; the note points to the `facilitator` subcommand.
+
+### Tooling
+- **ruff pinned exactly** (`ruff==0.15.20`, `dev` extra): the formatter's output varies across
+  releases, so an unpinned CI ruff and a local ruff disagreed on `format --check`. Pinning keeps
+  local == CI; bump deliberately.
 
 ## [0.2.0] — 2026-07-09
 

@@ -58,7 +58,9 @@ funds.
 - **RS-PAY** + **RS-SEC-001** (positive settlement + replay) — `check --pay`: signs a valid funded payment, settles it ON-CHAIN, verifies the tx, and confirms a replay is rejected. Confirmed live against Anvil.
 - **FA-SET** (facilitator `/settle`) — `facilitator --settle`: valid settle, invalid settle, double-settle.
 
-Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **63 checks across the groups above; 185+ offline tests, mypy strict, CI green.**
+Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **63 checks across the groups above; 270+ offline tests, mypy strict, CI green.**
+
+**Solana / SVM — in progress.** The `exact` scheme on Solana works differently from EVM: the client submits a *partial-signed transaction* (an SPL/Token-2022 `TransferChecked` to the recipient's ATA, co-signed by the sponsor `feePayer` at settle time), and a verifier checks the *outcome*, not a signature. The foundations ship behind an opt-in **`[svm]`** extra — CAIP-2 `solana:*` handling, ATA derivation, a spec-faithful partial-signed transaction builder, and tamper primitives for the negative checks. The runnable SVM check group needs a local validator and is **not shipped yet**. This is purely additive: without `[svm]`, the suite behaves exactly as before (no Solana dependency, no EVM path touched).
 
 Since v0.1.0 (see [`CHANGELOG.md`](CHANGELOG.md)): a developer-focused fix-it report (`check --fix`), v1-envelope handling (real JPYC endpoints no longer read as broken), asset-is-an-EOA rejection (x402#2554), an opt-in `x-jp402` invoice check, and added robustness checks (oversized header, control/Unicode input, non-32-byte nonce, bad `x402Version`, unoffered scheme/network).
 
@@ -66,6 +68,7 @@ Since v0.1.0 (see [`CHANGELOG.md`](CHANGELOG.md)): a developer-focused fix-it re
 
 ```bash
 pip install -e ".[dev]"     # includes eth-account for active checks
+# optional extras: [onchain] for --pay settlement (web3), [svm] for the Solana/SVM foundations (solders)
 ```
 
 ## Usage
@@ -118,7 +121,7 @@ other verb (GET↔POST) reveals an x402 paywall, it switches automatically.
 ## Development
 
 ```bash
-pytest          # the suite's own tests (offline, mocked transport) — 185+ tests
+pytest          # the suite's own tests (offline, mocked transport) — 270+ tests
 mypy            # strict type checking
 
 # Calibrate the checks against a verify-capable reference server:
