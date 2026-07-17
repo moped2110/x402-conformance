@@ -101,6 +101,7 @@ ignore = [
 "tests/test_payload_builder.py" = ["E402"]
 "tests/test_svm_foundation.py" = ["E402"]
 "tests/test_svm_builder.py" = ["E402"]
+"tests/test_svm_tamper.py" = ["E402"]
 
 [tool.coverage.run]
 source = ["x402_conformance"]

@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import binascii
 import os
+from enum import StrEnum
 
 # --- CAIP-2 network refs (Solana genesis-hash chain ids) ---
 SOLANA_MAINNET = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
@@ -42,6 +43,17 @@ DEFAULT_COMPUTE_UNIT_PRICE = 1  # microLamports
 
 _U32_MAX = 2**32 - 1
 _U64_MAX = 2**64 - 1
+
+
+class SvmTamper(StrEnum):
+    """Structural mutations that a conformant facilitator MUST reject. Each maps to a
+    spec error code (SOLANA-PLAN §5) and drives one negative check. Amount/mint/payTo
+    mismatches need no tamper — they are just wrong inputs to the normal builder."""
+
+    DROP_COMPUTE_BUDGET = "drop_compute_budget"  # -> ..._instructions_length (Path-1 layout)
+    NOT_TRANSFER_CHECKED = "not_transfer_checked"  # -> ..._instruction_not_spl_token_transfer_checked
+    DOUBLE_TRANSFER = "double_transfer"  # -> two matching transfers (§1.4 exactly-one)
+    FEE_PAYER_IN_ACCOUNTS = "fee_payer_in_accounts"  # -> ..._fee_payer_included_in_instruction_accounts
 
 
 def is_solana_network(network: str) -> bool:
@@ -116,6 +128,7 @@ def build_exact_svm_transaction(
     token_program: str = TOKEN_PROGRAM,
     compute_unit_limit: int = DEFAULT_COMPUTE_UNIT_LIMIT,
     compute_unit_price: int = DEFAULT_COMPUTE_UNIT_PRICE,
+    tamper: SvmTamper | None = None,
 ) -> str:
     """Build a base64, partially-signed ``exact``-SVM transaction (client-signed).
 
@@ -176,6 +189,30 @@ def build_exact_svm_transaction(
         transfer_ix,
         Instruction(program_id=Pubkey.from_string(MEMO_PROGRAM), accounts=[], data=memo_data),
     ]
+
+    if tamper == SvmTamper.DROP_COMPUTE_BUDGET:
+        # Only transfer + memo → 2 instructions, outside the Path-1 3..7 window.
+        instructions = [transfer_ix, instructions[3]]
+    elif tamper == SvmTamper.DOUBLE_TRANSFER:
+        # A second matching TransferChecked — §1.4 requires exactly one.
+        instructions = [*instructions, transfer_ix]
+    elif tamper == SvmTamper.NOT_TRANSFER_CHECKED:
+        # Plain Transfer (discriminator 3) at the transfer position, not TransferChecked (12).
+        instructions[2] = Instruction(
+            program_id=token_prog,
+            accounts=transfer_ix.accounts,
+            data=bytes([3]) + amount.to_bytes(8, "little"),
+        )
+    elif tamper == SvmTamper.FEE_PAYER_IN_ACCOUNTS:
+        # Reference the feePayer in the transfer's accounts — breaks §2.1.1 isolation.
+        instructions[2] = Instruction(
+            program_id=token_prog,
+            accounts=[
+                *transfer_ix.accounts,
+                AccountMeta(Pubkey.from_string(fee_payer), is_signer=False, is_writable=True),
+            ],
+            data=transfer_ix.data,
+        )
 
     message = MessageV0.try_compile(
         payer=Pubkey.from_string(fee_payer),
