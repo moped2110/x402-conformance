@@ -13,6 +13,10 @@ never requires Solana packages.
 
 from __future__ import annotations
 
+import base64
+import binascii
+import os
+
 # --- CAIP-2 network refs (Solana genesis-hash chain ids) ---
 SOLANA_MAINNET = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
 SOLANA_DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
@@ -33,6 +37,8 @@ IX_SET_COMPUTE_UNIT_PRICE = 3
 IX_TRANSFER_CHECKED = 12
 
 MAX_MEMO_BYTES = 256
+DEFAULT_COMPUTE_UNIT_LIMIT = 20000
+DEFAULT_COMPUTE_UNIT_PRICE = 1  # microLamports
 
 _U32_MAX = 2**32 - 1
 _U64_MAX = 2**64 - 1
@@ -95,3 +101,91 @@ def derive_ata(owner: str, mint: str, token_program: str = TOKEN_PROGRAM) -> str
     ]
     ata, _bump = Pubkey.find_program_address(seeds, ata_program)
     return str(ata)
+
+
+def build_exact_svm_transaction(
+    *,
+    payer_keypair_bytes: bytes,
+    fee_payer: str,
+    mint: str,
+    decimals: int,
+    pay_to: str,
+    amount: int,
+    recent_blockhash: str,
+    memo: str | None = None,
+    token_program: str = TOKEN_PROGRAM,
+    compute_unit_limit: int = DEFAULT_COMPUTE_UNIT_LIMIT,
+    compute_unit_price: int = DEFAULT_COMPUTE_UNIT_PRICE,
+) -> str:
+    """Build a base64, partially-signed ``exact``-SVM transaction (client-signed).
+
+    Mirrors the x402 reference client (``scheme_exact_svm.md``): instructions are
+    SetComputeUnitLimit, SetComputeUnitPrice, ``TransferChecked`` (to the ATA derived
+    from ``pay_to``+``mint``), then a Memo (``memo`` or a random 16-byte nonce). The
+    message ``payer`` is the sponsor's ``feePayer`` — whose signature slot is left as
+    a default placeholder for /settle; only the client (payer) signs here. Requires
+    the ``[svm]`` extra.
+
+    ``recent_blockhash`` is a base58 blockhash (from RPC live, or a fixed value in
+    offline tests). Returns the base64-encoded serialized ``VersionedTransaction``.
+    """
+    try:
+        from solders.hash import Hash
+        from solders.instruction import AccountMeta, Instruction
+        from solders.keypair import Keypair
+        from solders.message import MessageV0
+        from solders.pubkey import Pubkey
+        from solders.signature import Signature
+        from solders.transaction import VersionedTransaction
+    except ImportError as e:  # pragma: no cover - only hit without the [svm] extra
+        raise ImportError(
+            "SVM transaction building needs the [svm] extra: pip install x402-conformance[svm]"
+        ) from e
+
+    if memo is not None and len(memo.encode("utf-8")) > MAX_MEMO_BYTES:
+        raise ValueError(f"memo exceeds maximum {MAX_MEMO_BYTES} bytes")
+
+    payer = Keypair.from_bytes(payer_keypair_bytes)
+    token_prog = Pubkey.from_string(token_program)
+    source_ata = Pubkey.from_string(derive_ata(str(payer.pubkey()), mint, token_program))
+    dest_ata = Pubkey.from_string(derive_ata(pay_to, mint, token_program))
+    compute_budget = Pubkey.from_string(COMPUTE_BUDGET_PROGRAM)
+
+    transfer_ix = Instruction(
+        program_id=token_prog,
+        accounts=[
+            AccountMeta(source_ata, is_signer=False, is_writable=True),
+            AccountMeta(Pubkey.from_string(mint), is_signer=False, is_writable=False),
+            AccountMeta(dest_ata, is_signer=False, is_writable=True),
+            AccountMeta(payer.pubkey(), is_signer=True, is_writable=False),
+        ],
+        data=encode_transfer_checked(amount, decimals),
+    )
+    memo_data = memo.encode("utf-8") if memo else binascii.hexlify(os.urandom(16))
+    instructions = [
+        Instruction(
+            program_id=compute_budget,
+            accounts=[],
+            data=encode_set_compute_unit_limit(compute_unit_limit),
+        ),
+        Instruction(
+            program_id=compute_budget,
+            accounts=[],
+            data=encode_set_compute_unit_price(compute_unit_price),
+        ),
+        transfer_ix,
+        Instruction(program_id=Pubkey.from_string(MEMO_PROGRAM), accounts=[], data=memo_data),
+    ]
+
+    message = MessageV0.try_compile(
+        payer=Pubkey.from_string(fee_payer),
+        instructions=instructions,
+        address_lookup_table_accounts=[],
+        recent_blockhash=Hash.from_string(recent_blockhash),
+    )
+    # VersionedTransaction messages are signed over the 0x80-prefixed message bytes.
+    client_signature = payer.sign_message(bytes([0x80]) + bytes(message))
+    # Signature order tracks account order: slot 0 = feePayer (unsigned placeholder,
+    # filled at /settle), slot 1 = client (payer).
+    tx = VersionedTransaction.populate(message, [Signature.default(), client_signature])
+    return base64.b64encode(bytes(tx)).decode("utf-8")

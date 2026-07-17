@@ -100,6 +100,7 @@ ignore = [
 # Imports follow an importorskip guard (eth-account / solders), so they can't be top-of-file.
 "tests/test_payload_builder.py" = ["E402"]
 "tests/test_svm_foundation.py" = ["E402"]
+"tests/test_svm_builder.py" = ["E402"]
 
 [tool.coverage.run]
 source = ["x402_conformance"]
