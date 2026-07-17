@@ -51,9 +51,13 @@ class SvmTamper(StrEnum):
     mismatches need no tamper — they are just wrong inputs to the normal builder."""
 
     DROP_COMPUTE_BUDGET = "drop_compute_budget"  # -> ..._instructions_length (Path-1 layout)
-    NOT_TRANSFER_CHECKED = "not_transfer_checked"  # -> ..._instruction_not_spl_token_transfer_checked
+    NOT_TRANSFER_CHECKED = (
+        "not_transfer_checked"  # -> ..._instruction_not_spl_token_transfer_checked
+    )
     DOUBLE_TRANSFER = "double_transfer"  # -> two matching transfers (§1.4 exactly-one)
-    FEE_PAYER_IN_ACCOUNTS = "fee_payer_in_accounts"  # -> ..._fee_payer_included_in_instruction_accounts
+    FEE_PAYER_IN_ACCOUNTS = (
+        "fee_payer_in_accounts"  # -> ..._fee_payer_included_in_instruction_accounts
+    )
 
 
 def is_solana_network(network: str) -> bool:

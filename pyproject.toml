@@ -45,7 +45,9 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "mypy>=1.10",
-    "ruff>=0.6",
+    # Pinned exact: ruff's formatter output varies across releases, so an unpinned
+    # CI ruff and a local ruff can disagree on `format --check` (skew). Bump deliberately.
+    "ruff==0.15.20",
     "eth-account>=0.13,<0.14",
     "web3>=6.0",
     "jsonschema>=4.0",
