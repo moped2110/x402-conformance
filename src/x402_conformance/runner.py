@@ -10,6 +10,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from . import USER_AGENT
+
 # Reuse the active runner's transient-fault policy so passive and active probing
 # treat flaky infra identically (429/502/503/504 + a sane Retry-After).
 from .active import _MAX_RETRIES, _TRANSIENT_STATUS, _retry_delay

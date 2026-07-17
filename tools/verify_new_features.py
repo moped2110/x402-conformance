@@ -54,7 +54,7 @@ class _Server:
         self.url = f"http://127.0.0.1:{port}/data"
         self._t = threading.Thread(target=self.httpd.serve_forever, daemon=True)
 
-    def __enter__(self) -> "_Server":
+    def __enter__(self) -> _Server:
         self._t.start()
         return self
 
