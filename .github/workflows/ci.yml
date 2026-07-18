@@ -1,8 +1,11 @@
 name: CI
 
 on:
+  # Every branch, not just main. Handed-over agent work used to reach main without
+  # ever having seen CI — on 2026-07-18 two dependency locks passed every local gate
+  # and then broke the whole matrix on merge. The repo is public, so branch runs are
+  # free; the cost of not running them is a red main.
   push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 

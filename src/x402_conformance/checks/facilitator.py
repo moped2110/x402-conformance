@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 import httpx
@@ -35,7 +35,13 @@ from .. import USER_AGENT
 from ..models import SettlementResponse, SupportedResponse, VerifyResponse
 from ..probe import build_probe
 from ..safety import DEFAULT_SAFETY_POLICY
-from .base import CheckResult, Severity, Status, append_unique_check
+from .base import (
+    DEFERRED_PENDING_UPSTREAM,
+    CheckResult,
+    Severity,
+    Status,
+    append_unique_check,
+)
 
 _CORE = "x402-specification-v2.md"
 
@@ -127,6 +133,9 @@ class FacilitatorContext:
     supported_status: int | None = None  # last GET /supported status (None = unreachable)
     supported_error: str | None = None
     allow_settle: bool = False  # FA-SET moves real funds; opt-in only
+    #: Check IDs whose finding we reported but deliberately did not judge, pending an
+    #: upstream answer. Read back in `evaluate_facilitator` to tag the result.
+    deferred_checks: set[str] = field(default_factory=set)
 
 
 FaFunc = Callable[[FacilitatorContext], "tuple[Status, str]"]
@@ -219,6 +228,24 @@ def fa_sup_001(ctx: FacilitatorContext) -> tuple[Status, str]:
     return Status.PASS, ""
 
 
+def _algorand_caip2_divergence(net: str) -> bool:
+    """True for the Algorand identifier form that x402 ships and CAIP-2 rejects.
+
+    x402's reference facilitator and its docs advertise Algorand networks as the
+    untruncated standard-base64 genesis hash, e.g.
+    ``algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=``. CAIP-2 (Final) allows
+    ``[-_a-zA-Z0-9]{1,32}``, and the Algorand namespace profile requires URL-safe
+    base64 truncated to 32 characters. Reported upstream as
+    x402-foundation/x402#2904; until that is answered we do not gate on it — the
+    ecosystem may have adopted the longer form deliberately.
+
+    Deliberately narrow: only the ``algorand:`` namespace, and only the identifier
+    *encoding*. Every other namespace, and every other defect in an Algorand kind,
+    still fails. This is a dated exception, not a category of excuse.
+    """
+    return net.startswith("algorand:")
+
+
 @_register(
     "FA-SUP-002",
     "Each supported kind is well-formed (x402Version 1/2, scheme; v2 network is CAIP-2)",
@@ -231,6 +258,7 @@ def fa_sup_002(ctx: FacilitatorContext) -> tuple[Status, str]:
     if body is None or not isinstance(body.get("kinds"), list):
         return Status.SKIP, "no valid /supported.kinds to inspect"
     problems = []
+    deferred = []
     for i, kind in enumerate(body["kinds"]):
         if not isinstance(kind, dict):
             problems.append(f"kinds[{i}] not an object")
@@ -247,9 +275,25 @@ def fa_sup_002(ctx: FacilitatorContext) -> tuple[Status, str]:
             # v2 networks are CAIP-2 (eip155:8453); a v1 kind legitimately carries a
             # legacy network *name* (e.g. "base-sepolia"), so CAIP-2 is required for v2
             # kinds only — a facilitator that serves both versions is conformant.
-            problems.append(f"kinds[{i}].network {net!r} not CAIP-2 (required for v2)")
+            note = f"kinds[{i}].network {net!r} not CAIP-2 (required for v2)"
+            if _algorand_caip2_divergence(net):
+                deferred.append(note)
+            else:
+                problems.append(note)
     if problems:
         return Status.FAIL, "; ".join(problems[:6])
+    if deferred:
+        # Reported, not judged. Recorded on the context so the verdict logic can see it:
+        # a run containing a deferral must not come out CONFORMANT.
+        ctx.deferred_checks.add("FA-SUP-002")
+        # Stated in full so it cannot be mistaken for a pass.
+        return Status.SKIP, (
+            "not judged pending x402-foundation/x402#2904 — "
+            + "; ".join(deferred[:6])
+            + ". CAIP-2 (Final) allows [-_a-zA-Z0-9]{1,32}; the Algorand namespace "
+            "profile requires URL-safe base64 truncated to 32 characters. Awaiting "
+            "confirmation whether x402 deviates deliberately."
+        )
     return Status.PASS, ""
 
 
@@ -606,8 +650,17 @@ def evaluate_facilitator(ctx: FacilitatorContext | None) -> list[CheckResult]:
                 raise
             except Exception as exc:
                 status, detail = Status.ERROR, f"check crashed (suite bug): {exc!r}"
+        deferred = ctx is not None and check.check_id in ctx.deferred_checks
         results.append(
-            CheckResult(check.check_id, check.title, check.severity, check.spec_ref, status, detail)
+            CheckResult(
+                check.check_id,
+                check.title,
+                check.severity,
+                check.spec_ref,
+                status,
+                detail,
+                reason_code=DEFERRED_PENDING_UPSTREAM if deferred else None,
+            )
         )
     return results
 

@@ -34,6 +34,16 @@ class Status(str, enum.Enum):
     ERROR = "error"  # the check itself crashed — a bug in this suite
 
 
+#: Machine-readable reason attached to a SKIP that we chose *not* to judge, as opposed
+#: to one that was simply not applicable. A run containing one can never be CONFORMANT
+#: (see ``report.assessment_exit_code``): certifying conformance while stating that a
+#: gating point was not judged would contradict itself.
+#:
+#: Today the only instance is the Algorand CAIP-2 identifier form, reported upstream as
+#: x402-foundation/x402#2904. This is the first reason code; when more appear they
+#: belong in an enum alongside it rather than as free text.
+DEFERRED_PENDING_UPSTREAM = "deferred_pending_upstream"
+
 CheckFunc = Callable[["ProbeSession"], tuple[Status, str]]
 
 
@@ -60,6 +70,9 @@ class CheckResult:
     spec_ref: str
     status: Status
     detail: str = ""
+    #: Optional machine-readable qualifier, e.g. ``DEFERRED_PENDING_UPSTREAM``. Additive
+    #: and defaulted, so every existing construction and every report reader stays valid.
+    reason_code: str | None = None
 
 
 REGISTRY: list[Check] = []

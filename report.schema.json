@@ -83,7 +83,12 @@
           "severity": { "type": "string", "enum": ["critical", "major", "minor"] },
           "spec_ref": { "type": "string" },
           "status": { "type": "string", "enum": ["pass", "fail", "skip", "error"] },
-          "detail": { "type": "string" }
+          "detail": { "type": "string" },
+          "reason_code": {
+            "type": ["string", "null"],
+            "description": "Optional machine-readable qualifier. Currently only 'deferred_pending_upstream': the finding was reported but deliberately not judged, pending an upstream answer. A report containing one is never conformant.",
+            "enum": ["deferred_pending_upstream", null]
+          }
         }
       }
     }

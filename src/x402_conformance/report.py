@@ -10,6 +10,7 @@ from typing import Any
 
 from . import SPEC_BASELINE, __version__
 from .checks import CheckResult, Severity, Status
+from .checks.base import DEFERRED_PENDING_UPSTREAM
 from .redaction import sanitize_text, sanitize_url, url_fingerprint
 
 _GATING = (Severity.CRITICAL, Severity.MAJOR)
@@ -17,7 +18,10 @@ _BAD = (Status.FAIL, Status.ERROR)
 
 #: Schema version of the JSON report. Bump on any breaking shape change; the
 #: contract is pinned in report.schema.json at the repo root.
-REPORT_VERSION = "1.1"
+#: 1.2 adds the optional `results[].reason_code`. The schema sets
+#: additionalProperties=false, so a new field is a contract change, not a free addition —
+#: minor bump, same major, consumers pinning major 1 keep working.
+REPORT_VERSION = "1.2"
 
 #: SARIF 2.1.0 — the OASIS static-analysis interchange format GitHub code scanning
 #: and bug-bounty platforms ingest. Lets a scan's findings land in a Security tab.
@@ -54,6 +58,10 @@ def assessment_exit_code(results: list[CheckResult]) -> int:
     if gating:
         return gating
     if not results or all(result.status is Status.SKIP for result in results):
+        return 2
+    if any(result.reason_code == DEFERRED_PENDING_UPSTREAM for result in results):
+        # We declined to judge a point that would otherwise gate. Certifying
+        # conformance on that basis would assert more than we checked.
         return 2
     version = next((r for r in results if r.check_id == "RS-PR-001"), None)
     if version is not None and version.status is not Status.PASS:
