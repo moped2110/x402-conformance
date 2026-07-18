@@ -91,6 +91,110 @@ def test_rpc_redirects_are_never_followed(monkeypatch: pytest.MonkeyPatch, statu
     assert calls == ["https://rpc.example"]
 
 
+def _fake_post(
+    monkeypatch: pytest.MonkeyPatch, response: httpx.Response | Exception
+) -> dict[str, object]:
+    """Install a stub for the module-level ``httpx.post`` and capture its kwargs."""
+    seen: dict[str, object] = {}
+
+    def fake_post(url: str, **kwargs: object) -> httpx.Response:
+        seen["url"] = url
+        seen.update(kwargs)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    monkeypatch.setattr(safety.httpx, "post", fake_post)
+    return seen
+
+
+# --- read_rpc_chain_id: the fail-closed branches ---------------------------------
+# This function decides whether we are allowed to sign on a chain. Every way it can
+# refuse must be covered, not only the happy path — an untested refusal is not a
+# guarantee. See also the module comment: "add a regression test".
+
+
+def test_rpc_chain_id_success_path_does_not_follow_redirects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen = _fake_post(monkeypatch, httpx.Response(200, json={"result": "0x14a34"}))
+    assert safety.read_rpc_chain_id("https://rpc.example") == 84532
+    assert seen["follow_redirects"] is False
+
+
+def test_rpc_transport_failure_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_post(monkeypatch, httpx.ConnectError("no route to host"))
+    with pytest.raises(SafetyViolation, match="cannot verify RPC chain id: ConnectError"):
+        safety.read_rpc_chain_id("https://rpc.example")
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 429, 500, 502, 503])
+def test_rpc_non_200_fails_closed(monkeypatch: pytest.MonkeyPatch, status: int) -> None:
+    _fake_post(monkeypatch, httpx.Response(status, json={"result": "0x14a34"}))
+    with pytest.raises(SafetyViolation, match=f"cannot verify RPC chain id: HTTP {status}"):
+        safety.read_rpc_chain_id("https://rpc.example")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"error": {"code": -32601, "message": "method not found"}},  # no result key
+        {"result": None},
+        {"result": 84532},  # number instead of hex string
+        {"result": True},
+        {"result": "84532"},  # decimal, missing 0x prefix
+        {"result": "0xzz"},  # not hexadecimal
+        {"result": "0x"},  # prefix without digits
+        {"result": ["0x14a34"]},
+        [1, 2, 3],  # not an object at all
+        "0x14a34",
+    ],
+)
+def test_rpc_malformed_chain_id_response_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, body: object
+) -> None:
+    _fake_post(monkeypatch, httpx.Response(200, json=body))
+    with pytest.raises(SafetyViolation, match="malformed eth_chainId response"):
+        safety.read_rpc_chain_id("https://rpc.example")
+
+
+def test_rpc_non_json_body_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_post(monkeypatch, httpx.Response(200, content=b"<html>gateway</html>"))
+    with pytest.raises(SafetyViolation, match="malformed eth_chainId response"):
+        safety.read_rpc_chain_id("https://rpc.example")
+
+
+def test_rpc_non_positive_chain_id_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_post(monkeypatch, httpx.Response(200, json={"result": "0x0"}))
+    with pytest.raises(SafetyViolation, match="invalid chain id"):
+        safety.read_rpc_chain_id("https://rpc.example")
+
+
+# --- SafetyPolicy: the input-shape refusals --------------------------------------
+
+
+@pytest.mark.parametrize("network", ["eip155:", "eip155:abc", "eip155:0x1", "eip155:-1"])
+def test_malformed_evm_caip2_is_rejected(network: str) -> None:
+    with pytest.raises(SafetyViolation, match="not a valid EVM CAIP-2 id"):
+        DEFAULT_SAFETY_POLICY.require_safe_network(network)
+
+
+@pytest.mark.parametrize("network", [None, "", 84532, b"eip155:84532", {"network": "eip155:1337"}])
+def test_non_string_or_empty_network_is_rejected(network: object) -> None:
+    with pytest.raises(SafetyViolation, match="no valid CAIP-2 network"):
+        DEFAULT_SAFETY_POLICY.require_safe_network(network)
+
+
+def test_rpc_matching_is_evm_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An allowlisted SVM network must not silently pass an eth_chainId check.
+    def must_not_run(_url: str) -> int:
+        raise AssertionError("eth_chainId was called for an SVM network")
+
+    monkeypatch.setattr(safety, "read_rpc_chain_id", must_not_run)
+    with pytest.raises(SafetyViolation, match="only available for EVM payments"):
+        DEFAULT_SAFETY_POLICY.require_matching_rpc("solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1", RPC)
+
+
 def test_mainnet_active_target_is_rejected_before_payment_request() -> None:
     payment_requests = 0
 

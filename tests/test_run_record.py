@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
+import pytest
+
 from x402_conformance.checks import CheckResult, Severity, Status
 from x402_conformance.run_record import (
     _clean_inputs,
@@ -95,6 +97,28 @@ def test_clean_inputs_redacts_rpc_and_drops_secrets() -> None:
         }
     )
     assert cleaned == {"rpc_url": "https://node.example", "method": "POST"}
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "signer_key",
+        "apiKey",
+        "client_secret",
+        "password",
+        "passphrase",
+        "wallet_mnemonic",
+        "seed_phrase",
+        "bearer_token",
+        "PRIVATE_KEY",
+        "facilitator_api_token",
+    ],
+)
+def test_clean_inputs_drops_every_secret_shaped_field(field: str) -> None:
+    # A secret-shaped key is dropped whole; redacting in place would still leak a
+    # prefix. Matching is case-insensitive and substring-based on purpose.
+    cleaned = _clean_inputs({field: "s3cr3t", "method": "GET"})
+    assert cleaned == {"method": "GET"}
 
 
 def test_write_run_record_writes_file_and_journal(tmp_path) -> None:

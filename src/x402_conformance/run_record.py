@@ -43,14 +43,31 @@ def _redact_url(url: str | None) -> str | None:
     return sanitize_url(url)
 
 
+#: Substrings that mark an input as secret-shaped. Matching keys are dropped, never
+#: redacted-in-place — a partial value is still a leak. No CLI input key matches these
+#: today; this is defense-in-depth for library callers who assemble their own ``inputs``.
+#: The list errs on the side of dropping: losing a field from an audit record is a far
+#: smaller harm than persisting a bearer token or a seed phrase.
+_SECRET_KEY_MARKERS = (
+    "key",
+    "secret",
+    "password",
+    "passphrase",
+    "mnemonic",
+    "seed",
+    "token",
+    "private",
+)
+
+
 def _clean_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
-    """Drop None values and anything key-shaped; redact rpc_url. Defensive even if
+    """Drop None values and anything secret-shaped; redact rpc_url. Defensive even if
     a caller passes a secret it shouldn't."""
     out: dict[str, Any] = {}
     for k, v in inputs.items():
         if v is None:
             continue
-        if "key" in k.lower() or "secret" in k.lower() or "password" in k.lower():
+        if any(marker in k.lower() for marker in _SECRET_KEY_MARKERS):
             continue
         if k in ("rpc_url", "rpcUrl"):
             out[k] = _redact_url(str(v))
