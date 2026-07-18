@@ -40,6 +40,7 @@ _failures: list[str] = []
 
 
 def _check(name: str, ok: bool, detail: str = "") -> None:
+    """Raise an assertion with context when a live verification condition is false."""
     mark = "PASS" if ok else "FAIL"
     print(f"  [{mark}] {name}" + (f" — {detail}" if detail and not ok else ""))
     if not ok:
@@ -50,24 +51,29 @@ class _Server:
     """A calibration target running on a background thread."""
 
     def __init__(self, bugs: set[str], port: int) -> None:
+        """Create a managed calibration server for one explicit behavior mode."""
         self.httpd = HTTPServer(("127.0.0.1", port), make_handler(bugs, port))
         self.url = f"http://127.0.0.1:{port}/data"
         self._t = threading.Thread(target=self.httpd.serve_forever, daemon=True)
 
     def __enter__(self) -> _Server:
+        """Start the calibration server and return its protected resource URL."""
         self._t.start()
         return self
 
     def __exit__(self, *exc: object) -> None:
+        """Stop and join the managed calibration server regardless of test outcome."""
         self.httpd.shutdown()
         self.httpd.server_close()
 
 
 def by_id(results: list, cid: str) -> object:
+    """Index a sequence of check results by stable check ID."""
     return next(r for r in results if r.check_id == cid)
 
 
 def main() -> int:
+    """Run the live calibration scenarios and assert every targeted feature fires."""
     port = 4599
 
     # 1) Correct server — every new check is GREEN, no false positives.
@@ -144,6 +150,7 @@ def main() -> int:
 
 
 def _validate_schema(doc: dict) -> None:
+    """Validate one report against the checked-in JSON Schema."""
     try:
         import jsonschema
     except Exception:

@@ -25,7 +25,11 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from ..payload_builder import build_exact_eip3009_payload, tamper_signature, tamper_value_lower
+from ..payload_builder import (
+    build_exact_eip3009_payload,
+    signature_recovers_to_authorizer,
+    tamper_signature,
+)
 from .base import CheckResult, Severity, Status
 
 _CORE = "x402-specification-v2.md"
@@ -61,6 +65,7 @@ def classify_timing(
 
 
 def _result(status: Status, detail: str) -> CheckResult:
+    """Construct the advisory timing CheckResult with stable metadata."""
     return CheckResult(TIMING_CHECK_ID, _TITLE, Severity.MINOR, f"{_CORE} §10.1", status, detail)
 
 
@@ -70,6 +75,7 @@ def _sample(
     n: int,
     time_fn: Callable[[], float],
 ) -> list[float]:
+    """Measure one payment rejection using the injected monotonic clock."""
     durations: list[float] = []
     for _ in range(n):
         t0 = time_fn()
@@ -95,9 +101,26 @@ def evaluate_timing(
     if context is None:
         return [_result(Status.SKIP, "timing probe not run (opt-in via --timing)")]
 
-    payload = build_exact_eip3009_payload(context.requirements, context.signer)
+    payload = build_exact_eip3009_payload(
+        context.requirements,
+        context.signer,
+        resource_url=context.resource_url,
+        extensions=context.extensions,
+    )
     early = _sample(context.send, tamper_signature(payload), samples, time_fn)
-    late = _sample(context.send, tamper_value_lower(payload), samples, time_fn)
+    required = int(context.requirements["amount"])
+    if required <= 1:
+        return [_result(Status.SKIP, "cannot construct a positive underpayment sample")]
+    cheap = {**context.requirements, "amount": str(max(1, required // 2))}
+    late_payload = build_exact_eip3009_payload(
+        cheap,
+        context.signer,
+        resource_url=context.resource_url,
+        extensions=context.extensions,
+    )
+    assert signature_recovers_to_authorizer(late_payload, cheap)
+    late_payload["accepted"] = dict(context.requirements)
+    late = _sample(context.send, late_payload, samples, time_fn)
     if len(early) < _MIN_SAMPLES or len(late) < _MIN_SAMPLES:
         return [_result(Status.SKIP, "insufficient timing samples (endpoint unreachable/crashing)")]
 

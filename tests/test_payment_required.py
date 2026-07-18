@@ -63,6 +63,29 @@ def test_resource_url_trailing_slash_tolerated(valid_payload: dict) -> None:
     assert by_id(results, "RS-PR-003").status == Status.PASS
 
 
+@pytest.mark.parametrize(
+    "advertised",
+    [
+        "http://api.example.com/premium-data?tenant=real",
+        "https://api.example.com/premium-data?tenant=other",
+        "https://user:pass@api.example.com/premium-data?tenant=real",
+        "https://api.example.com:444/premium-data?tenant=real",
+    ],
+)
+def test_resource_identity_does_not_ignore_security_components(
+    valid_payload: dict, advertised: str
+) -> None:
+    valid_payload["resource"]["url"] = advertised
+    results = run_checks(TARGET_URL + "?tenant=real", transport=transport_with_402(valid_payload))
+    assert by_id(results, "RS-PR-003").status == Status.FAIL
+
+
+def test_resource_identity_normalizes_host_case_and_default_port(valid_payload: dict) -> None:
+    valid_payload["resource"]["url"] = "https://API.EXAMPLE.COM:443/premium-data"
+    results = run_checks(TARGET_URL, transport=transport_with_402(valid_payload))
+    assert by_id(results, "RS-PR-003").status == Status.PASS
+
+
 def test_pr_008_valid_eip55_checksum_passes(valid_payload: dict) -> None:
     # The fixture asset is the canonical (checksummed) Base Sepolia USDC address.
     results = run_checks(TARGET_URL, transport=transport_with_402(valid_payload))

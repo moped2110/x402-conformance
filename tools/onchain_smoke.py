@@ -54,13 +54,16 @@ token = w3.eth.contract(address=Web3.to_checksum_address(TOKEN), abi=BALANCE_ABI
 
 
 def balance(addr: str) -> int:
+    """Read the mock token balance of an address at the local chain."""
     return int(token.functions.balanceOf(Web3.to_checksum_address(addr)).call())
 
 
 def main() -> int:
+    """Exercise the full local resource payment, settlement proof, and replay flow."""
     ok = True
 
     def check(label: str, cond: bool, detail: str = "") -> None:
+        """Index a conformance result by stable check ID and assert its expected status."""
         nonlocal ok
         ok = ok and cond
         mark = "PASS" if cond else "FAIL"

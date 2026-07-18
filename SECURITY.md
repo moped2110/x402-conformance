@@ -6,6 +6,19 @@ on-chain settlement path is testnet/Anvil only). This policy covers vulnerabilit
 **in the tool itself** — e.g. a way to make it emit a false PASS/FAIL, leak a signer
 key, or execute attacker-controlled input from a scanned endpoint's response.
 
+## Payment safety invariant
+
+Payment-bearing modes enforce a built-in testnet/local CAIP-2 allowlist. Mainnets
+and unknown networks fail closed with no override. `--pay` and `facilitator
+--settle` additionally require a funded testnet signer plus an RPC whose
+`eth_chainId` matches the advertised network. Signed payment requests, facilitator
+`/verify` and `/settle` bodies, and RPC requests do not follow redirects, so payment
+material cannot be forwarded to another origin or through an HTTPS downgrade.
+
+The CLI rechecks the network before signer creation, and the underlying library
+runner checks again before building a payload. Transactional modes cannot be
+enabled by an auto-discovered TOML config; they require an explicit flag per run.
+
 ## Reporting a vulnerability
 
 Please report privately — do **not** open a public issue for a security bug.

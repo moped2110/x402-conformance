@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from x402_conformance.jp402 import (
     find_invoice_blocks,
     find_jp402,
@@ -114,6 +116,24 @@ def test_tax_bad_rate_caught() -> None:
 def test_tax_without_amount_skips_scaling() -> None:
     # No amount → only structural + vat relation, no scaling cross-check.
     assert validate_tax({"excl_jpyc": "10", "vat_jpyc": "1", "rate": 0.1}) == []
+
+
+@pytest.mark.parametrize("hostile", ["NaN", "Infinity", "-Infinity", float("nan"), float("inf")])
+def test_tax_non_finite_numbers_are_rejected_without_crashing(hostile: object) -> None:
+    problems = validate_tax({"excl_jpyc": hostile, "vat_jpyc": "1", "rate": "0.1"}, "11")
+    assert problems
+    assert "excl_jpyc" in problems[0]
+
+
+def test_tax_exponent_bomb_is_rejected_without_large_conversion() -> None:
+    problems = validate_tax({"excl_jpyc": "1e1000000", "vat_jpyc": "1", "rate": "0.1"}, "11")
+    assert problems and "excl_jpyc" in problems[0]
+
+
+def test_tax_huge_finite_and_signed_zero_never_raise() -> None:
+    huge = "9" * 999
+    assert isinstance(validate_tax({"excl_jpyc": huge, "vat_jpyc": "0", "rate": "0.1"}, huge), list)
+    assert validate_tax({"excl_jpyc": "-0", "vat_jpyc": "0", "rate": "0.1"}, "0") == []
 
 
 # --- discovery fixture: `x-jp402.invoice` in the OpenAPI doc ---

@@ -24,9 +24,8 @@ contract MockUSDC {
     bytes32 public constant TRANSFER_WITH_AUTHORIZATION_TYPEHASH = keccak256(
         "TransferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)"
     );
-    bytes32 public constant EIP712_DOMAIN_TYPEHASH = keccak256(
-        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
-    );
+    bytes32 public constant EIP712_DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
     event Transfer(address indexed from, address indexed to, uint256 value);
     event AuthorizationUsed(address indexed authorizer, bytes32 indexed nonce);
@@ -38,14 +37,11 @@ contract MockUSDC {
         emit Transfer(address(0), to, amount);
     }
 
+    /// @notice Return the EIP-712 domain separator bound to this token and chain.
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
         return keccak256(
             abi.encode(
-                EIP712_DOMAIN_TYPEHASH,
-                keccak256(bytes(name)),
-                keccak256(bytes(version)),
-                block.chainid,
-                address(this)
+                EIP712_DOMAIN_TYPEHASH, keccak256(bytes(name)), keccak256(bytes(version)), block.chainid, address(this)
             )
         );
     }
@@ -95,22 +91,17 @@ contract MockUSDC {
     }
 
     /// @dev Shared pre-checks (time window, nonce unused) + EIP-712 digest construction.
-    function _authorize(
-        address from,
-        address to,
-        uint256 value,
-        uint256 validAfter,
-        uint256 validBefore,
-        bytes32 nonce
-    ) internal view returns (bytes32) {
+    function _authorize(address from, address to, uint256 value, uint256 validAfter, uint256 validBefore, bytes32 nonce)
+        internal
+        view
+        returns (bytes32)
+    {
         require(block.timestamp > validAfter, "auth: not yet valid");
         require(block.timestamp < validBefore, "auth: expired");
         require(!authorizationState[from][nonce], "auth: nonce already used");
 
         bytes32 structHash = keccak256(
-            abi.encode(
-                TRANSFER_WITH_AUTHORIZATION_TYPEHASH, from, to, value, validAfter, validBefore, nonce
-            )
+            abi.encode(TRANSFER_WITH_AUTHORIZATION_TYPEHASH, from, to, value, validAfter, validBefore, nonce)
         );
         return keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), structHash));
     }
@@ -125,6 +116,7 @@ contract MockUSDC {
         emit Transfer(from, to, value);
     }
 
+    /// @dev Recover the signer of a canonical 65-byte ECDSA signature over `digest`.
     function _recover(bytes32 digest, bytes calldata sig) internal pure returns (address) {
         require(sig.length == 65, "bad sig length");
         bytes32 r;

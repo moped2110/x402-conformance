@@ -1,16 +1,18 @@
 # Design sketch — extended scheme coverage (T-11)
 
 How to teach the active/settlement checks two more payment mechanisms beyond
-EVM/EIP-3009: **EVM permit-style** (EIP-2612 / Permit2) and **SVM `exact`**
-(Solana). This is a design sketch, not wired up — it names real symbols from the
-current code and the gotchas that matter at implementation time.
+EVM/EIP-3009: **EVM permit-style** (EIP-2612 / Permit2) and runnable **SVM
+`exact`** (Solana). This is a forward-looking design; the authoritative current
+boundary is [`support-matrix.md`](support-matrix.md).
 
-**Status today:** the active group is hardcoded to one mechanism. The gate is
+**Status today:** the EVM active group is hardcoded to one mechanism. The gate is
 `choose_eip3009_requirement` (in `active.py`): `scheme == "exact"` **and**
 `network` starts with `eip155:` **and** `extra.assetTransferMethod == "eip3009"`.
 Each `RS-NEG` check calls `build_exact_eip3009_payload(...)` then a `tamper_*`
-from `payload_builder.py`. Everything else (`RS-HS`, `RS-PR`, `FA`, `DI`) is
-protocol-level and already chain-agnostic — **no change needed there**.
+from `payload_builder.py`. The SVM foundation now ships CAIP-2 handling, ATA
+derivation, a spec-shaped partial-transaction builder, and tamper primitives in
+`svm.py`; it still has no runnable check group or settlement proof. Shared HTTP
+checks can inspect other rails only at the passive envelope level.
 
 ---
 
@@ -25,7 +27,7 @@ a different method lands in a different mechanism.
 |-------|--------------------|-------|-------|
 | **USDC** (EVM) | `exact` / **EIP-3009** | ✅ full active + settlement | — (happy path) |
 | **EURC** (EVM) | `exact` / **EIP-3009** (same Circle template) | ✅ full active + settlement | — (works today) |
-| **USDC** (Solana) | SVM `exact` | passive ✅, active/pay SKIP | §2 SVM |
+| **USDC** (Solana) | SVM `exact` | foundation/passive only; active/pay SKIP | §2 SVM runner |
 | **USDT** (EVM) | `exact` / **Permit2** (no EIP-3009 on USDT) | passive ✅, active/pay SKIP | §1 permit-style |
 | **EURT / other euro stables w/o EIP-3009** | `exact` / Permit2 (token-dependent) | passive ✅, active/pay SKIP | §1 permit-style |
 | **Other non-USDC ERC-20** | `exact` / Permit2 | passive ✅, active/pay SKIP | §1 permit-style |

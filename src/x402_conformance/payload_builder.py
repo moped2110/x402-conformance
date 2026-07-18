@@ -13,7 +13,7 @@ our EIP-712 digest is byte-identical to the reference implementation's.
 
     pip install x402-conformance[evm]
 
-No mainnet keys, ever. Signers are testnet-only throwaway keys (see CLAUDE.md).
+No mainnet keys, ever. Signers are testnet-only throwaway keys (see SECURITY.md).
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import copy
 import secrets
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 try:
     from eth_account import Account
@@ -47,6 +47,7 @@ _TRANSFER_WITH_AUTHORIZATION_TYPES: dict[str, list[dict[str, str]]] = {
 
 
 def _require_evm() -> None:
+    """Fail with an installation hint when the optional EVM signer is unavailable."""
     if not _EVM_AVAILABLE:
         raise RuntimeError(
             "EVM payload signing requires eth-account. Install with: "
@@ -69,6 +70,7 @@ class EvmSigner:
 
     @classmethod
     def from_key(cls, private_key: str) -> EvmSigner:
+        """Construct a testnet EVM signer from an explicitly supplied private key."""
         _require_evm()
         return cls(Account.from_key(private_key))
 
@@ -80,6 +82,7 @@ class EvmSigner:
 
     @property
     def address(self) -> str:
+        """Expose the checksummed public address of the wrapped EVM account."""
         return self.account.address
 
 
@@ -119,6 +122,8 @@ def build_exact_eip3009_payload(
     requirements: dict[str, Any],
     signer: EvmSigner,
     *,
+    resource_url: str | None = None,
+    extensions: dict[str, Any] | None = None,
     valid_after: int | None = None,
     valid_before: int | None = None,
     nonce: str | None = None,
@@ -163,13 +168,17 @@ def build_exact_eip3009_payload(
         authorization, signer, chain_id, requirements["asset"], token_name, token_version
     )
 
-    return {
+    payment_payload: dict[str, Any] = {
         "x402Version": 2,
-        "resource": {"url": ""},  # filled by caller if needed
         "accepted": copy.deepcopy(requirements),
         "payload": {"signature": signature, "authorization": authorization},
-        "extensions": {},
+        "extensions": copy.deepcopy(extensions) if extensions is not None else {},
     }
+    # `resource` is optional in PaymentPayload. Never emit an invalid empty URL:
+    # include it only when the caller can bind the payment to the actual target.
+    if resource_url is not None:
+        payment_payload["resource"] = {"url": resource_url}
+    return payment_payload
 
 
 def _sign_authorization(
@@ -180,6 +189,7 @@ def _sign_authorization(
     token_name: str,
     token_version: str,
 ) -> str:
+    """Sign an EIP-3009 authorization using the exact advertised EIP-712 token domain."""
     domain = {
         "name": token_name,
         "version": token_version,
@@ -197,6 +207,32 @@ def _sign_authorization(
     signable = encode_typed_data(domain, _TRANSFER_WITH_AUTHORIZATION_TYPES, message)
     signed = signer.account.sign_message(signable)
     return signed.signature.to_0x_hex()
+
+
+def signature_recovers_to_authorizer(payload: dict[str, Any], requirements: dict[str, Any]) -> bool:
+    """Verify a generated semantic probe still has a valid EIP-712 signature."""
+    _require_evm()
+    authorization = payload["payload"]["authorization"]
+    extra = requirements.get("extra") or {}
+    domain = {
+        "name": extra["name"],
+        "version": extra["version"],
+        "chainId": _chain_id_from_caip2(requirements["network"]),
+        "verifyingContract": requirements["asset"],
+    }
+    message = {
+        "from": authorization["from"],
+        "to": authorization["to"],
+        "value": int(authorization["value"]),
+        "validAfter": int(authorization["validAfter"]),
+        "validBefore": int(authorization["validBefore"]),
+        "nonce": bytes.fromhex(str(authorization["nonce"]).removeprefix("0x")),
+    }
+    signable = encode_typed_data(domain, _TRANSFER_WITH_AUTHORIZATION_TYPES, message)
+    recovered = cast(
+        str, Account.recover_message(signable, signature=payload["payload"]["signature"])
+    )
+    return recovered.lower() == str(authorization["from"]).lower()
 
 
 # --------------------------------------------------------------------------

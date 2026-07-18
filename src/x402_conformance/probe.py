@@ -39,6 +39,7 @@ class Probe:
 
     @property
     def legacy_headers_present(self) -> list[str]:
+        """List deprecated x402 V1 payment headers present on the response."""
         return [h for h in LEGACY_HEADERS if h in self.headers]
 
 
@@ -61,6 +62,7 @@ class ProbeSession:
 
 
 def build_probe(response: httpx.Response) -> Probe:
+    """Stage base64, JSON, and strict schema parsing without raising on hostile input."""
     headers = {k.lower(): v for k, v in response.headers.items()}
     header_b64 = headers.get(PAYMENT_REQUIRED_HEADER)
 

@@ -6,6 +6,9 @@ WSL, where Anvil and the venv live. No mainnet, ever — Anvil + a mock token on
 `MockUSDC.sol` is a faithful EIP-3009 token: it verifies the EIP-712 signature
 on-chain and tracks nonces (so replay/double-settle tests work). Its on-chain
 digest is byte-identical to the suite's off-chain signing (verified in Python).
+The harness `/verify` path also recovers that signature, checks nonce/balance,
+and executes `transferWithAuthorization` through read-only `eth_call`. This
+simulates the exact settlement without broadcasting or changing token state.
 
 The Anvil keys below are the **well-known public test keys** (deterministic
 default mnemonic). They are NOT secret and hold no real value.

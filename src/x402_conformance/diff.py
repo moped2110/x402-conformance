@@ -18,15 +18,30 @@ from typing import Any
 
 _PASS = "pass"
 _BAD = ("fail", "error")
+_VALID_STATUSES = frozenset({_PASS, "skip", *_BAD})
 
 
-def _index(report: dict[str, Any]) -> dict[str, str]:
-    """Map ``check_id -> status`` from a report's ``results`` array."""
+def _index(report: dict[str, Any], label: str) -> dict[str, str]:
+    """Strictly validate and map ``check_id -> status`` from one report."""
+    raw_results = report.get("results")
+    if not isinstance(raw_results, list):
+        raise ValueError(f"{label} report.results must be an array")
     out: dict[str, str] = {}
-    for r in report.get("results", []):
+    for index, r in enumerate(raw_results):
+        if not isinstance(r, dict):
+            raise ValueError(f"{label} report.results[{index}] must be an object")
         cid = r.get("check_id")
-        if isinstance(cid, str):
-            out[cid] = str(r.get("status", ""))
+        status = r.get("status")
+        if not isinstance(cid, str) or not cid.strip():
+            raise ValueError(f"{label} report.results[{index}].check_id must be a non-empty string")
+        if not isinstance(status, str) or status not in _VALID_STATUSES:
+            raise ValueError(
+                f"{label} report.results[{index}].status must be one of "
+                f"{', '.join(sorted(_VALID_STATUSES))}"
+            )
+        if cid in out:
+            raise ValueError(f"{label} report contains duplicate check_id {cid!r}")
+        out[cid] = status
     return out
 
 
@@ -56,10 +71,12 @@ class DiffResult:
 
     @property
     def has_regressions(self) -> bool:
+        """Report whether this comparison contains any newly regressed check."""
         return bool(self.regressed)
 
     @property
     def unchanged(self) -> bool:
+        """Return checks whose status and identity are unchanged between reports."""
         return not (
             self.fixed or self.regressed or self.other_changes or self.added or self.removed
         )
@@ -75,7 +92,7 @@ def diff_reports(old_json: str, new_json: str) -> DiffResult:
     if not isinstance(old, dict) or not isinstance(new, dict):
         raise ValueError("each report must be a JSON object")
 
-    old_idx, new_idx = _index(old), _index(new)
+    old_idx, new_idx = _index(old, "old"), _index(new, "new")
     res = DiffResult(
         old_target=str(old.get("target", "")),
         new_target=str(new.get("target", "")),
@@ -95,7 +112,11 @@ def diff_reports(old_json: str, new_json: str) -> DiffResult:
             continue  # unchanged pass/skip
         elif o in _BAD and n == _PASS:
             res.fixed.append(Transition(cid, o, n))
-        elif o == _PASS and n in _BAD:
+        elif o == _PASS and n != _PASS:
+            # Losing positive evidence is a regression even when the new result
+            # is inconclusive rather than an explicit failure.
+            res.regressed.append(Transition(cid, o, n))
+        elif o == "skip" and n in _BAD:
             res.regressed.append(Transition(cid, o, n))
         else:
             res.other_changes.append(Transition(cid, o, n))
@@ -117,6 +138,7 @@ def format_diff(d: DiffResult) -> str:
         return "\n".join(lines) + "\n"
 
     def _block(label: str, items: list[Transition]) -> None:
+        """Render one labeled group of report-diff entries."""
         if not items:
             return
         lines.append(f"{label} ({len(items)}):")

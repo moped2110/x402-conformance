@@ -14,14 +14,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   floor AND several times the within-class noise), so normal jitter can't false-positive. The
   decision (`classify_timing`) is pure/deterministic; the measurement clock is injectable.
   Catalog 62 → 63.
-- **Run records (on by default)**: every `check` run now persists a structured, tamper-evident
+- **Run records (on by default)**: every `check` run now persists a structured, integrity-checksummed
   JSON record — UTC timestamps, tool + spec version, the exact invocation inputs, environment,
   the full per-check results, the verdict, and a `runId` content hash — plus a one-line append to
   `runs.jsonl`. Written to `./x402-runs` by default; `--log-dir` changes the path, `--no-log`
   (or the `X402_CONFORMANCE_NO_LOG` env var) disables it. **Unreachable/failed runs are recorded
   too** (with an `error` field and exit code) — the audit trail captures the attempt. No secrets:
-  only the signer's public address, and an `rpc_url` is reduced to scheme+host so a provider key
-  in its path/query can't leak. `verify_run_record()` re-hashes a record to detect tampering.
+  only the signer's public address; target/RPC URLs are reduced and fingerprinted so userinfo,
+  paths, queries, and fragments cannot leak. `verify_run_record()` re-hashes a record to detect
+  accidental changes; the checksum is not an adversarial trust anchor.
 - **Solana / SVM `exact` foundations** (opt-in `[svm]` extra: `solders`/`solana`): the building
   blocks for the forthcoming SVM check group — CAIP-2 `solana:*` network refs, program addresses,
   ATA derivation (SPL + Token-2022), the `TransferChecked`/ComputeBudget instruction encoders, a
@@ -32,6 +33,16 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   local-validator harness; the plan is in `../SOLANA-PLAN.md`.
 
 ### Fixed
+- **Payment modes now fail closed outside explicit test networks.** A central
+  safety policy rejects mainnet and unknown CAIP-2 networks before payload
+  construction. Positive resource/facilitator settlement additionally requires
+  a funded testnet key and a matching RPC `eth_chainId`; transactional modes can
+  no longer be enabled by a loosely typed auto-discovered TOML config.
+- **Signed payment material is never forwarded through redirects.** Resource
+  payment requests, facilitator `/verify` and `/settle` bodies, and RPC chain-id
+  probes disable redirects per request, including for externally supplied HTTP
+  clients. Cross-origin redirects and HTTPS downgrades therefore receive neither
+  `PAYMENT-SIGNATURE` nor settlement JSON.
 - **`runs.jsonl` journal now carries the verdict.** The append-only index dropped `exitCode` and
   `error` (only the full per-run JSON had them), so a directory of runs couldn't be grepped for
   failed/unreachable runs. Both fields are now in the journal line.
@@ -52,6 +63,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 - **ruff pinned exactly** (`ruff==0.15.20`, `dev` extra): the formatter's output varies across
   releases, so an unpinned CI ruff and a local ruff disagreed on `format --check`. Pinning keeps
   local == CI; bump deliberately.
+- **Review handoff and function documentation gate**: `docs/REVIEW-HANDOFF.md`
+  provides a safety-first independent-review route, contracts, function index,
+  test map, and known limits. Every function in `src/` and executable `tools/`
+  now has an inline docstring; an AST-based checker and CI step prevent drift.
 
 ## [0.2.0] — 2026-07-09
 
@@ -108,16 +123,11 @@ SARIF export, DI-003, and a live verify gate in CI. 62 checks, 231 offline tests
   has no payment↔resource binding, the cross-resource replay vector from arXiv:2605.11781 /
   2605.30998. MINOR/advisory (the resource label is unsigned and a single request can't prove
   the replay exploit) so it never gates the verdict. Catalog 58 → 59.
-- **Method auto-fallback** (`check`): when the probed verb returns 404/405 and the *other*
-  verb (GET↔POST) reveals a real x402 paywall (a 402 or a `PAYMENT-REQUIRED` header), the
-  runner switches to it automatically and records a note — so a POST-only resource is no
-  longer a false negative. Conservative: it only switches when the alternate verb is clearly
-  a paywall; a genuine non-402 is still reported as-is. (Closes the T-22 method-awareness gap.)
-- **`scan` command**: batch-scans many facilitator URLs from a file (PASSIVE — never
-  settles, moves no funds) and ranks them by findings, most non-conformant first (whose
-  `/verify` waves through what it should reject). Optional `--resource`/`--signer-key`
-  enable the FA-VER negatives; `--json` writes the ranked result. Exit 1 if any reachable
-  target is non-conformant. Recon aid for the audit path — aggregation is pure + unit-tested.
+- **Explicit method selection** (`check`): the runner never changes GET↔POST implicitly;
+  POST-only resources require `--method POST`, avoiding an unexpected side-effecting request.
+- **`scan` command**: batch-scans many facilitator URLs from a file. `/supported`-only
+  mode is read-only; resource-backed signed `/verify` probes are active, require
+  `--authorize-active-verify`, never settle, and export redacted JSON for triage.
 - **FA-VER-004** (`facilitator`): a facilitator must handle invalid client input (an
   EOA `asset`) with a clean `isValid:false` (HTTP 200/4xx), not a **5xx server error**.
   MINOR robustness check — the rejection itself is gated by FA-VER-003; this flags the

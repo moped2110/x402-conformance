@@ -6,14 +6,15 @@ actually on-chain. Unlike RS-NEG, this MOVES REAL FUNDS — it runs only behind
 the explicit ``--pay`` flag and needs a funded signer.
 
 All assertions share a SINGLE settlement (one nonce, one on-chain tx) so the
-group does not spend funds per-check. On-chain verification (RS-PAY-004) lazily
-imports web3 and SKIPs if web3 or an RPC URL is absent — the core suite stays
-chain-free; on-chain checking is opt-in.
+group does not spend funds per-check. The pay path requires a matching testnet/
+local RPC and lazily imports web3 for fail-closed balance and receipt checks;
+the passive core stays chain-free.
 """
 
 from __future__ import annotations
 
 import concurrent.futures
+import re
 from typing import Any, cast
 
 from ..active import ActiveContext
@@ -28,19 +29,23 @@ PAY_CHECK_IDS = ["RS-PAY-001", "RS-PAY-002", "RS-PAY-003", "RS-PAY-004", "RS-SEC
 
 
 def _result(cid: str, title: str, sev: Severity, status: Status, detail: str = "") -> CheckResult:
+    """Construct a payment-flow CheckResult with the correct shared severity and reference."""
     return CheckResult(cid, title, sev, f"{_CORE} §6.1.3", status, detail)
 
 
 #: ERC-20 balanceOf(address) selector.
 _SEL_BALANCE_OF = "70a08231"
+_EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
+_EVM_TX_HASH_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
+_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
 
 def _read_token_balance(rpc_url: str, token: str, owner: str) -> int | None:
     """Read ``owner``'s ERC-20 balance of ``token`` via a read-only ``eth_call``.
 
     Returns None when the balance can't be read (web3 missing, bad address, RPC
-    error) — the caller then skips the precheck rather than blocking a run on a
-    flaky read. READ-ONLY: never signs or sends (money invariant)."""
+    error). The caller fails closed and sends no payment in that case.
+    READ-ONLY: never signs or sends (money invariant)."""
     try:
         from web3 import Web3
     except Exception:
@@ -54,7 +59,77 @@ def _read_token_balance(rpc_url: str, token: str, owner: str) -> int | None:
         return None
 
 
-def _verify_tx_onchain(rpc_url: str, tx_hash: str) -> tuple[Status, str]:
+def _hex(value: object) -> str:
+    """Normalize bytes, integers, or hex-like values into lowercase prefixed hex."""
+    if isinstance(value, bytes):
+        return "0x" + value.hex()
+    raw = value.hex() if hasattr(value, "hex") else str(value)
+    text = str(raw)
+    return text if text.startswith("0x") else "0x" + text
+
+
+def _address_topic(address: str) -> str:
+    """Encode an EVM address as the zero-padded topic representation."""
+    return "0x" + address.removeprefix("0x").lower().rjust(64, "0")
+
+
+def _verify_transfer_logs(
+    receipt: Any, *, asset: str, payer: str, pay_to: str, amount: int
+) -> tuple[Status, str]:
+    """Prove the receipt contains one unambiguous expected ERC-20 Transfer."""
+
+    if not all(_EVM_ADDRESS_RE.fullmatch(a) for a in (asset, payer, pay_to)):
+        return Status.FAIL, "cannot verify transfer: malformed asset/payer/payTo address"
+    transfer_logs: list[Any] = []
+    for log in receipt.get("logs", []):
+        try:
+            if str(log["address"]).lower() != asset.lower():
+                continue
+            topics = log["topics"]
+            if topics and _hex(topics[0]).lower() == _TRANSFER_TOPIC:
+                transfer_logs.append(log)
+        except (KeyError, TypeError):
+            continue
+    if len(transfer_logs) != 1:
+        return (
+            Status.FAIL,
+            f"expected exactly one Transfer from asset {asset}, found {len(transfer_logs)} "
+            "(missing transfer or multiple-transfer/fee-on-transfer ambiguity)",
+        )
+    log = transfer_logs[0]
+    try:
+        topics = log["topics"]
+        if len(topics) != 3:
+            return Status.FAIL, f"Transfer log has {len(topics)} topics, expected 3"
+        actual_from = _hex(topics[1]).lower()
+        actual_to = _hex(topics[2]).lower()
+        actual_amount = int(_hex(log["data"]), 16)
+    except (KeyError, TypeError, ValueError) as exc:
+        return Status.FAIL, f"malformed Transfer log: {type(exc).__name__}"
+    problems: list[str] = []
+    if actual_from != _address_topic(payer):
+        problems.append("payer/from does not match signer")
+    if actual_to != _address_topic(pay_to):
+        problems.append("recipient/to does not match payTo")
+    if actual_amount != amount:
+        problems.append(f"amount {actual_amount} != required {amount}")
+    if problems:
+        return Status.FAIL, "; ".join(problems)
+    return Status.PASS, f"Transfer {amount} {asset} from {payer} to {pay_to} proven on-chain"
+
+
+def _verify_tx_onchain(
+    rpc_url: str,
+    tx_hash: str,
+    *,
+    asset: str,
+    payer: str,
+    pay_to: str,
+    amount: int,
+) -> tuple[Status, str]:
+    """Prove a successful receipt contains exactly the expected token Transfer event."""
+    if not _EVM_TX_HASH_RE.fullmatch(tx_hash):
+        return Status.FAIL, f"settlement transaction {tx_hash!r} is not a canonical EVM tx hash"
     try:
         from web3 import Web3
     except Exception:
@@ -64,20 +139,32 @@ def _verify_tx_onchain(rpc_url: str, tx_hash: str) -> tuple[Status, str]:
         receipt = w3.eth.get_transaction_receipt(cast(Any, tx_hash))
     except Exception as exc:
         return Status.FAIL, f"tx {tx_hash} not found on-chain: {exc}"
-    if receipt["status"] == 1:
-        return Status.PASS, f"tx mined, status 1 (block {receipt['blockNumber']})"
-    return Status.FAIL, f"tx {tx_hash} reverted (status {receipt['status']})"
+    try:
+        receipt_hash = receipt.get("transactionHash")
+        if receipt_hash is not None and _hex(receipt_hash).lower() != tx_hash.lower():
+            return Status.FAIL, "RPC receipt transactionHash does not match settlement response"
+        if int(receipt["status"]) != 1:
+            return Status.FAIL, f"tx {tx_hash} reverted (status {receipt['status']})"
+    except (KeyError, TypeError, ValueError) as exc:
+        return Status.FAIL, f"malformed transaction receipt: {type(exc).__name__}"
+    status, detail = _verify_transfer_logs(
+        receipt, asset=asset, payer=payer, pay_to=pay_to, amount=amount
+    )
+    if status == Status.PASS:
+        detail += f" (block {receipt.get('blockNumber', '?')})"
+    return status, detail
 
 
 def evaluate_payment(
     context: ActiveContext | None, rpc_url: str | None = None
 ) -> list[CheckResult]:
+    """Run positive payment, settlement-header, on-chain proof, and replay checks in order."""
     sev_c, sev_m = Severity.CRITICAL, Severity.MAJOR
     titles = {
         "RS-PAY-001": "Valid funded payment is accepted and the resource delivered",
         "RS-PAY-002": "Success carries a valid PAYMENT-RESPONSE settlement",
         "RS-PAY-003": "Settlement network and payer match the payment",
-        "RS-PAY-004": "Settlement transaction exists on-chain (status 1)",
+        "RS-PAY-004": "Settlement transaction proves the expected on-chain transfer",
         "RS-SEC-001": "Replaying a settled payment is rejected (nonce reuse)",
         "RS-SEC-002": "Concurrent settle of one payment yields at most one success (race)",
     }
@@ -101,11 +188,37 @@ def evaluate_payment(
         needed = int(context.requirements.get("amount", 0))
     except (TypeError, ValueError):
         needed = 0
-    if rpc_url and needed > 0:
+    if rpc_url and needed <= 0:
+        detail = "invalid required amount; RPC payment preflight failed closed (no payment sent)"
+        return [
+            _result(
+                cid,
+                titles[cid],
+                sev_m if cid == "RS-PAY-004" else sev_c,
+                Status.ERROR,
+                detail,
+            )
+            for cid in titles
+        ]
+    if rpc_url:
         balance = _read_token_balance(
             rpc_url, str(context.requirements.get("asset", "")), context.signer.address
         )
-        if balance is not None and balance < needed:
+        if balance is None:
+            detail = (
+                "unable to read signer token balance; RPC preflight failed closed (no payment sent)"
+            )
+            return [
+                _result(
+                    cid,
+                    titles[cid],
+                    sev_m if cid == "RS-PAY-004" else sev_c,
+                    Status.ERROR,
+                    detail,
+                )
+                for cid in titles
+            ]
+        if balance < needed:
             detail = f"insufficient signer balance: have {balance}, need {needed} (no payment sent)"
             return [
                 _result(
@@ -120,7 +233,12 @@ def evaluate_payment(
 
     from ..payload_builder import build_exact_eip3009_payload
 
-    payload = build_exact_eip3009_payload(context.requirements, context.signer)
+    payload = build_exact_eip3009_payload(
+        context.requirements,
+        context.signer,
+        resource_url=context.resource_url,
+        extensions=context.extensions,
+    )
     resp = context.send(payload)
     results: list[CheckResult] = []
 
@@ -209,9 +327,17 @@ def evaluate_payment(
             problems.append(
                 f"network {settlement.network!r} != {context.requirements.get('network')!r}"
             )
-        payer = getattr(settlement, "payer", None)
-        if payer and payer.lower() != context.signer.address.lower():
+        payer = settlement.payer
+        if not payer:
+            problems.append("settlement response does not identify payer")
+        elif payer.lower() != context.signer.address.lower():
             problems.append(f"payer {payer!r} != signer {context.signer.address!r}")
+        if settlement.amount is not None and settlement.amount != str(
+            context.requirements.get("amount")
+        ):
+            problems.append(
+                f"amount {settlement.amount!r} != {context.requirements.get('amount')!r}"
+            )
         if problems:
             results.append(
                 _result("RS-PAY-003", titles["RS-PAY-003"], sev_m, Status.FAIL, "; ".join(problems))
@@ -238,7 +364,14 @@ def evaluate_payment(
             )
         )
     else:
-        status, detail = _verify_tx_onchain(rpc_url, tx)
+        status, detail = _verify_tx_onchain(
+            rpc_url,
+            tx,
+            asset=str(context.requirements.get("asset", "")),
+            payer=context.signer.address,
+            pay_to=str(context.requirements.get("payTo", "")),
+            amount=needed,
+        )
         results.append(_result("RS-PAY-004", titles["RS-PAY-004"], sev_m, status, detail))
 
     # RS-SEC-001 — replay the just-settled payment (same nonce) must be rejected.
@@ -278,7 +411,12 @@ def evaluate_payment(
 
     # RS-SEC-002 — fire N identical payments concurrently; at most one may settle.
     if settlement is not None and settlement.success:
-        race = build_exact_eip3009_payload(context.requirements, context.signer)
+        race = build_exact_eip3009_payload(
+            context.requirements,
+            context.signer,
+            resource_url=context.resource_url,
+            extensions=context.extensions,
+        )
         n = 5
         with concurrent.futures.ThreadPoolExecutor(max_workers=n) as ex:
             responses = list(ex.map(lambda _: context.send(race), range(n)))

@@ -31,8 +31,13 @@ import json
 import os
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Any, cast
 
+from eth_account import Account
+from eth_account.messages import encode_typed_data
 from web3 import Web3
+
+JsonObject = dict[str, Any]
 
 RPC_URL = os.environ.get("X402_RPC_URL", "http://127.0.0.1:8545")
 TOKEN = os.environ.get("X402_TOKEN", "")
@@ -100,11 +105,25 @@ SUPPORTED = {
 }
 
 
-def _b64(obj: dict) -> str:
+_TRANSFER_WITH_AUTHORIZATION_TYPES = {
+    "TransferWithAuthorization": [
+        {"name": "from", "type": "address"},
+        {"name": "to", "type": "address"},
+        {"name": "value", "type": "uint256"},
+        {"name": "validAfter", "type": "uint256"},
+        {"name": "validBefore", "type": "uint256"},
+        {"name": "nonce", "type": "bytes32"},
+    ]
+}
+
+
+def _b64(obj: JsonObject) -> str:
+    """Serialize an object as compact base64-encoded JSON for an x402 header."""
     return base64.b64encode(json.dumps(obj).encode()).decode()
 
 
-def payment_required() -> dict:
+def payment_required() -> JsonObject:
+    """Build the local on-chain facilitator's canonical payment challenge."""
     return {
         "x402Version": 2,
         "resource": {"url": f"http://127.0.0.1:{PORT}/data"},
@@ -113,56 +132,125 @@ def payment_required() -> dict:
     }
 
 
-def _verify_offchain(auth: dict) -> str | None:
+def _verify_offchain(auth: JsonObject) -> str | None:
     """Off-chain checks (recipient/amount/time). Returns an error code or None."""
-    if str(auth.get("to", "")).lower() != REQ["payTo"].lower():
+    try:
+        sender = str(auth["from"])
+        recipient = str(auth["to"])
+        value = int(cast(Any, auth["value"]))
+        valid_before = int(cast(Any, auth["validBefore"]))
+        valid_after = int(cast(Any, auth["validAfter"]))
+        nonce = bytes.fromhex(str(auth["nonce"]).removeprefix("0x"))
+        if not Web3.is_address(sender) or not Web3.is_address(recipient) or len(nonce) != 32:
+            return "invalid_payload"
+    except (KeyError, TypeError, ValueError):
+        return "invalid_payload"
+    if recipient.lower() != str(REQ["payTo"]).lower():
         return "invalid_exact_evm_payload_recipient_mismatch"
-    if int(auth.get("value", -1)) != int(REQ["amount"]):
+    if value != int(cast(Any, REQ["amount"])):
         return "invalid_exact_evm_payload_authorization_value_mismatch"
     now = int(time.time())
-    if int(auth["validBefore"]) <= now:
+    if valid_before <= now:
         return "invalid_exact_evm_payload_authorization_valid_before"
-    if int(auth["validAfter"]) >= now:
+    if valid_after > now:
         return "invalid_exact_evm_payload_authorization_valid_after"
     return None
 
 
-def _check_balance(auth: dict) -> str | None:
-    bal = token.functions.balanceOf(Web3.to_checksum_address(auth["from"])).call()
-    if bal < int(auth["value"]):
-        return "insufficient_funds"
+def _check_signature(auth: JsonObject, signature: str) -> str | None:
+    """Recover the EIP-712 signer without changing chain state."""
+
+    try:
+        message = {
+            "from": auth["from"],
+            "to": auth["to"],
+            "value": int(cast(Any, auth["value"])),
+            "validAfter": int(cast(Any, auth["validAfter"])),
+            "validBefore": int(cast(Any, auth["validBefore"])),
+            "nonce": bytes.fromhex(str(auth["nonce"]).removeprefix("0x")),
+        }
+        domain = {
+            "name": TOKEN_NAME,
+            "version": TOKEN_VERSION,
+            "chainId": CHAIN_ID,
+            "verifyingContract": REQ["asset"],
+        }
+        signable = encode_typed_data(domain, _TRANSFER_WITH_AUTHORIZATION_TYPES, message)
+        recovered = Account.recover_message(signable, signature=signature)
+    except Exception:
+        return "invalid_exact_evm_payload_signature"
+    if recovered.lower() != str(auth.get("from", "")).lower():
+        return "invalid_exact_evm_payload_signature"
     return None
 
 
-def verify(auth: dict) -> dict:
-    """Off-chain validation + on-chain balance (the signature is enforced on-chain at settle)."""
-    err = _verify_offchain(auth) or _check_balance(auth)
+def _check_balance(auth: JsonObject) -> str | None:
+    """Check whether the authorizer has enough mock-token balance for the payment."""
+    try:
+        bal = token.functions.balanceOf(Web3.to_checksum_address(str(auth["from"]))).call()
+        if int(cast(Any, bal)) < int(cast(Any, auth["value"])):
+            return "insufficient_funds"
+    except Exception:
+        return "unexpected_verify_error"
+    return None
+
+
+def _transfer_function(auth: JsonObject, signature: str) -> Any:
+    """Bind the decoded authorization and signature to the token transfer call."""
+    return token.functions.transferWithAuthorization(
+        Web3.to_checksum_address(str(auth["from"])),
+        Web3.to_checksum_address(str(auth["to"])),
+        int(cast(Any, auth["value"])),
+        int(cast(Any, auth["validAfter"])),
+        int(cast(Any, auth["validBefore"])),
+        bytes.fromhex(str(auth["nonce"]).removeprefix("0x")),
+        bytes.fromhex(signature.removeprefix("0x")),
+    )
+
+
+def _check_unused_and_simulate(auth: JsonObject, signature: str) -> str | None:
+    """Check nonce state and eth_call the exact settlement without broadcasting."""
+
+    try:
+        used = token.functions.authorizationState(
+            Web3.to_checksum_address(str(auth["from"])),
+            bytes.fromhex(str(auth["nonce"]).removeprefix("0x")),
+        ).call()
+        if bool(used):
+            return "invalid_transaction_state"
+        _transfer_function(auth, signature).call({"from": fac.address})
+    except Exception:
+        return "invalid_transaction_state"
+    return None
+
+
+def verify(auth: JsonObject, signature: str) -> JsonObject:
+    """Fully validate by recovery + read-only transaction simulation; never settle."""
+
+    err = (
+        _verify_offchain(auth)
+        or _check_signature(auth, signature)
+        or _check_balance(auth)
+        or _check_unused_and_simulate(auth, signature)
+    )
     if err:
         return {"isValid": False, "invalidReason": err, "payer": auth.get("from")}
     return {"isValid": True, "payer": auth["from"]}
 
 
-def settle(auth: dict, signature: str) -> dict:
+def settle(auth: JsonObject, signature: str) -> JsonObject:
     """Submit transferWithAuthorization on-chain. Returns a SettlementResponse dict."""
-    err = _verify_offchain(auth) or _check_balance(auth)
-    if err:
+    verification = verify(auth, signature)
+    if not verification["isValid"]:
         return {
             "success": False,
-            "errorReason": err,
+            "errorReason": verification["invalidReason"],
             "transaction": "",
             "network": REQ["network"],
             "payer": auth.get("from"),
         }
     try:
-        tx = token.functions.transferWithAuthorization(
-            Web3.to_checksum_address(auth["from"]),
-            Web3.to_checksum_address(auth["to"]),
-            int(auth["value"]),
-            int(auth["validAfter"]),
-            int(auth["validBefore"]),
-            bytes.fromhex(auth["nonce"][2:]),
-            bytes.fromhex(signature[2:]),
-        ).build_transaction(
+        tx = _transfer_function(auth, signature).build_transaction(
             {
                 "from": fac.address,
                 "nonce": w3.eth.get_transaction_count(fac.address),
@@ -176,7 +264,7 @@ def settle(auth: dict, signature: str) -> dict:
         h = w3.eth.send_raw_transaction(raw)
         tx_hash = Web3.to_hex(h)  # always 0x-prefixed
         receipt = w3.eth.wait_for_transaction_receipt(h, timeout=30)
-        if receipt.status == 1:
+        if receipt["status"] == 1:
             return {
                 "success": True,
                 "transaction": tx_hash,
@@ -202,7 +290,8 @@ def settle(auth: dict, signature: str) -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _send(self, code: int, headers: dict | None = None, body: bytes = b"") -> None:
+    def _send(self, code: int, headers: dict[str, str] | None = None, body: bytes = b"") -> None:
+        """Write one JSON or empty HTTP response with explicit content metadata."""
         self.send_response(code)
         for k, v in (headers or {}).items():
             self.send_header(k, v)
@@ -210,6 +299,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802
+        """Serve the local protected resource and facilitator capability endpoint."""
         if self.path.rstrip("/").endswith("/supported"):
             self._send(200, {"Content-Type": "application/json"}, json.dumps(SUPPORTED).encode())
             return
@@ -231,6 +321,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(402, {"PAYMENT-RESPONSE": _b64(result)})
 
     def do_POST(self) -> None:  # noqa: N802
+        """Handle local facilitator verify and settle requests without following redirects."""
         path = self.path.rstrip("/")
         length = int(self.headers.get("Content-Length", 0))
         try:
@@ -246,7 +337,11 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         if path.endswith("/verify"):
-            self._send(200, {"Content-Type": "application/json"}, json.dumps(verify(auth)).encode())
+            self._send(
+                200,
+                {"Content-Type": "application/json"},
+                json.dumps(verify(auth, signature)).encode(),
+            )
         elif path.endswith("/settle"):
             self._send(
                 200,
@@ -257,6 +352,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404)
 
     def log_message(self, *a: object) -> None:
+        """Suppress the local facilitator's default request logging."""
         pass
 
 

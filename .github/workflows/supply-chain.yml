@@ -1,0 +1,80 @@
+name: Supply chain
+
+on:
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_NO_INPUT: "1"
+
+jobs:
+  dependencies:
+    name: Vulnerabilities and available lock updates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/ci.txt
+      - name: Install the reviewed, hashed dependency set
+        run: python -m pip install --require-hashes -r requirements/ci.txt
+      - name: Audit the locked dependency graph
+        run: python -m pip_audit --strict --require-hashes --disable-pip -r requirements/ci.txt
+      - name: Detect available dependency updates
+        run: |
+          uv pip compile pyproject.toml \
+            --extra dev --extra calibration --extra release --extra supply-chain \
+            --universal --generate-hashes --no-annotate --no-header --upgrade \
+            -o /tmp/ci-updated.txt
+          tail -n +3 requirements/ci.txt > /tmp/ci-current.txt
+          diff -u /tmp/ci-current.txt /tmp/ci-updated.txt
+
+  upstream-drift:
+    name: Upstream spec, error, and schema drift
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the conformance suite
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
+        with:
+          path: suite
+      - name: Check out current x402 upstream
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
+        with:
+          repository: x402-foundation/x402
+          ref: main
+          path: upstream-x402
+      - name: Alert when upstream moved beyond the reviewed matrix
+        run: |
+          reviewed="$(tr -d '\n\r' < suite/.github/upstream-reviewed-commit)"
+          current="$(git -C upstream-x402 rev-parse --short=7 HEAD)"
+          test "$current" = "$reviewed" || {
+            echo "x402 upstream moved: reviewed=$reviewed current=$current"
+            echo "Review specs and update docs/support-matrix.md before changing the pin."
+            exit 1
+          }
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: suite/requirements/ci.txt
+      - name: Install the reviewed, hashed test environment
+        working-directory: suite
+        run: |
+          python -m pip install --require-hashes -r requirements/ci.txt
+          python -m pip install --no-deps --no-build-isolation -e .
+      - name: Compare error registry and validate local wire/report schemas
+        working-directory: suite
+        env:
+          X402_SPEC_TS: ../upstream-x402/typescript/packages/legacy/x402/src/types/verify/x402Specs.ts
+        run: >-
+          python -m pytest -q
+          tests/test_error_reason_drift.py
+          tests/test_models.py
+          tests/test_report.py

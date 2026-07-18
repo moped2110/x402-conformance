@@ -15,8 +15,9 @@ import typer
 from . import SPEC_BASELINE, __version__
 from .checks import CheckResult, Status
 from .diff import diff_reports, format_diff
+from .redaction import sanitize_text, sanitize_url
 from .report import (
-    exit_code,
+    assessment_exit_code,
     explain_check,
     summarize,
     to_developer_report,
@@ -26,6 +27,7 @@ from .report import (
 )
 from .run_record import DEFAULT_LOG_DIR, NO_LOG_ENV
 from .runner import run_checks
+from .safety import SafetyViolation
 from .scan import ScanEntry, format_scan, scan_to_dicts, summarize_scan
 
 app = typer.Typer(
@@ -91,7 +93,85 @@ def _load_config(explicit: Path | None, section: str) -> dict[str, object]:
         typer.secho(f"cannot read config {path}: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc
     sect = data.get(section)
-    return sect if isinstance(sect, dict) else {}
+    if sect is None:
+        return {}
+    if not isinstance(sect, dict):
+        typer.secho(f"config [{section}] must be a TOML table", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    return sect
+
+
+_CHECK_CONFIG_KEYS = frozenset(
+    {
+        "method",
+        "timeout",
+        "active",
+        "resource_marker",
+        "pay",
+        "rpc_url",
+        "timing",
+        "concurrency",
+        "progress",
+        "fix",
+        "quiet",
+        "log_dir",
+    }
+)
+
+
+def _config_error(message: str) -> None:
+    """Render a configuration error and terminate the command as inconclusive."""
+    typer.secho(f"invalid [check] config: {message}", fg=typer.colors.RED, err=True)
+    raise typer.Exit(2)
+
+
+def _validate_check_config(cfg: dict[str, object]) -> dict[str, object]:
+    """Validate TOML types before applying them to Typer-parsed CLI values.
+
+    In particular, ``bool('false')`` must never enable a payment mode.  Modes
+    that sign payment material require an explicit flag on every invocation and
+    therefore cannot be enabled by an auto-discovered config file.
+    """
+
+    unknown = sorted(set(cfg) - _CHECK_CONFIG_KEYS)
+    if unknown:
+        _config_error(f"unknown key(s): {', '.join(unknown)}")
+
+    for name in ("active", "pay", "timing", "progress", "fix", "quiet"):
+        if name in cfg and type(cfg[name]) is not bool:
+            _config_error(f"{name} must be a boolean")
+    for name in ("active", "pay", "timing"):
+        if cfg.get(name) is True:
+            _config_error(f"{name} cannot be enabled from config; pass --{name} explicitly")
+
+    if "method" in cfg and (not isinstance(cfg["method"], str) or not cfg["method"].strip()):
+        _config_error("method must be a non-empty string")
+    if "timeout" in cfg:
+        value = cfg["timeout"]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= 300:
+            _config_error("timeout must be a number greater than 0 and at most 300")
+    if "concurrency" in cfg:
+        value = cfg["concurrency"]
+        if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 64:
+            _config_error("concurrency must be an integer from 1 to 64")
+    for name in ("resource_marker", "rpc_url", "log_dir"):
+        if name in cfg and not isinstance(cfg[name], str):
+            _config_error(f"{name} must be a string")
+    return cfg
+
+
+def _funded_signer_key(signer_key: str | None) -> str:
+    """Require an explicitly supplied testnet payer for money-moving modes."""
+
+    key = signer_key or os.environ.get("X402_TESTNET_PAYER_KEY")
+    if not key:
+        typer.secho(
+            "a funded testnet signer is required; pass --signer-key or set X402_TESTNET_PAYER_KEY",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(2)
+    return key
 
 
 def _config_default(
@@ -124,7 +204,19 @@ def _make_signer(signer_key: str | None) -> object | None:
         )
         return None
     key = signer_key or os.environ.get("X402_TESTNET_PAYER_KEY")
-    return EvmSigner.from_key(key) if key else EvmSigner.random()
+    try:
+        return EvmSigner.from_key(key) if key else EvmSigner.random()
+    except (TypeError, ValueError) as exc:
+        raise typer.BadParameter("invalid EVM testnet signer key") from exc
+
+
+def _write_output(path: Path, content: str, label: str) -> None:
+    """Write a CLI artifact, translating filesystem failures to exit code 2."""
+    try:
+        path.write_text(content, encoding="utf-8")
+    except OSError as exc:
+        typer.secho(f"cannot write {label}: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
 
 
 def _emit(
@@ -135,12 +227,14 @@ def _emit(
     md_out: Path | None,
     developer: bool = False,
     sarif_out: Path | None = None,
+    outcome_code: int | None = None,
 ) -> int:
     """Print results + write reports. Returns the CI exit code."""
-    code = exit_code(results)
+    code = assessment_exit_code(results) if outcome_code is None else outcome_code
+    safe_target = sanitize_url(target) or "<redacted>"
     if developer:
         # Failures-only punch-list for the endpoint owner: what's wrong + how to fix.
-        typer.echo(to_developer_report(results, target))
+        typer.echo(to_developer_report(results, target, code))
     else:
         if not quiet:
             icon = {
@@ -152,26 +246,29 @@ def _emit(
             for r in results:
                 line = f"{icon[r.status]}  {r.check_id:<10} [{r.severity.value:<8}] {r.title}"
                 if r.detail and r.status != Status.PASS:
-                    line += f"\n      ↳ {r.detail}"
+                    detail = sanitize_text(r.detail, sensitive_values=(target,)) or ""
+                    line += f"\n      ↳ {detail}"
                 typer.echo(line)
         s = summarize(results)
         verdict = (
             typer.style("CONFORMANT", fg=typer.colors.GREEN, bold=True)
             if code == 0
+            else typer.style("INCONCLUSIVE", fg=typer.colors.YELLOW, bold=True)
+            if code == 2
             else typer.style("NOT CONFORMANT", fg=typer.colors.RED, bold=True)
         )
         typer.echo(
             f"\n{verdict} — {s['passed']} passed, {s['failed']} failed, "
-            f"{s['skipped']} skipped, {s['errors']} errors  ({target})"
+            f"{s['skipped']} skipped, {s['errors']} errors  ({safe_target})"
         )
     if json_out is not None:
-        json_out.write_text(to_json(results, target), encoding="utf-8")
+        _write_output(json_out, to_json(results, target, code), "JSON report")
         typer.echo(f"JSON report: {json_out}")
     if md_out is not None:
-        md_out.write_text(to_markdown(results, target), encoding="utf-8")
+        _write_output(md_out, to_markdown(results, target, code), "Markdown report")
         typer.echo(f"Markdown report: {md_out}")
     if sarif_out is not None:
-        sarif_out.write_text(to_sarif(results, target), encoding="utf-8")
+        _write_output(sarif_out, to_sarif(results, target, code), "SARIF report")
         typer.echo(f"SARIF report: {sarif_out}")
     return code
 
@@ -223,6 +320,12 @@ def scan(
         help="x402 resource URL to source requirements for the /verify "
         "negative checks (FA-VER/FA-ERR); without it only /supported is exercised.",
     ),
+    authorize_active_verify: bool = typer.Option(
+        False,
+        "--authorize-active-verify",
+        help="Explicitly authorize signed invalid /verify probes for every listed target. "
+        "Required with --resource; never enables /settle.",
+    ),
     signer_key: str | None = typer.Option(
         None,
         "--signer-key",
@@ -232,20 +335,52 @@ def scan(
     timeout: float = typer.Option(10.0, "--timeout", help="Per-request timeout in seconds"),
     json_out: Path | None = typer.Option(None, "--json", help="Write the ranked scan JSON"),
 ) -> None:
-    """Batch-scan many facilitator URLs (PASSIVE) and rank them by findings — recon.
+    """Batch-scan facilitators and rank findings; /verify probes require explicit consent.
 
-    Never settles and moves no funds. Prints a table with the most non-conformant
-    facilitators first. Exit 1 if any reachable target is non-conformant, else 0.
+    Without --resource this only reads /supported. With --resource it sends signed
+    invalid payments to /verify, but never settles or moves funds. Exit 1 if any
+    reachable target is non-conformant, else 0.
     """
     from .checks.facilitator import run_facilitator_checks
 
-    raw = targets.read_text(encoding="utf-8").splitlines()
+    try:
+        raw = targets.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        typer.secho(f"cannot read targets file: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
     urls = [ln.strip() for ln in raw if ln.strip() and not ln.strip().startswith("#")]
     if not urls:
         typer.secho("no target URLs found in file", fg=typer.colors.RED, err=True)
         raise typer.Exit(2)
 
+    if resource and not authorize_active_verify:
+        typer.secho(
+            "--resource sends active /verify probes; add --authorize-active-verify "
+            "after confirming authorization for every target",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(2)
+    if authorize_active_verify and not resource:
+        typer.secho("--authorize-active-verify requires --resource", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+
+    if resource:
+        from .active import preflight_resource_network
+
+        try:
+            preflight_resource_network(resource, timeout=timeout)
+        except (SafetyViolation, httpx.HTTPError) as exc:
+            typer.secho(f"unsafe/unreachable resource: {exc}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2) from exc
     signer = _make_signer(signer_key) if resource else None
+    if resource:
+        mode = "active /verify (signed invalid payments; no /settle)"
+        request_scope = "up to 6 HTTP requests per target plus one resource safety preflight"
+    else:
+        mode = "read-only /supported"
+        request_scope = "1 HTTP request per target"
+    typer.echo(f"Scope: {mode}; {len(urls)} target(s); {request_scope}.")
     entries: list[ScanEntry] = []
     for url in urls:
         try:
@@ -254,14 +389,21 @@ def scan(
             )
             entries.append(summarize_scan(url, results))
         except httpx.HTTPError as exc:
-            entries.append(ScanEntry(url=url, unreachable=str(exc)))
+            entries.append(
+                ScanEntry(
+                    url=sanitize_url(url) or "<redacted>",
+                    unreachable=sanitize_text(str(exc), sensitive_values=(url,)),
+                )
+            )
 
     typer.echo(format_scan(entries))
     if json_out is not None:
-        json_out.write_text(json.dumps(scan_to_dicts(entries), indent=2), encoding="utf-8")
+        _write_output(json_out, json.dumps(scan_to_dicts(entries), indent=2), "scan JSON")
         typer.echo(f"JSON report: {json_out}")
 
     reachable = [e for e in entries if e.unreachable is None]
+    if not reachable:
+        raise typer.Exit(2)
     raise typer.Exit(1 if any(not e.conformant for e in reachable) else 0)
 
 
@@ -341,7 +483,7 @@ def check(
     log_dir: Path | None = typer.Option(
         None,
         "--log-dir",
-        help="Directory for the tamper-evident JSON run record + runs.jsonl journal. "
+        help="Directory for the integrity-checksummed JSON run record + runs.jsonl journal. "
         "Logging is ON by default (writes to ./x402-runs); use this to change the path.",
     ),
     no_log: bool = typer.Option(
@@ -359,10 +501,10 @@ def check(
 ) -> None:
     """Run conformance checks against a resource endpoint URL.
 
-    Exit code 0: conformant (no major/critical failures). Exit code 1: not
-    conformant. Exit code 2: target unreachable.
+    Exit code 0: assessed and conformant. Exit code 1: not conformant.
+    Exit code 2: inconclusive, unreachable, or invalid input/output.
     """
-    cfg = _load_config(config, "check")
+    cfg = _validate_check_config(_load_config(config, "check"))
     method = str(_config_default(ctx, cfg, "method", method))
     timeout = float(cast(float, _config_default(ctx, cfg, "timeout", timeout)))
     active = bool(_config_default(ctx, cfg, "active", active))
@@ -376,6 +518,12 @@ def check(
     progress = bool(_config_default(ctx, cfg, "progress", progress))
     fix = bool(_config_default(ctx, cfg, "fix", fix))
     quiet = bool(_config_default(ctx, cfg, "quiet", quiet))
+    if pay and not rpc_url:
+        typer.secho(
+            "--pay requires --rpc-url for chain verification", fg=typer.colors.RED, err=True
+        )
+        raise typer.Exit(2)
+    payment_signer_key = _funded_signer_key(signer_key) if pay else signer_key
     # Logging is ON by default (writes to ./x402-runs). An explicit --log-dir or a
     # config log_dir overrides the path; --no-log or the NO_LOG_ENV env var (used by
     # the test suite) suppresses the default. An explicit path always writes.
@@ -399,6 +547,7 @@ def check(
     def _write_record(
         res: list[CheckResult], *, error: str | None = None, ec: int | None = None
     ) -> None:
+        """Build and persist a sanitized run record unless logging was disabled."""
         if run_log_dir is None:
             return
         from .run_record import build_run_record, write_run_record
@@ -423,7 +572,11 @@ def check(
             error=error,
             override_exit_code=ec,
         )
-        path = write_run_record(record, run_log_dir)
+        try:
+            path = write_run_record(record, run_log_dir)
+        except OSError as exc:
+            typer.secho(f"cannot write run record: {exc}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2) from exc
         typer.echo(f"Run record: {path}")
 
     try:
@@ -443,6 +596,22 @@ def check(
             err=True,
         )
 
+    if active or pay or timing:
+        from .active import preflight_resource_network
+
+        try:
+            preflight_resource_network(
+                url,
+                method=method,
+                timeout=timeout,
+                rpc_url=rpc_url,
+                require_rpc=pay,
+            )
+        except (SafetyViolation, httpx.HTTPError) as exc:
+            _write_record(results, error=f"payment safety check failed: {exc}", ec=2)
+            typer.secho(f"payment safety check failed: {exc}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2) from exc
+
     if active:
         signer = _make_signer(signer_key)
         if signer is not None:
@@ -450,6 +619,7 @@ def check(
             from .active import run_active_checks
 
             def _progress(r: CheckResult, done: int, total: int) -> None:
+                """Render one concise active-check progress update for the terminal."""
                 typer.secho(
                     f"[{done:>2}/{total}] {r.check_id:<10} {r.status.value}",
                     fg=typer.colors.BLUE,
@@ -467,7 +637,7 @@ def check(
             )
 
     if pay:
-        signer = _make_signer(signer_key)
+        signer = _make_signer(payment_signer_key)
         if signer is not None:
             signer_address = getattr(signer, "address", None)
             from .active import run_payment_checks
@@ -482,10 +652,20 @@ def check(
 
             results = results + run_timing_checks(url, signer, method=method, timeout=timeout)
 
-    _write_record(results)
+    outcome_code = assessment_exit_code(results)
+    _write_record(results, ec=outcome_code)
 
     raise typer.Exit(
-        _emit(results, url, quiet, json_out, md_out, developer=fix, sarif_out=sarif_out)
+        _emit(
+            results,
+            url,
+            quiet,
+            json_out,
+            md_out,
+            developer=fix,
+            sarif_out=sarif_out,
+            outcome_code=outcome_code,
+        )
     )
 
 
@@ -512,6 +692,11 @@ def facilitator(
         help="Also run FA-SET /settle tests (valid settle, invalid settle, "
         "double-settle). MOVES REAL FUNDS — testnet/Anvil only, needs a funded signer.",
     ),
+    rpc_url: str | None = typer.Option(
+        None,
+        "--rpc-url",
+        help="RPC URL used to verify that --settle targets the advertised test chain.",
+    ),
     timeout: float = typer.Option(10.0, "--timeout", help="Request timeout in seconds"),
     json_out: Path | None = typer.Option(None, "--json", help="Write JSON report to file"),
     md_out: Path | None = typer.Option(None, "--markdown", help="Write Markdown report to file"),
@@ -523,12 +708,39 @@ def facilitator(
     """Run facilitator conformance checks (FA-*) against a facilitator base URL."""
     from .checks.facilitator import run_facilitator_checks
 
-    signer = _make_signer(signer_key) if resource else None
+    if settle and resource is None:
+        typer.secho("--settle requires --resource", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    if settle and rpc_url is None:
+        typer.secho("--settle requires --rpc-url", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+
+    payment_signer_key = _funded_signer_key(signer_key) if settle else signer_key
+    if resource:
+        from .active import preflight_resource_network
+
+        try:
+            preflight_resource_network(
+                resource,
+                timeout=timeout,
+                rpc_url=rpc_url,
+                require_rpc=settle,
+            )
+        except (SafetyViolation, httpx.HTTPError) as exc:
+            typer.secho(f"payment safety check failed: {exc}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2) from exc
+
+    signer = _make_signer(payment_signer_key) if resource else None
     try:
         results = run_facilitator_checks(
-            url, resource_url=resource, signer=signer, allow_settle=settle, timeout=timeout
+            url,
+            resource_url=resource,
+            signer=signer,
+            allow_settle=settle,
+            rpc_url=rpc_url,
+            timeout=timeout,
         )
-    except httpx.HTTPError as exc:
+    except (SafetyViolation, httpx.HTTPError) as exc:
         typer.secho(f"facilitator unreachable: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc
 
@@ -539,6 +751,12 @@ def facilitator(
 def discovery(
     url: str = typer.Argument(..., help="Discovery/Bazaar base URL (exposes /discovery/resources)"),
     timeout: float = typer.Option(10.0, "--timeout", help="Request timeout in seconds"),
+    allow_cross_fetch: list[str] = typer.Option(
+        [],
+        "--allow-cross-fetch",
+        help="Explicitly allow one private cross-fetch host, IP, or CIDR (repeatable). "
+        "Unsafe destinations stay blocked by default.",
+    ),
     json_out: Path | None = typer.Option(None, "--json", help="Write JSON report to file"),
     md_out: Path | None = typer.Option(None, "--markdown", help="Write Markdown report to file"),
     sarif_out: Path | None = typer.Option(
@@ -550,7 +768,9 @@ def discovery(
     from .checks.discovery import run_discovery_checks
 
     try:
-        results = run_discovery_checks(url, timeout=timeout)
+        results = run_discovery_checks(
+            url, timeout=timeout, cross_fetch_allowlist=tuple(allow_cross_fetch)
+        )
     except httpx.HTTPError as exc:
         typer.secho(f"discovery endpoint unreachable: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc

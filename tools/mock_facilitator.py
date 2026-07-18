@@ -45,6 +45,7 @@ SUPPORTED = {
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 (BaseHTTPRequestHandler API)
+        """Serve the deterministic mock facilitator supported-capabilities response."""
         if self.path.rstrip("/").endswith("/supported"):
             body = json.dumps(SUPPORTED).encode()
             self.send_response(200)
@@ -57,6 +58,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def log_message(self, *args: object) -> None:  # silence
+        """Suppress the mock facilitator's default request logging."""
         pass
 
 

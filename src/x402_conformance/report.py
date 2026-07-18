@@ -4,19 +4,20 @@ from __future__ import annotations
 
 import importlib
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from typing import Any
 
 from . import SPEC_BASELINE, __version__
 from .checks import CheckResult, Severity, Status
+from .redaction import sanitize_text, sanitize_url, url_fingerprint
 
 _GATING = (Severity.CRITICAL, Severity.MAJOR)
 _BAD = (Status.FAIL, Status.ERROR)
 
 #: Schema version of the JSON report. Bump on any breaking shape change; the
 #: contract is pinned in report.schema.json at the repo root.
-REPORT_VERSION = "1.0"
+REPORT_VERSION = "1.1"
 
 #: SARIF 2.1.0 — the OASIS static-analysis interchange format GitHub code scanning
 #: and bug-bounty platforms ingest. Lets a scan's findings land in a Security tab.
@@ -27,6 +28,7 @@ _TOOL_URI = "https://github.com/moped2110/x402-conformance"
 
 
 def summarize(results: list[CheckResult]) -> dict[str, int]:
+    """Count PASS, FAIL, SKIP, and ERROR outcomes for a result set."""
     return {
         "total": len(results),
         "passed": sum(r.status == Status.PASS for r in results),
@@ -37,20 +39,54 @@ def summarize(results: list[CheckResult]) -> dict[str, int]:
 
 
 def exit_code(results: list[CheckResult]) -> int:
-    """CI gate: 1 if any critical/major check failed or errored, else 0."""
-    return int(any(r.status in _BAD and r.severity in _GATING for r in results))
+    """CI gate: suite errors always gate; MINOR conformance failures stay advisory."""
+    return int(
+        any(
+            r.status == Status.ERROR or (r.status == Status.FAIL and r.severity in _GATING)
+            for r in results
+        )
+    )
 
 
-def to_json(results: list[CheckResult], target_url: str) -> str:
+def assessment_exit_code(results: list[CheckResult]) -> int:
+    """Return 0/1/2 for conformant/non-conformant/inconclusive evidence."""
+    gating = exit_code(results)
+    if gating:
+        return gating
+    if not results or all(result.status is Status.SKIP for result in results):
+        return 2
+    version = next((r for r in results if r.check_id == "RS-PR-001"), None)
+    if version is not None and version.status is not Status.PASS:
+        return 2
+    return 0
+
+
+def _safe_results(results: list[CheckResult], target_url: str) -> list[CheckResult]:
+    """Return report-safe result copies with target and URL-bearing details sanitized."""
+    return [
+        replace(
+            result,
+            detail=sanitize_text(result.detail, sensitive_values=(target_url,)) or "",
+        )
+        for result in results
+    ]
+
+
+def to_json(results: list[CheckResult], target_url: str, outcome_code: int | None = None) -> str:
+    """Render the versioned machine-readable conformance report."""
+    results = _safe_results(results, target_url)
+    code = assessment_exit_code(results) if outcome_code is None else outcome_code
     return json.dumps(
         {
             "reportVersion": REPORT_VERSION,
             "tool": {"name": "x402-conformance", "version": __version__},
             "specBaseline": SPEC_BASELINE,
-            "target": target_url,
+            "target": sanitize_url(target_url),
+            "targetFingerprint": url_fingerprint(target_url),
             "timestamp": datetime.now(UTC).isoformat(),
             "summary": summarize(results),
-            "conformant": exit_code(results) == 0,
+            "conformant": code == 0,
+            "exitCode": code,
             "results": [asdict(r) for r in results],
         },
         indent=2,
@@ -63,7 +99,7 @@ def _sarif_level(severity: Severity) -> str:
     return "warning" if severity is Severity.MINOR else "error"
 
 
-def to_sarif(results: list[CheckResult], target_url: str) -> str:
+def to_sarif(results: list[CheckResult], target_url: str, outcome_code: int | None = None) -> str:
     """Emit the run's findings as SARIF 2.1.0 (machine-readable, GitHub-ingestible).
 
     Findings only — FAIL and ERROR results — since SARIF is an alert format: a passing
@@ -72,6 +108,9 @@ def to_sarif(results: list[CheckResult], target_url: str) -> str:
     ``artifactLocation``; ``partialFingerprints`` gives each finding a stable identity so
     a platform can dedupe it across runs.
     """
+    results = _safe_results(results, target_url)
+    safe_target = sanitize_url(target_url) or "<redacted>"
+    code = assessment_exit_code(results) if outcome_code is None else outcome_code
     findings = [r for r in results if r.status in _BAD]
 
     rules: list[dict[str, Any]] = []
@@ -105,8 +144,10 @@ def to_sarif(results: list[CheckResult], target_url: str) -> str:
                 "ruleId": r.check_id,
                 "level": _sarif_level(r.severity),
                 "message": {"text": message},
-                "locations": [{"physicalLocation": {"artifactLocation": {"uri": target_url}}}],
-                "partialFingerprints": {"x402ConformanceCheckId": f"{r.check_id}@{target_url}"},
+                "locations": [{"physicalLocation": {"artifactLocation": {"uri": safe_target}}}],
+                "partialFingerprints": {
+                    "x402ConformanceCheckId": f"{r.check_id}@{url_fingerprint(target_url)}"
+                },
                 "properties": {
                     "severity": r.severity.value,
                     "status": r.status.value,
@@ -130,9 +171,11 @@ def to_sarif(results: list[CheckResult], target_url: str) -> str:
                 },
                 "results": sarif_results,
                 "properties": {
-                    "target": target_url,
+                    "target": safe_target,
+                    "targetFingerprint": url_fingerprint(target_url),
                     "specBaseline": SPEC_BASELINE,
-                    "conformant": exit_code(results) == 0,
+                    "conformant": code == 0,
+                    "exitCode": code,
                 },
             }
         ],
@@ -166,13 +209,20 @@ def _md_inline_code(text: str) -> str:
     return text.replace("`", "")
 
 
-def to_markdown(results: list[CheckResult], target_url: str) -> str:
+def to_markdown(
+    results: list[CheckResult], target_url: str, outcome_code: int | None = None
+) -> str:
+    """Render a sanitized human-readable Markdown conformance report."""
+    results = _safe_results(results, target_url)
+    code = assessment_exit_code(results) if outcome_code is None else outcome_code
     s = summarize(results)
-    verdict = "✅ CONFORMANT" if exit_code(results) == 0 else "❌ NOT CONFORMANT"
+    verdict = (
+        "✅ CONFORMANT" if code == 0 else "⚠️ INCONCLUSIVE" if code == 2 else "❌ NOT CONFORMANT"
+    )
     lines = [
         "# x402 Conformance Report",
         "",
-        f"**Target:** `{_md_inline_code(target_url)}`",
+        f"**Target:** `{_md_inline_code(sanitize_url(target_url) or '<redacted>')}`",
         f"**Verdict:** {verdict} "
         f"({s['passed']} passed, {s['failed']} failed, {s['skipped']} skipped, {s['errors']} errors)",
         f"**Spec baseline:** {SPEC_BASELINE}",
@@ -253,7 +303,7 @@ _ONCHAIN_CHECKS: list[tuple[str, str, Severity, str]] = [
     ("RS-PAY-003", "Settlement network and payer match the payment", Severity.MAJOR, "CORE §5.3.2"),
     (
         "RS-PAY-004",
-        "Settlement transaction exists on-chain (status 1)",
+        "Settlement transaction proves the expected on-chain transfer",
         Severity.CRITICAL,
         "CORE §6.1.3",
     ),
@@ -325,6 +375,7 @@ def _explain_catalog() -> dict[str, tuple[str, Severity, str]]:
 
 
 def _explain_line(cid: str, title: str, sev: Severity) -> str:
+    """Format one compact check-catalog entry for explain output."""
     return f"  {cid:<12} [{sev.value:<8}] {title}"
 
 
@@ -366,25 +417,45 @@ def explain_check(query: str | None) -> str:
     return "\n".join([header, "", *body])
 
 
-def to_developer_report(results: list[CheckResult], target_url: str) -> str:
+def to_developer_report(
+    results: list[CheckResult], target_url: str, outcome_code: int | None = None
+) -> str:
     """A developer-facing punch-list for the endpoint owner under test.
 
     Failures only (FAIL/ERROR), grouped by severity, each with what's wrong
     (`detail`), how to fix (a remediation hint where we have one), and the spec
     reference. Plain text, meant to be read straight from a test run.
     """
+    results = _safe_results(results, target_url)
+    code = assessment_exit_code(results) if outcome_code is None else outcome_code
     failures = [r for r in results if r.status in _BAD]
     s = summarize(results)
-    lines = ["x402 conformance — developer report", f"Target: {target_url}", ""]
+    lines = [
+        "x402 conformance — developer report",
+        f"Target: {sanitize_url(target_url) or '<redacted>'}",
+        "",
+    ]
     if not failures:
-        lines.append(
-            f"✅ CONFORMANT — no issues to fix. {s['passed']} passed, {s['skipped']} skipped."
-        )
+        if code == 2:
+            lines.append(
+                f"⚠️ INCONCLUSIVE — insufficient mandatory evidence. "
+                f"{s['passed']} passed, {s['skipped']} skipped."
+            )
+        else:
+            lines.append(
+                f"✅ CONFORMANT — no issues to fix. {s['passed']} passed, {s['skipped']} skipped."
+            )
         return "\n".join(lines) + "\n"
 
-    gating = [r for r in failures if r.severity in _GATING]
+    gating = [r for r in failures if r.status == Status.ERROR or r.severity in _GATING]
     advisory = len(failures) - len(gating)
-    verdict = "NOT CONFORMANT" if gating else "CONFORMANT (advisory issues only)"
+    verdict = (
+        "INCONCLUSIVE"
+        if code == 2
+        else "NOT CONFORMANT"
+        if gating
+        else "CONFORMANT (advisory issues only)"
+    )
     lines.append(
         f"{verdict} — {len(gating)} blocking, {advisory} advisory "
         f"(of {s['total']} checks: {s['passed']} passed, {s['skipped']} skipped)"

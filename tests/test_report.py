@@ -8,7 +8,14 @@ from pathlib import Path
 import pytest
 
 from x402_conformance.checks import CheckResult, Severity, Status
-from x402_conformance.report import REPORT_VERSION, exit_code, summarize, to_json, to_markdown
+from x402_conformance.report import (
+    REPORT_VERSION,
+    assessment_exit_code,
+    exit_code,
+    summarize,
+    to_json,
+    to_markdown,
+)
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[1] / "report.schema.json"
 
@@ -46,8 +53,35 @@ def test_error_in_gating_severity_gates() -> None:
     assert exit_code([_r("A", Status.ERROR, Severity.MAJOR)]) == 1
 
 
+def test_minor_suite_error_always_gates() -> None:
+    assert exit_code([_r("A", Status.ERROR, Severity.MINOR)]) == 1
+    doc = json.loads(to_json([_r("A", Status.ERROR, Severity.MINOR)], "u"))
+    assert doc["conformant"] is False
+
+
 def test_all_pass_is_clean() -> None:
     assert exit_code([_r("A", Status.PASS, Severity.CRITICAL)]) == 0
+
+
+def test_assessment_requires_positive_v2_evidence() -> None:
+    assert assessment_exit_code([]) == 2
+    assert assessment_exit_code([_r("A", Status.SKIP, Severity.MAJOR)]) == 2
+    assert (
+        assessment_exit_code(
+            [
+                _r("RS-PR-001", Status.SKIP, Severity.MAJOR),
+                _r("RS-PR-006", Status.PASS, Severity.MAJOR),
+            ]
+        )
+        == 2
+    )
+    assert assessment_exit_code([_r("RS-PR-001", Status.PASS, Severity.MAJOR)]) == 0
+
+
+def test_json_default_uses_inconclusive_assessment_verdict() -> None:
+    report = json.loads(to_json([_r("A", Status.SKIP, Severity.MAJOR)], "https://example.test"))
+    assert report["exitCode"] == 2
+    assert report["conformant"] is False
 
 
 def test_json_report_is_valid_and_complete() -> None:
@@ -59,6 +93,18 @@ def test_json_report_is_valid_and_complete() -> None:
     assert {r["check_id"] for r in doc["results"]} == {"A", "B"}
     assert "specBaseline" in doc and doc["tool"]["name"] == "x402-conformance"
     assert doc["reportVersion"] == REPORT_VERSION
+    assert doc["exitCode"] == 1
+    assert doc["targetFingerprint"].startswith("sha256:")
+
+
+def test_report_redacts_target_and_details() -> None:
+    target = "https://alice:pwd123@t.example/signed/SECRET?api_key=TOKEN#fragment"
+    result = CheckResult("A", "t", Severity.MAJOR, "spec", Status.FAIL, f"failed at {target}")
+    doc = json.loads(to_json([result], target))
+    encoded = json.dumps(doc)
+    assert doc["target"] == "https://t.example"
+    for secret in ("alice", "pwd123", "SECRET", "TOKEN", "api_key", "fragment"):
+        assert secret not in encoded
 
 
 def test_json_report_validates_against_published_schema() -> None:
@@ -160,4 +206,4 @@ def test_markdown_sanitizes_backticks_in_target() -> None:
     # a backtick in the target would break out of the inline-code span
     md = to_markdown([_r("A", Status.PASS, Severity.MAJOR)], "http://x/`# pwn")
     assert "`# pwn" not in md
-    assert "**Target:** `http://x/# pwn`" in md
+    assert "**Target:** `http://x`" in md

@@ -27,10 +27,19 @@ def test_failures_grouped_with_fix_and_spec() -> None:
     assert "spec: spec-v2.md §x" in out
 
 
-def test_conformant_when_no_failures() -> None:
+def test_v1_or_unassessed_version_is_inconclusive_without_failures() -> None:
     results = [
         _r("RS-HS-001", Severity.MAJOR, Status.PASS),
         _r("RS-PR-001", Severity.MAJOR, Status.SKIP),
+    ]
+    out = to_developer_report(results, "https://x")
+    assert "INCONCLUSIVE" in out
+
+
+def test_conformant_v2_when_no_failures() -> None:
+    results = [
+        _r("RS-HS-001", Severity.MAJOR, Status.PASS),
+        _r("RS-PR-001", Severity.MAJOR, Status.PASS),
     ]
     out = to_developer_report(results, "https://x")
     assert "no issues to fix" in out.lower()
@@ -46,3 +55,11 @@ def test_minor_only_is_advisory_not_blocking() -> None:
     assert "0 blocking" in out
     assert "advisory" in out.lower()
     assert "NOT CONFORMANT" not in out  # a MINOR failure alone does not block
+
+
+def test_minor_suite_error_is_blocking() -> None:
+    out = to_developer_report(
+        [_r("RS-PR-015", Severity.MINOR, Status.ERROR, "validator crashed")], "https://x"
+    )
+    assert "NOT CONFORMANT" in out
+    assert "1 blocking" in out

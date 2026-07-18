@@ -121,6 +121,7 @@ def _verify_payload(payload: dict, bugs: set) -> dict:
 
 
 def payment_required(port: int, bugs: set[str] | None = None) -> dict:
+    """Build the calibration target's canonical x402 PaymentRequired challenge."""
     req = dict(REQ)
     if bugs and "bad-checksum" in bugs:
         req["asset"] = BAD_CHECKSUM_ASSET  # RS-PR-008: mixed-case, invalid checksum
@@ -133,6 +134,7 @@ def payment_required(port: int, bugs: set[str] | None = None) -> dict:
 
 
 def _b64(obj: dict) -> str:
+    """Serialize an object as compact base64-encoded JSON for an x402 header."""
     return base64.b64encode(json.dumps(obj).encode()).decode()
 
 
@@ -160,8 +162,11 @@ def _signature_recovers(auth: dict, signature: str) -> bool:
 
 
 def make_handler(bugs: set[str], port: int) -> type[BaseHTTPRequestHandler]:
+    """Create a calibration HTTP handler bound to the requested failure mode."""
+
     class Handler(BaseHTTPRequestHandler):
         def _send(self, code: int, headers: dict | None = None, body: bytes = b"") -> None:
+            """Write one bounded HTTP response with explicit content metadata."""
             self.send_response(code)
             for k, v in (headers or {}).items():
                 self.send_header(k, v)
@@ -172,6 +177,7 @@ def make_handler(bugs: set[str], port: int) -> type[BaseHTTPRequestHandler]:
             # A correct server never returns the resource on a rejection. The
             # `--bug-leak` variant echoes the marker in the error body so that
             # `--resource-marker` (RS-SEC-009 path) has something to catch.
+            """Return a strict x402 rejection response for an invalid payment."""
             body = b""
             if "leak" in bugs:
                 body = json.dumps(
@@ -193,6 +199,7 @@ def make_handler(bugs: set[str], port: int) -> type[BaseHTTPRequestHandler]:
             )
 
         def do_GET(self) -> None:  # noqa: N802
+            """Serve the calibration resource, OpenAPI metadata, and protocol error modes."""
             if self.path.rstrip("/").endswith("/supported"):
                 self._send(
                     200, {"Content-Type": "application/json"}, json.dumps(SUPPORTED).encode()
@@ -275,6 +282,7 @@ def make_handler(bugs: set[str], port: int) -> type[BaseHTTPRequestHandler]:
             )
 
         def do_POST(self) -> None:  # noqa: N802
+            """Route POST requests through the same calibration behavior as GET."""
             if not self.path.rstrip("/").endswith("/verify"):
                 self._send(404)
                 return
@@ -293,6 +301,7 @@ def make_handler(bugs: set[str], port: int) -> type[BaseHTTPRequestHandler]:
             self._send(200, {"Content-Type": "application/json"}, json.dumps(result).encode())
 
         def log_message(self, *a: object) -> None:
+            """Suppress the reference server's default request logging."""
             pass
 
     return Handler

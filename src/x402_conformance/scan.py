@@ -2,9 +2,10 @@
 
 Recon aid: point it at a list of facilitator base URLs and it returns a ranked table —
 the facilitators with the most gating (critical/major) failures first, i.e. the ones whose
-`/verify` waves through what it should reject. Passive only: no `/settle`, no funds move; the
-scan just observes and ranks. Disclosure discipline (check each target's policy, report
-privately) is on the operator, not automated here.
+`/verify` waves through what it should reject. Without a resource it is read-only; resource
+mode actively sends signed invalid payments and therefore requires explicit CLI consent.
+It never calls `/settle` and never moves funds. Disclosure discipline (check each target's
+policy, report privately) is on the operator, not automated here.
 
 The aggregation (`summarize_scan` / `rank_scan` / `format_scan`) is pure and unit-tested;
 the CLI wires it to the live `run_facilitator_checks` runner.
@@ -15,7 +16,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 
 from .checks import CheckResult, Severity, Status
-from .report import exit_code, summarize
+from .redaction import sanitize_text, sanitize_url
+from .report import assessment_exit_code, summarize
 
 _GATING = (Severity.CRITICAL, Severity.MAJOR)
 _BAD = (Status.FAIL, Status.ERROR)
@@ -41,13 +43,13 @@ def summarize_scan(url: str, results: list[CheckResult]) -> ScanEntry:
     s = summarize(results)
     gating = [r for r in results if r.status in _BAD and r.severity in _GATING]
     return ScanEntry(
-        url=url,
+        url=sanitize_url(url) or "<redacted>",
         passed=s["passed"],
         failed=s["failed"],
         skipped=s["skipped"],
         errors=s["errors"],
         gating_failures=len(gating),
-        conformant=exit_code(results) == 0,
+        conformant=assessment_exit_code(results) == 0,
         fail_ids=[r.check_id for r in results if r.status in _BAD],
     )
 
@@ -67,6 +69,7 @@ def rank_scan(entries: list[ScanEntry]) -> list[ScanEntry]:
 
 
 def format_scan(entries: list[ScanEntry]) -> str:
+    """Render ranked facilitator scan results and their aggregate outcome."""
     ranked = rank_scan(entries)
     lines = [f"facilitator scan — {len(ranked)} target(s), ranked by findings", ""]
     for e in ranked:
@@ -93,4 +96,15 @@ def format_scan(entries: list[ScanEntry]) -> str:
 
 def scan_to_dicts(entries: list[ScanEntry]) -> list[dict[str, object]]:
     """Ranked entries as plain dicts (for JSON output)."""
-    return [asdict(e) for e in rank_scan(entries)]
+    sanitized: list[ScanEntry] = []
+    for entry in entries:
+        sanitized.append(
+            ScanEntry(
+                **{
+                    **asdict(entry),
+                    "url": sanitize_url(entry.url) or "<redacted>",
+                    "unreachable": sanitize_text(entry.unreachable, sensitive_values=(entry.url,)),
+                }
+            )
+        )
+    return [asdict(e) for e in rank_scan(sanitized)]
