@@ -5,7 +5,7 @@ Passive checks on the unpaid request — no payment is ever made here.
 
 from __future__ import annotations
 
-from ..probe import PAYMENT_REQUIRED_HEADER, ProbeSession
+from ..probe import PAYMENT_REQUIRED_HEADER, ProbeSession, facilitator_path_kind
 from .base import Severity, Status, register
 
 _HTTP_REF = "transports-v2/http.md §Payment Required Signaling"
@@ -18,6 +18,18 @@ def hs_001(s: ProbeSession) -> tuple[Status, str]:
     if code == 402:
         return Status.PASS, ""
     if 200 <= code < 300:
+        marker = facilitator_path_kind(s.target_url)
+        if marker is not None and s.first.header_b64 is None:
+            # The target is unmistakably a facilitator/discovery endpoint (by path) and
+            # carries no x402 paywall signal, so a 200 is correct there — this is the
+            # wrong subcommand, not a broken paywall. SKIP (the run goes inconclusive)
+            # instead of manufacturing a FAIL. A 2xx on a *normal* resource URL still
+            # falls through to FAIL below: that is a real serve-without-payment leak.
+            return Status.SKIP, (
+                f"target path looks like a facilitator/discovery endpoint ({marker}), "
+                "which correctly answers 200, not 402 — run the 'facilitator' subcommand "
+                "against it instead of the passive resource 'check'"
+            )
         return Status.FAIL, (
             f"got {code}: endpoint served content without payment — "
             "either not x402-protected or paywall is broken"

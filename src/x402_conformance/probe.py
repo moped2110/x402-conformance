@@ -12,6 +12,7 @@ import base64
 import binascii
 import json
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 import httpx
 from pydantic import ValidationError
@@ -20,6 +21,29 @@ from .models import PaymentRequired
 
 PAYMENT_REQUIRED_HEADER = "payment-required"
 LEGACY_HEADERS = ("x-payment", "x-payment-required", "x-payment-response")
+
+#: Path suffixes that mark a facilitator/discovery endpoint rather than a paywalled
+#: resource. A facilitator's ``/supported`` correctly answers 200, not 402, so a
+#: passive resource ``check`` aimed at one would otherwise read as a false RS-HS-001.
+_FACILITATOR_PATH_SUFFIXES = ("/supported", "/verify", "/settle")
+_DISCOVERY_PATH = ".well-known/x402"
+
+
+def facilitator_path_kind(url: str) -> str | None:
+    """Classify a URL as a facilitator/discovery endpoint, or None for a resource.
+
+    Returns the matched marker (``.well-known/x402`` or one of the facilitator path
+    suffixes) so callers can name it; a normal paywalled-resource URL returns None.
+    The single source of truth for both the CLI hint and RS-HS-001's guard, so the
+    two cannot disagree about what counts as "not a resource".
+    """
+    path = urlsplit(url).path.lower().rstrip("/")
+    if path.endswith(f"/{_DISCOVERY_PATH}"):
+        return _DISCOVERY_PATH
+    for suffix in _FACILITATOR_PATH_SUFFIXES:
+        if path.endswith(suffix):
+            return suffix
+    return None
 
 
 @dataclass(frozen=True)

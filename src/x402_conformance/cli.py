@@ -7,7 +7,6 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
-from urllib.parse import urlsplit
 
 import httpx
 import typer
@@ -15,6 +14,7 @@ import typer
 from . import SPEC_BASELINE, __version__
 from .checks import CheckResult, Status
 from .diff import diff_reports, format_diff
+from .probe import facilitator_path_kind
 from .redaction import sanitize_text, sanitize_url
 from .report import (
     assessment_exit_code,
@@ -47,28 +47,26 @@ def version() -> None:
 
 _DEFAULT_CONFIG_NAME = ".x402-conformance.toml"
 
-#: Path suffixes that mark a facilitator/discovery endpoint rather than a paywalled
-#: resource. Pointing the passive resource `check` at these yields a false RS-HS-001
-#: (a facilitator's /supported correctly returns 200, not 402) — so we warn instead.
-_FACILITATOR_PATH_HINTS = ("/supported", "/verify", "/settle")
-
 
 def _facilitator_url_hint(url: str) -> str | None:
     """Return a nudge if ``url`` looks like a facilitator/discovery endpoint, so the
-    user runs the right subcommand instead of getting a spurious resource finding."""
-    path = urlsplit(url).path.lower().rstrip("/")
-    if path.endswith("/.well-known/x402"):
+    user runs the right subcommand instead of getting a spurious resource finding.
+
+    Shares ``facilitator_path_kind`` with RS-HS-001's guard, so the up-front warning and
+    the check's inconclusive verdict always agree on what counts as "not a resource".
+    """
+    marker = facilitator_path_kind(url)
+    if marker is None:
+        return None
+    if marker == ".well-known/x402":
         return (
             "this looks like an x402 discovery document (.well-known/x402), not a "
-            "paywalled resource — a passive 'check' will report a false RS-HS-001"
+            "paywalled resource — a passive 'check' will not find a paywall here"
         )
-    for hint in _FACILITATOR_PATH_HINTS:
-        if path.endswith(hint):
-            return (
-                f"this looks like a facilitator endpoint ({hint}) — it correctly answers "
-                "200, not 402; use the 'facilitator' subcommand to test it instead"
-            )
-    return None
+    return (
+        f"this looks like a facilitator endpoint ({marker}) — it correctly answers "
+        "200, not 402; use the 'facilitator' subcommand to test it instead"
+    )
 
 
 def _load_config(explicit: Path | None, section: str) -> dict[str, object]:
