@@ -32,3 +32,4 @@ TODO-*.md
 
 # Default run-record directory (audit trail of runs) — machine-local, not tracked.
 x402-runs/
+uv.lock
