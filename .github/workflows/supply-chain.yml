@@ -29,10 +29,12 @@ jobs:
         run: python -m pip_audit --strict --require-hashes --disable-pip -r requirements/ci.txt
       - name: Detect available dependency updates
         run: |
+          # Same resolution floor as the committed lock (see ci.yml), otherwise
+          # this comparison reports drift that does not exist.
           uv pip compile pyproject.toml \
             --extra dev --extra calibration --extra release --extra supply-chain \
-            --universal --generate-hashes --no-annotate --no-header --upgrade \
-            -o /tmp/ci-updated.txt
+            --universal --python-version 3.11 --generate-hashes --no-annotate \
+            --no-header --upgrade -o /tmp/ci-updated.txt
           tail -n +3 requirements/ci.txt > /tmp/ci-current.txt
           diff -u /tmp/ci-current.txt /tmp/ci-updated.txt
 

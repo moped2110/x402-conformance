@@ -30,9 +30,14 @@ jobs:
         run: python -m pip install --require-hashes -r requirements/ci.txt
       - name: Verify lock matches project metadata
         run: |
+          # --python-version pins the resolution floor to the lowest version in the
+          # test matrix. Without it the lock omits dependencies that only apply
+          # below 3.12 (jaraco-context -> backports-tarfile) and --require-hashes
+          # fails on 3.11. Keep this flag in sync with supply-chain.yml.
           uv pip compile pyproject.toml \
             --extra dev --extra calibration --extra release --extra supply-chain \
-            --universal --generate-hashes --no-annotate -o requirements/ci.txt
+            --universal --python-version 3.11 --generate-hashes --no-annotate \
+            -o requirements/ci.txt
           git diff --exit-code -- requirements/ci.txt
 
   lint:
