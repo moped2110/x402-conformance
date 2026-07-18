@@ -21,6 +21,7 @@ from x402_conformance.payload_builder import (
     eip712_digest,
     make_expired,
     make_not_yet_valid,
+    signature_recovers_to_authorizer,
     tamper_accepted_amount,
     tamper_recipient,
     tamper_signature,
@@ -104,6 +105,7 @@ def test_valid_payload_signature_recovers_to_signer() -> None:
     signable = _signable_for(payload["payload"]["authorization"])
     recovered = Account.recover_message(signable, signature=payload["payload"]["signature"])
     assert recovered == SIGNER.address
+    assert signature_recovers_to_authorizer(payload, REQUIREMENTS) is True
 
 
 def test_valid_payload_structure() -> None:
@@ -113,6 +115,16 @@ def test_valid_payload_structure() -> None:
     assert payload["payload"]["authorization"]["from"] == SIGNER.address
     assert payload["payload"]["authorization"]["to"] == REQUIREMENTS["payTo"]
     assert len(bytes.fromhex(payload["payload"]["signature"].removeprefix("0x"))) == 65
+    assert "resource" not in payload
+
+
+def test_resource_and_extensions_are_emitted_only_when_supplied() -> None:
+    payload = _build(
+        resource_url="https://api.example.com/premium",
+        extensions={"baz": {"info": "echo-me"}},
+    )
+    assert payload["resource"] == {"url": "https://api.example.com/premium"}
+    assert payload["extensions"] == {"baz": {"info": "echo-me"}}
 
 
 def test_tamper_signature_breaks_recovery() -> None:

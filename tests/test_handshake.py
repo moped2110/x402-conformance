@@ -21,18 +21,23 @@ def by_id(results: list, check_id: str):
     return next(r for r in results if r.check_id == check_id)
 
 
-def test_method_fallback_get_to_post_on_405() -> None:
-    # A POST-only resource 405s on GET; the runner should retry POST, find the 402,
-    # and evaluate against it (RS-HS-001 passes) instead of a false negative.
-    header = encode_header(VALID_PAYMENT_REQUIRED)
+def test_selected_method_is_never_changed_implicitly() -> None:
+    # Passive checks must describe the selected request, not probe another verb.
+    methods: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
+        methods.append(request.method)
         if request.method == "GET":
             return httpx.Response(405, json={})
-        return httpx.Response(402, headers={"PAYMENT-REQUIRED": header}, json={})
+        return httpx.Response(
+            402,
+            headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)},
+            json={},
+        )
 
     results = run_checks(TARGET_URL, transport=httpx.MockTransport(handler))
-    assert by_id(results, "RS-HS-001").status == Status.PASS
+    assert by_id(results, "RS-HS-001").status == Status.FAIL
+    assert set(methods) == {"GET"}
 
 
 def test_no_method_switch_when_neither_verb_is_a_paywall() -> None:

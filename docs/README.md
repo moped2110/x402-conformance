@@ -21,6 +21,10 @@ of work stood on a given date).
 - [`jp402-extension-placement-2026-06-29.md`](jp402-extension-placement-2026-06-29.md) —
   where the JP (`jp402` / `x-jp402`) metadata lives, confirmed against real fixtures.
 - [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md) — known limitations and environment notes.
+- [`supply-chain.md`](supply-chain.md) — hashed CI dependencies, action/toolchain
+  pins, vulnerability policy, and the local full release gate.
+- [`support-matrix.md`](support-matrix.md) — explicit supported, passive-only,
+  planned, and out-of-scope transports, schemes, networks, and mechanisms.
 
 ## `history/` — dated dev-log archive (not maintained)
 

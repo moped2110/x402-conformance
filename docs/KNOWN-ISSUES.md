@@ -1,7 +1,8 @@
 # Known Issues — x402-conformance
 
-As of: 2026-06-29. Known limitations, blockers, and pending decisions. Resolved
-items are trimmed once they're finalized; the full backlog lives in `../TODO.md`.
+As of: 2026-07-18. Known limitations, blockers, and pending decisions. Resolved
+items are trimmed once they're finalized; coverage decisions live in
+[`support-matrix.md`](support-matrix.md), while local audit TODOs are gitignored.
 
 ---
 
@@ -10,7 +11,8 @@ The signature level (recovery, domain binding) is testable without a chain and i
 done. Real settlement (balance, simulation, RS-PAY-004) is **confirmed live against
 a local Anvil chain** (see `history/onchain-2026-06-11.md`); what's still open is
 the strategy for a *public* testnet run — nightly vs. on-demand against Base Sepolia
-with a funded faucet payer. Hard line: never mainnet money. → Backlog T-09.
+with a funded faucet payer. Hard line: never mainnet money. This is the
+BACKLOG-008 calibration decision in the support matrix.
 
 ### I-5 · Silence on an unreachable facilitator (calibration insight, not a suite bug)
 For the unpaid 402 response, the reference server initializes its facilitator via

@@ -76,8 +76,8 @@ def test_results_carry_location_and_fingerprint() -> None:
     doc = json.loads(to_sarif(_sample(), _TARGET))
     r = doc["runs"][0]["results"][0]
     uri = r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
-    assert uri == _TARGET
-    assert r["partialFingerprints"]["x402ConformanceCheckId"].endswith(f"@{_TARGET}")
+    assert uri == "https://api.example.test"
+    assert "sha256:" in r["partialFingerprints"]["x402ConformanceCheckId"]
 
 
 def test_clean_run_has_no_results_and_is_marked_conformant() -> None:

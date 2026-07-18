@@ -11,6 +11,7 @@ Active checks require the `[evm]` extra (signing) and a throwaway signer.
 from __future__ import annotations
 
 import base64
+import copy
 import json
 import time
 from collections.abc import Callable
@@ -22,6 +23,7 @@ import httpx
 from . import USER_AGENT
 from .models import SettlementResponse
 from .probe import build_probe
+from .safety import DEFAULT_SAFETY_POLICY, SafetyPolicy, SafetyViolation
 
 PAYMENT_SIGNATURE_HEADER = "PAYMENT-SIGNATURE"
 PAYMENT_RESPONSE_HEADER = "payment-response"
@@ -78,6 +80,10 @@ class ActiveResponse:
     # connection (reset / protocol error / no response). That's the target crashing
     # on our input — an endpoint fault, never a suite bug. status_code is 0 then.
     transport_error: str | None = None
+    # Set for a payment-bearing 3xx response.  The client never follows it and
+    # deliberately does not copy the Location value into reports (it may contain
+    # credentials).  Status alone is enough to identify the blocked redirect.
+    redirect_blocked: str | None = None
 
     @property
     def served_resource(self) -> bool:
@@ -103,6 +109,7 @@ class ActiveContext:
     resource_url: str
     method: str
     requirements: dict[str, Any]  # chosen exact/eip3009 accepts entry
+    extensions: dict[str, Any]  # server extension metadata echoed into PaymentPayload
     signer: Any  # EvmSigner
     send: Callable[[dict[str, Any]], ActiveResponse]
     send_header: Callable[[str], ActiveResponse]  # send a raw PAYMENT-SIGNATURE value
@@ -129,13 +136,22 @@ def parse_settlement(headers: dict[str, str]) -> tuple[SettlementResponse | None
         return None, f"unparseable PAYMENT-RESPONSE: {exc}"
 
 
-def choose_eip3009_requirement(raw: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Pick an `exact`/eip3009 EVM accepts entry we can build a payment for."""
+def choose_eip3009_requirement(
+    raw: dict[str, Any] | None,
+    safety_policy: SafetyPolicy = DEFAULT_SAFETY_POLICY,
+) -> dict[str, Any] | None:
+    """Pick a safe ``exact``/EIP-3009 requirement.
+
+    Eligible mainnet and unknown-chain entries fail closed instead of being
+    silently skipped.  If a server advertises several eligible entries, a safe
+    testnet/local entry is preferred.
+    """
     if not raw:
         return None
     accepts = raw.get("accepts")
     if not isinstance(accepts, list):
         return None
+    denied_networks: list[object] = []
     for entry in accepts:
         if not isinstance(entry, dict):
             continue
@@ -149,19 +165,33 @@ def choose_eip3009_requirement(raw: dict[str, Any] | None) -> dict[str, Any] | N
         if extra.get("assetTransferMethod", "eip3009") != "eip3009":
             continue
         if extra.get("name") and extra.get("version"):
+            try:
+                safety_policy.require_safe_network(network)
+            except SafetyViolation:
+                denied_networks.append(network)
+                continue
             return entry
+    if denied_networks:
+        # Re-run the central policy to emit its stable, user-facing reason.
+        safety_policy.require_safe_network(denied_networks[0])
     return None
 
 
 def _response_from(response: httpx.Response) -> ActiveResponse:
     headers = {k.lower(): v for k, v in response.headers.items()}
     settlement, settlement_error = parse_settlement(headers)
+    redirect = (
+        f"payment redirect blocked (HTTP {response.status_code})"
+        if response.status_code in {301, 302, 303, 307, 308}
+        else None
+    )
     return ActiveResponse(
         status_code=response.status_code,
         headers=headers,
         body=response.content,
         settlement=settlement,
         settlement_error=settlement_error,
+        redirect_blocked=redirect,
     )
 
 
@@ -179,12 +209,14 @@ def build_active_context(
     both cases the active/pay checks SKIP cleanly instead of the tool crashing.
     """
     try:
-        probe = build_probe(client.request(method, url))
+        probe = build_probe(client.request(method, url, follow_redirects=False))
     except httpx.HTTPError:
         return None
     requirements = choose_eip3009_requirement(probe.raw)
     if requirements is None:
         return None
+    extensions_raw = probe.raw.get("extensions") if probe.raw is not None else None
+    extensions = copy.deepcopy(extensions_raw) if isinstance(extensions_raw, dict) else {}
 
     marker_bytes = resource_marker.encode() if resource_marker else None
 
@@ -192,7 +224,7 @@ def build_active_context(
         transport_err: str | None = None
         for attempt in range(_MAX_RETRIES + 1):
             try:
-                response = client.request(method, url, headers=headers)
+                response = client.request(method, url, headers=headers, follow_redirects=False)
             except _RETRYABLE_ERRORS as exc:
                 # Transient network fault — retry with backoff before giving up.
                 transport_err = type(exc).__name__
@@ -234,12 +266,46 @@ def build_active_context(
         resource_url=url,
         method=method,
         requirements=requirements,
+        extensions=extensions,
         signer=signer,
         send=send,
         send_header=send_header,
         send_with_headers=send_with_headers,
         resource_marker=resource_marker,
     )
+
+
+def preflight_resource_network(
+    url: str,
+    *,
+    method: str = "GET",
+    timeout: float = 10.0,
+    rpc_url: str | None = None,
+    require_rpc: bool = False,
+    transport: httpx.BaseTransport | None = None,
+    safety_policy: SafetyPolicy = DEFAULT_SAFETY_POLICY,
+) -> str | None:
+    """Validate the advertised network before CLI signer creation.
+
+    The active runners repeat this check against the requirements they actually
+    use, protecting both the CLI and direct library callers from a challenge that
+    changes between requests.
+    """
+
+    with httpx.Client(
+        timeout=timeout,
+        transport=transport,
+        follow_redirects=False,
+        headers={"User-Agent": USER_AGENT},
+    ) as client:
+        probe = build_probe(client.request(method, url, follow_redirects=False))
+    requirements = choose_eip3009_requirement(probe.raw, safety_policy)
+    if requirements is None:
+        return None
+    network = safety_policy.require_safe_network(requirements.get("network"))
+    if require_rpc:
+        safety_policy.require_matching_rpc(network, rpc_url)
+    return network
 
 
 def run_active_checks(
@@ -261,7 +327,7 @@ def run_active_checks(
 
     headers = {"User-Agent": USER_AGENT}
     with httpx.Client(
-        timeout=timeout, transport=transport, follow_redirects=True, headers=headers
+        timeout=timeout, transport=transport, follow_redirects=False, headers=headers
     ) as client:
         context = build_active_context(client, url, method, signer, resource_marker)
         return evaluate_active(context, concurrency=concurrency, progress=progress)
@@ -280,7 +346,7 @@ def run_timing_checks(
 
     headers = {"User-Agent": USER_AGENT}
     with httpx.Client(
-        timeout=timeout, transport=transport, follow_redirects=True, headers=headers
+        timeout=timeout, transport=transport, follow_redirects=False, headers=headers
     ) as client:
         context = build_active_context(client, url, method, signer)
         return evaluate_timing(context, samples=samples)
@@ -300,10 +366,14 @@ def run_payment_checks(
 
     headers = {"User-Agent": USER_AGENT}
     with httpx.Client(
-        timeout=timeout, transport=transport, follow_redirects=True, headers=headers
+        timeout=timeout, transport=transport, follow_redirects=False, headers=headers
     ) as client:
         context = build_active_context(client, url, method, signer)
         try:
+            if context is not None:
+                DEFAULT_SAFETY_POLICY.require_matching_rpc(
+                    context.requirements.get("network"), rpc_url
+                )
             return evaluate_payment(context, rpc_url)
         except Exception as exc:  # group-level net: parity with the registry groups
             # RS-PAY is a single linear settlement flow, not a registry loop, so it

@@ -11,20 +11,20 @@ passive REGISTRY; ``evaluate_active`` drives them explicitly.
 
 from __future__ import annotations
 
+import copy
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from ..active import ActiveContext, ActiveResponse
 from ..payload_builder import (
     build_exact_eip3009_payload,
-    make_expired,
-    make_not_yet_valid,
+    signature_recovers_to_authorizer,
     tamper_from,
-    tamper_recipient,
     tamper_signature,
-    tamper_value_lower,
 )
-from .base import CheckResult, Severity, Status
+from .base import CheckResult, Severity, Status, append_unique_check
 
 _CORE = "x402-specification-v2.md"
 _ATTACKER = "0x000000000000000000000000000000000000dEaD"
@@ -56,14 +56,31 @@ def _register(
     check_id: str, title: str, severity: Severity, spec_ref: str
 ) -> Callable[[ActiveFunc], ActiveFunc]:
     def deco(func: ActiveFunc) -> ActiveFunc:
-        ACTIVE_REGISTRY.append(_ActiveCheck(check_id, title, severity, spec_ref, func))
+        append_unique_check(
+            ACTIVE_REGISTRY,
+            _ActiveCheck(check_id, title, severity, spec_ref, func),
+            check_id,
+        )
         return func
 
     return deco
 
 
-def _assert_rejected(resp: ActiveResponse) -> tuple[Status, str]:
-    """Shared verdict: an invalid payment must not be served or settled."""
+def _assert_rejected(
+    resp: ActiveResponse, *, allowed_statuses: frozenset[int] = frozenset({402})
+) -> tuple[Status, str]:
+    """Shared verdict for an invalid payment with explicit status semantics."""
+    if resp.endpoint_crashed or resp.transport_error is not None or resp.status_code == 0:
+        return Status.FAIL, (
+            "endpoint crashed while rejecting an invalid payment "
+            f"({resp.transport_error or resp.status_code})"
+        )
+    if resp.status_code >= 500:
+        return Status.FAIL, (
+            f"endpoint returned {resp.status_code} while processing an invalid payment"
+        )
+    if resp.settlement_error is not None:
+        return Status.FAIL, f"malformed PAYMENT-RESPONSE on rejection: {resp.settlement_error}"
     if resp.served_resource:
         return Status.FAIL, (
             f"endpoint returned {resp.status_code} and SERVED the resource for an invalid "
@@ -76,7 +93,25 @@ def _assert_rejected(resp: ActiveResponse) -> tuple[Status, str]:
             f"status {resp.status_code} but the response body contained the resource "
             "marker — protected content leaked on the rejection path (RS-SEC-009)"
         )
+    if resp.status_code not in allowed_statuses:
+        expected = ", ".join(str(code) for code in sorted(allowed_statuses))
+        return Status.FAIL, (
+            f"invalid payment returned unexpected status {resp.status_code}; expected {expected}"
+        )
     return Status.PASS, f"correctly rejected (status {resp.status_code})"
+
+
+def _build_payload(
+    ctx: ActiveContext, requirements: dict[str, Any] | None = None, **kwargs: Any
+) -> dict[str, Any]:
+    """Build a payment bound to the probed resource, without placeholder metadata."""
+    return build_exact_eip3009_payload(
+        requirements or ctx.requirements,
+        ctx.signer,
+        resource_url=ctx.resource_url,
+        extensions=ctx.extensions,
+        **kwargs,
+    )
 
 
 # --- malformed transport payloads (no signing needed) ---
@@ -89,7 +124,7 @@ def _assert_rejected(resp: ActiveResponse) -> tuple[Status, str]:
     "transports-v2/http.md §Error Handling",
 )
 def neg_001(ctx: ActiveContext) -> tuple[Status, str]:
-    return _assert_rejected(ctx.send_header("!!!not-base64!!!"))
+    return _assert_rejected(ctx.send_header("!!!not-base64!!!"), allowed_statuses=frozenset({400}))
 
 
 @_register(
@@ -102,7 +137,7 @@ def neg_002(ctx: ActiveContext) -> tuple[Status, str]:
     import base64
 
     bad = base64.b64encode(b"{not valid json").decode()
-    return _assert_rejected(ctx.send_header(bad))
+    return _assert_rejected(ctx.send_header(bad), allowed_statuses=frozenset({400}))
 
 
 # --- signed-but-invalid payloads ---
@@ -112,7 +147,7 @@ def neg_002(ctx: ActiveContext) -> tuple[Status, str]:
     "RS-NEG-003", "Tampered signature is rejected", Severity.CRITICAL, f"{_CORE} §6.1.2 step 1"
 )
 def neg_003(ctx: ActiveContext) -> tuple[Status, str]:
-    payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
+    payload = _build_payload(ctx)
     return _assert_rejected(ctx.send(tamper_signature(payload)))
 
 
@@ -128,7 +163,7 @@ def neg_004(ctx: ActiveContext) -> tuple[Status, str]:
     # foreign/stolen signature reused under someone else's identity. A correct server
     # rejects it (recovered must equal `from`); a naive one that only checks the
     # signature is well-formed, not who it recovers to, would let it through.
-    payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
+    payload = _build_payload(ctx)
     return _assert_rejected(ctx.send(tamper_from(payload, _ATTACKER)))
 
 
@@ -139,8 +174,16 @@ def neg_004(ctx: ActiveContext) -> tuple[Status, str]:
     f"{_CORE} §6.1.2 step 3",
 )
 def neg_005(ctx: ActiveContext) -> tuple[Status, str]:
-    payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
-    return _assert_rejected(ctx.send(tamper_value_lower(payload, factor=0.5)))
+    required = int(ctx.requirements["amount"])
+    if required <= 1:
+        return Status.SKIP, "cannot construct a positive underpayment for required amount <= 1"
+    cheap = {**ctx.requirements, "amount": str(max(1, required // 2))}
+    payload = _build_payload(ctx, cheap)
+    assert signature_recovers_to_authorizer(payload, cheap)
+    # The authorization is validly signed for the lower value. Keep the original
+    # server offer in `accepted` so only the semantic underpayment is under test.
+    payload["accepted"] = copy.deepcopy(ctx.requirements)
+    return _assert_rejected(ctx.send(payload))
 
 
 @_register(
@@ -150,8 +193,11 @@ def neg_005(ctx: ActiveContext) -> tuple[Status, str]:
     f"{_CORE} §9 recipient_mismatch",
 )
 def neg_007(ctx: ActiveContext) -> tuple[Status, str]:
-    payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
-    return _assert_rejected(ctx.send(tamper_recipient(payload, _ATTACKER)))
+    redirected = {**ctx.requirements, "payTo": _ATTACKER}
+    payload = _build_payload(ctx, redirected)
+    assert signature_recovers_to_authorizer(payload, redirected)
+    payload["accepted"] = copy.deepcopy(ctx.requirements)
+    return _assert_rejected(ctx.send(payload))
 
 
 @_register(
@@ -161,8 +207,10 @@ def neg_007(ctx: ActiveContext) -> tuple[Status, str]:
     f"{_CORE} §6.1.2 step 4",
 )
 def neg_008(ctx: ActiveContext) -> tuple[Status, str]:
-    payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
-    return _assert_rejected(ctx.send(make_expired(payload)))
+    now = int(time.time())
+    payload = _build_payload(ctx, valid_after=0, valid_before=now - 1)
+    assert signature_recovers_to_authorizer(payload, ctx.requirements)
+    return _assert_rejected(ctx.send(payload))
 
 
 @_register(
@@ -172,8 +220,10 @@ def neg_008(ctx: ActiveContext) -> tuple[Status, str]:
     f"{_CORE} §9 valid_after",
 )
 def neg_009(ctx: ActiveContext) -> tuple[Status, str]:
-    payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
-    return _assert_rejected(ctx.send(make_not_yet_valid(payload)))
+    now = int(time.time())
+    payload = _build_payload(ctx, valid_after=now + 3600, valid_before=now + 7200)
+    assert signature_recovers_to_authorizer(payload, ctx.requirements)
+    return _assert_rejected(ctx.send(payload))
 
 
 @_register(
@@ -186,7 +236,7 @@ def neg_013(ctx: ActiveContext) -> tuple[Status, str]:
     # Pay a token amount and claim that is the price. The server must validate
     # against ITS OWN required amount, not the client-supplied `accepted`.
     cheap = {**ctx.requirements, "amount": "1"}
-    payload = build_exact_eip3009_payload(cheap, ctx.signer)
+    payload = _build_payload(ctx, cheap)
     return _assert_rejected(ctx.send(payload))
 
 
@@ -200,7 +250,7 @@ def neg_014(ctx: ActiveContext) -> tuple[Status, str]:
     if ctx.requirements.get("asset", "").lower() == _OTHER_ASSET.lower():
         return Status.SKIP, "endpoint already uses the substitute test asset"
     wrong = {**ctx.requirements, "asset": _OTHER_ASSET}
-    payload = build_exact_eip3009_payload(wrong, ctx.signer)
+    payload = _build_payload(ctx, wrong)
     return _assert_rejected(ctx.send(payload))
 
 
@@ -219,7 +269,7 @@ def neg_015(ctx: ActiveContext) -> tuple[Status, str]:
     if ctx.requirements.get("asset", "").lower() == _EOA_ASSET.lower():
         return Status.SKIP, "endpoint already advertises the EOA test asset"
     eoa = {**ctx.requirements, "asset": _EOA_ASSET}
-    payload = build_exact_eip3009_payload(eoa, ctx.signer)
+    payload = _build_payload(ctx, eoa)
     return _assert_rejected(ctx.send(payload))
 
 
@@ -234,7 +284,7 @@ def sec_010(ctx: ActiveContext) -> tuple[Status, str]:
     # this endpoint. EIP-712 binds chainId in the domain; the endpoint verifies
     # with its own chainId, so recovery fails and the payment must be rejected.
     foreign = {**ctx.requirements, "network": "eip155:1"}
-    payload = build_exact_eip3009_payload(foreign, ctx.signer)
+    payload = _build_payload(ctx, foreign)
     payload["accepted"] = dict(ctx.requirements)  # claim the endpoint's own network
     return _assert_rejected(ctx.send(payload))
 
@@ -257,7 +307,7 @@ def sec_003(ctx: ActiveContext) -> tuple[Status, str]:
     # non-conformant. This is an advisory binding signal — it never gates the verdict,
     # preserving zero false-positive gating. (Overlaps the RS-NEG-013 "validate the
     # client-supplied `accepted` against your own offer" principle, applied to `resource`.)
-    payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
+    payload = _build_payload(ctx)
     payload["resource"] = {"url": _FOREIGN_RESOURCE}
     if isinstance(payload.get("accepted"), dict):
         payload["accepted"]["resource"] = _FOREIGN_RESOURCE
@@ -274,7 +324,7 @@ def sec_003(ctx: ActiveContext) -> tuple[Status, str]:
         )
     if resp.marker_leaked:
         return Status.FAIL, "resource marker leaked on the mismatched-resource rejection path"
-    return Status.PASS, f"correctly rejected a foreign-resource payment (status {resp.status_code})"
+    return _assert_rejected(resp)
 
 
 @_register(
@@ -286,7 +336,7 @@ def sec_003(ctx: ActiveContext) -> tuple[Status, str]:
 def neg_006(ctx: ActiveContext) -> tuple[Status, str]:
     # exact scheme: the value must equal the required amount exactly.
     dear = {**ctx.requirements, "amount": str(int(ctx.requirements["amount"]) * 2)}
-    payload = build_exact_eip3009_payload(dear, ctx.signer)
+    payload = _build_payload(ctx, dear)
     return _assert_rejected(ctx.send(payload))
 
 
@@ -300,17 +350,9 @@ def sec_011(ctx: ActiveContext) -> tuple[Status, str]:
     # uint256 max — the tool must sign it without overflow and the endpoint must
     # respond cleanly: reject it (not served), never 5xx-crash on a huge value.
     huge = {**ctx.requirements, "amount": str(2**256 - 1)}
-    payload = build_exact_eip3009_payload(huge, ctx.signer)
+    payload = _build_payload(ctx, huge)
     resp = ctx.send(payload)
-    if resp.status_code >= 500:
-        return Status.FAIL, f"endpoint returned {resp.status_code} — crashed on an extreme amount"
-    if resp.served_resource or resp.settled_ok:
-        return Status.FAIL, f"endpoint accepted a near-2^256 amount (status {resp.status_code})"
-    if resp.marker_leaked:
-        return Status.FAIL, (
-            f"resource marker leaked on the extreme-amount rejection path (status {resp.status_code})"
-        )
-    return Status.PASS, f"handled cleanly (status {resp.status_code})"
+    return _assert_rejected(resp)
 
 
 @_register(
@@ -325,17 +367,7 @@ def sec_005(ctx: ActiveContext) -> tuple[Status, str]:
     # path. (Length, not content: the value need not be valid base64.)
     oversized = "A" * (1024 * 1024)
     resp = ctx.send_header(oversized)
-    if resp.endpoint_crashed:
-        return Status.FAIL, (
-            f"endpoint crashed on a ~1 MB header ({resp.transport_error or resp.status_code})"
-        )
-    if resp.served_resource or resp.settled_ok:
-        return Status.FAIL, f"endpoint accepted a 1 MB junk header (status {resp.status_code})"
-    if resp.marker_leaked:
-        return Status.FAIL, (
-            f"resource marker leaked on the oversized-header rejection path (status {resp.status_code})"
-        )
-    return Status.PASS, f"oversized header rejected cleanly (status {resp.status_code})"
+    return _assert_rejected(resp, allowed_statuses=frozenset(range(400, 500)))
 
 
 @_register(
@@ -348,7 +380,7 @@ def sec_007(ctx: ActiveContext) -> tuple[Status, str]:
     # Structurally valid base64+JSON, but the `from` field carries control bytes
     # and a non-ASCII char. A robust endpoint rejects it cleanly (the signature can
     # no longer recover to a mangled `from`); it must not 5xx-crash on weird input.
-    payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
+    payload = _build_payload(ctx)
     auth = payload["payload"]["authorization"]
     # NUL, RTL-override (U+202E), BEL, non-ASCII (U+00E9), built via chr() so the
     # source stays pure ASCII (no literal bidi/control chars; cf. "Trojan Source").
@@ -378,7 +410,7 @@ def sec_006(ctx: ActiveContext) -> tuple[Status, str]:
     # validation (arXiv:2605.11781 Attack III), a naive endpoint serves/settles despite
     # the invalid v2 payment. A correct endpoint rejects it regardless of the extra
     # header, and must not 5xx-crash on the duplicate/contradictory headers.
-    bad = tamper_signature(build_exact_eip3009_payload(ctx.requirements, ctx.signer))
+    bad = tamper_signature(_build_payload(ctx))
     legacy_v1 = base64.b64encode(
         _json.dumps({"x402Version": 1, "scheme": "exact", "network": "base-sepolia"}).encode()
     ).decode()
@@ -403,7 +435,7 @@ def sec_004(ctx: ActiveContext) -> tuple[Status, str]:
     # replay protection); the endpoint must reject it cleanly, never 5xx-crash on a
     # naive bytes32 parse. (Reuse of a *valid* nonce is the stateful on-chain replay
     # case, RS-SEC-001.)
-    payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
+    payload = _build_payload(ctx)
     payload["payload"]["authorization"]["nonce"] = "0x1234"  # 2 bytes, not 32
     resp = ctx.send(payload)
     if resp.status_code >= 500:
@@ -421,7 +453,7 @@ def neg_011(ctx: ActiveContext) -> tuple[Status, str]:
     # The client echoes an `accepted` entry on a network the endpoint does not
     # offer. The server must match the payment to one of its own requirements and
     # reject the mismatch (invalid_scheme/invalid_network), not serve blindly.
-    payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
+    payload = _build_payload(ctx)
     payload["accepted"] = {**dict(ctx.requirements), "network": "eip155:999999"}
     return _assert_rejected(ctx.send(payload))
 
@@ -436,7 +468,7 @@ def neg_012(ctx: ActiveContext) -> tuple[Status, str]:
     # A v2 endpoint must reject an unknown top-level x402Version (here 99) cleanly,
     # not mis-parse it. (1 may legitimately route to a V1 fallback; 99 is
     # unambiguously unsupported, so the verdict stays "must reject".)
-    payload = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
+    payload = _build_payload(ctx)
     payload["x402Version"] = 99
     return _assert_rejected(ctx.send(payload))
 

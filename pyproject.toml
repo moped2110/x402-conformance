@@ -61,6 +61,21 @@ calibration = [
     "x402[evm]>=2.14,<3",
     "jsonschema>=4.0",
 ]
+# Artifact construction and metadata validation are kept separate from the
+# library's runtime surface. CI installs the exact, hashed versions recorded in
+# requirements/ci.txt; these ranges remain usable for contributors and packagers.
+release = [
+    "build>=1.2,<2",
+    "editables>=0.3,<1",
+    "hatchling>=1.27,<2",
+    "twine>=6,<7",
+]
+# Tools used to regenerate the CI lock and audit it against PyPI advisories.
+# They are opt-in so importing the library never pulls supply-chain tooling.
+supply-chain = [
+    "pip-audit>=2.9,<3",
+    "uv>=0.8,<1",
+]
 
 [project.scripts]
 x402-conformance = "x402_conformance.cli:app"
@@ -75,7 +90,7 @@ pythonpath = ["src"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["src"]
+files = ["src", "tools/onchain_facilitator.py"]
 
 # solders/solana ship partial type info; don't let missing stubs break strict mode.
 [[tool.mypy.overrides]]

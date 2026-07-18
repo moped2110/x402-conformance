@@ -10,9 +10,11 @@
     "tool",
     "specBaseline",
     "target",
+    "targetFingerprint",
     "timestamp",
     "summary",
     "conformant",
+    "exitCode",
     "results"
   ],
   "properties": {
@@ -36,7 +38,12 @@
     },
     "target": {
       "type": "string",
-      "description": "The endpoint/base URL that was tested."
+      "description": "Redacted endpoint origin; path, userinfo, query, and fragment are omitted."
+    },
+    "targetFingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "Stable opaque fingerprint of the full target for run correlation."
     },
     "timestamp": {
       "type": "string",
@@ -57,7 +64,12 @@
     },
     "conformant": {
       "type": "boolean",
-      "description": "True when no critical/major check failed or errored (CI exit code 0)."
+      "description": "True only for exit code 0 with sufficient mandatory evidence."
+    },
+    "exitCode": {
+      "type": "integer",
+      "enum": [0, 1, 2],
+      "description": "0 conformant, 1 non-conformant, 2 inconclusive/unreachable/input error."
     },
     "results": {
       "type": "array",

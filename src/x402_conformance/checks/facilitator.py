@@ -11,9 +11,12 @@ What runs without a chain (this session):
   all reject pre-RPC). Needs a ``--resource`` to source real requirements.
 - FA-ERR-001: ``invalidReason`` values are from the CORE §9 registry.
 
-Deferred to on-chain day (need RPC / funded payer):
-- FA-VER-001 (valid payload → isValid:true; a real facilitator checks balance),
-- FA-SET-001/002, FA-SET-003 (double-settle / nonce).
+With explicit testnet/local settlement consent, a matching RPC, and a funded payer:
+- FA-SET-001/002 and FA-SET-003 exercise valid, invalid, and duplicate settlement.
+- FA-SET-001 reuses the exact on-chain Transfer verifier.
+
+FA-VER-001 (valid payload → isValid:true with balance semantics) and the
+state-change proof FA-VER-005 remain explicitly planned in the support matrix.
 
 Driven explicitly by ``run_facilitator_checks``; not part of the passive REGISTRY.
 """
@@ -23,13 +26,16 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import httpx
+from pydantic import ValidationError
 
 from .. import USER_AGENT
+from ..models import SettlementResponse, SupportedResponse, VerifyResponse
 from ..probe import build_probe
-from .base import CheckResult, Severity, Status
+from ..safety import DEFAULT_SAFETY_POLICY
+from .base import CheckResult, Severity, Status, append_unique_check
 
 _CORE = "x402-specification-v2.md"
 
@@ -114,8 +120,12 @@ class FacilitatorContext:
     client: httpx.Client
     requirements: dict[str, Any] | None  # eip3009 reqs from --resource, if any
     signer: Any | None
+    resource_url: str | None = None
+    extensions: dict[str, Any] | None = None
+    rpc_url: str | None = None
     supported: dict[str, Any] | None = None  # cached /supported body
     supported_status: int | None = None  # last GET /supported status (None = unreachable)
+    supported_error: str | None = None
     allow_settle: bool = False  # FA-SET moves real funds; opt-in only
 
 
@@ -136,10 +146,21 @@ FA_REGISTRY: list[_FaCheck] = []
 
 def _register(cid: str, title: str, sev: Severity, ref: str) -> Callable[[FaFunc], FaFunc]:
     def deco(f: FaFunc) -> FaFunc:
-        FA_REGISTRY.append(_FaCheck(cid, title, sev, ref, f))
+        append_unique_check(FA_REGISTRY, _FaCheck(cid, title, sev, ref, f), cid)
         return f
 
     return deco
+
+
+def _build_payload(ctx: FacilitatorContext, requirements: dict[str, Any]) -> dict[str, Any]:
+    from ..payload_builder import EvmSigner, build_exact_eip3009_payload
+
+    return build_exact_eip3009_payload(
+        requirements,
+        cast(EvmSigner, ctx.signer),
+        resource_url=ctx.resource_url,
+        extensions=ctx.extensions,
+    )
 
 
 def _get_supported(ctx: FacilitatorContext) -> dict[str, Any] | None:
@@ -147,17 +168,19 @@ def _get_supported(ctx: FacilitatorContext) -> dict[str, Any] | None:
         return ctx.supported
     try:
         resp = ctx.client.get(f"{ctx.base_url.rstrip('/')}/supported")
-    except Exception:
-        ctx.supported_status = None  # unreachable / transport error
-        return None
+    except httpx.HTTPError:
+        ctx.supported_status = None
+        raise
     ctx.supported_status = resp.status_code
     if resp.status_code != 200:
         return None  # absent (e.g. 404) — /supported is optional (CORE §7.3)
     try:
-        body = resp.json()
-    except Exception:
+        body: Any = resp.json()
+        parsed = SupportedResponse.model_validate(body)
+    except (ValueError, ValidationError) as exc:
+        ctx.supported_error = f"invalid /supported response: {exc}"
         return None  # 200 but not JSON (status recorded as 200 → a real fault)
-    ctx.supported = body if isinstance(body, dict) else None
+    ctx.supported = parsed.model_dump(by_alias=True)
     return ctx.supported
 
 
@@ -181,7 +204,7 @@ def fa_sup_001(ctx: FacilitatorContext) -> tuple[Status, str]:
                 f"/supported not implemented ({where}) — optional per CORE §7.3; "
                 "the endpoint is testable from the inline 402 requirements"
             )
-        return Status.FAIL, "GET /supported returned 200 but not a JSON object"
+        return Status.FAIL, ctx.supported_error or "GET /supported returned invalid JSON"
     missing = [k for k in ("kinds", "extensions", "signers") if k not in body]
     if missing:
         return Status.FAIL, f"/supported present but missing keys: {', '.join(missing)}"
@@ -225,14 +248,21 @@ def fa_sup_002(ctx: FacilitatorContext) -> tuple[Status, str]:
 
 def _verify(
     ctx: FacilitatorContext, payload: dict[str, Any], requirements: dict[str, Any]
-) -> dict[str, Any] | None:
+) -> tuple[VerifyResponse | None, str | None]:
     req = {"x402Version": 2, "paymentPayload": payload, "paymentRequirements": requirements}
     try:
-        resp = ctx.client.post(f"{ctx.base_url.rstrip('/')}/verify", json=req)
+        resp = ctx.client.post(
+            f"{ctx.base_url.rstrip('/')}/verify", json=req, follow_redirects=False
+        )
+    except httpx.HTTPError:
+        raise
+    if not 200 <= resp.status_code < 500:
+        return None, f"/verify returned HTTP {resp.status_code}"
+    try:
         data: Any = json.loads(resp.text)
-        return data if isinstance(data, dict) else None
-    except Exception:
-        return None
+        return VerifyResponse.model_validate(data), None
+    except (ValueError, ValidationError) as exc:
+        return None, f"/verify returned an invalid response: {exc}"
 
 
 def _verify_raw(
@@ -245,9 +275,11 @@ def _verify_raw(
     """
     req = {"x402Version": 2, "paymentPayload": payload, "paymentRequirements": requirements}
     try:
-        resp = ctx.client.post(f"{ctx.base_url.rstrip('/')}/verify", json=req)
-    except Exception:
-        return None, None
+        resp = ctx.client.post(
+            f"{ctx.base_url.rstrip('/')}/verify", json=req, follow_redirects=False
+        )
+    except httpx.HTTPError:
+        raise
     try:
         data: Any = json.loads(resp.text)
     except Exception:
@@ -264,19 +296,17 @@ def _verify_raw(
 def fa_ver_002(ctx: FacilitatorContext) -> tuple[Status, str]:
     if ctx.requirements is None or ctx.signer is None:
         return Status.SKIP, "no --resource requirements / signer to build a payment"
-    from ..payload_builder import build_exact_eip3009_payload
-
     # Validly sign for a token amount but verify against the REAL requirements:
     # the facilitator must reject value != requirements.amount. A post-signing
     # tamper would be caught by the signature check instead, masking an
     # amount-validation gap — so we re-sign (cf. RS-NEG-013).
-    cheap = build_exact_eip3009_payload({**ctx.requirements, "amount": "1"}, ctx.signer)
-    result = _verify(ctx, cheap, ctx.requirements)
+    cheap = _build_payload(ctx, {**ctx.requirements, "amount": "1"})
+    result, error = _verify(ctx, cheap, ctx.requirements)
     if result is None:
-        return Status.FAIL, "/verify did not return JSON"
-    if result.get("isValid") is True:
+        return Status.FAIL, error or "/verify did not return a valid response"
+    if result.is_valid:
         return Status.FAIL, "/verify reported isValid:true for value != requirements.amount"
-    return Status.PASS, f"correctly invalid (reason: {result.get('invalidReason')!r})"
+    return Status.PASS, f"correctly invalid (reason: {result.invalid_reason!r})"
 
 
 @_register(
@@ -290,22 +320,20 @@ def fa_ver_003(ctx: FacilitatorContext) -> tuple[Status, str]:
         return Status.SKIP, "no --resource requirements / signer to build a payment"
     if str(ctx.requirements.get("asset", "")).lower() == _EOA_ASSET.lower():
         return Status.SKIP, "endpoint already advertises the EOA test asset"
-    from ..payload_builder import build_exact_eip3009_payload
-
     # An asset pointing at an EOA has no bytecode; on-chain simulation does not
     # revert, so a facilitator that skips an eth_getCode pre-flight would settle a
     # silent no-op. /verify must report isValid:false (ideally asset_not_deployed_contract).
     eoa_req = {**ctx.requirements, "asset": _EOA_ASSET}
-    payload = build_exact_eip3009_payload(eoa_req, ctx.signer)
-    result = _verify(ctx, payload, eoa_req)
+    payload = _build_payload(ctx, eoa_req)
+    result, error = _verify(ctx, payload, eoa_req)
     if result is None:
-        return Status.FAIL, "/verify did not return JSON"
-    if result.get("isValid") is True:
+        return Status.FAIL, error or "/verify did not return a valid response"
+    if result.is_valid:
         return Status.FAIL, (
             "/verify accepted a payment whose asset is an EOA (no contract code) — "
             "silent-no-op / payment-bypass risk"
         )
-    reason = result.get("invalidReason")
+    reason = result.invalid_reason
     note = (
         ""
         if reason == "asset_not_deployed_contract"
@@ -325,15 +353,13 @@ def fa_ver_004(ctx: FacilitatorContext) -> tuple[Status, str]:
         return Status.SKIP, "no --resource requirements / signer to build a payment"
     if str(ctx.requirements.get("asset", "")).lower() == _EOA_ASSET.lower():
         return Status.SKIP, "endpoint already advertises the EOA test asset"
-    from ..payload_builder import build_exact_eip3009_payload
-
     # A client-supplied asset that is an EOA (no bytecode) is invalid input. A robust
     # facilitator reports isValid:false (HTTP 200 or a 4xx). A 5xx means an unhandled
     # server error on client-controlled input — a robustness gap seen on real
     # facilitators that let a balanceOf/parse exception bubble up to a 500. MINOR: the
     # rejection itself is what FA-VER-003 gates; this only flags the *shape* of it.
     eoa_req = {**ctx.requirements, "asset": _EOA_ASSET}
-    payload = build_exact_eip3009_payload(eoa_req, ctx.signer)
+    payload = _build_payload(ctx, eoa_req)
     status, _ = _verify_raw(ctx, payload, eoa_req)
     if status is None:
         return Status.SKIP, "/verify unreachable — no response to inspect"
@@ -342,6 +368,8 @@ def fa_ver_004(ctx: FacilitatorContext) -> tuple[Status, str]:
             f"/verify returned HTTP {status} on an invalid (EOA-asset) payment — malformed "
             "client input should surface as isValid:false (200/4xx), not a server error"
         )
+    if not (200 <= status < 300 or 400 <= status < 500):
+        return Status.FAIL, f"/verify returned unexpected HTTP {status}"
     return Status.PASS, f"clean HTTP {status} on invalid input (no 5xx)"
 
 
@@ -351,13 +379,11 @@ def fa_ver_004(ctx: FacilitatorContext) -> tuple[Status, str]:
 def fa_err_001(ctx: FacilitatorContext) -> tuple[Status, str]:
     if ctx.requirements is None or ctx.signer is None:
         return Status.SKIP, "no --resource requirements / signer to trigger an error"
-    from ..payload_builder import build_exact_eip3009_payload
-
-    cheap = build_exact_eip3009_payload({**ctx.requirements, "amount": "1"}, ctx.signer)
-    result = _verify(ctx, cheap, ctx.requirements)
+    cheap = _build_payload(ctx, {**ctx.requirements, "amount": "1"})
+    result, error = _verify(ctx, cheap, ctx.requirements)
     if result is None:
-        return Status.SKIP, "no /verify JSON to inspect"
-    reason = result.get("invalidReason")
+        return Status.FAIL, error or "no valid /verify response to inspect"
+    reason = result.invalid_reason
     if reason is None:
         return Status.FAIL, "isValid:false without an invalidReason"
     if reason not in KNOWN_ERROR_CODES:
@@ -367,14 +393,21 @@ def fa_err_001(ctx: FacilitatorContext) -> tuple[Status, str]:
 
 def _settle(
     ctx: FacilitatorContext, payload: dict[str, Any], requirements: dict[str, Any]
-) -> dict[str, Any] | None:
+) -> tuple[SettlementResponse | None, str | None]:
     req = {"x402Version": 2, "paymentPayload": payload, "paymentRequirements": requirements}
     try:
-        resp = ctx.client.post(f"{ctx.base_url.rstrip('/')}/settle", json=req)
+        resp = ctx.client.post(
+            f"{ctx.base_url.rstrip('/')}/settle", json=req, follow_redirects=False
+        )
+    except httpx.HTTPError:
+        raise
+    if not 200 <= resp.status_code < 500:
+        return None, f"/settle returned HTTP {resp.status_code}"
+    try:
         data: Any = json.loads(resp.text)
-        return data if isinstance(data, dict) else None
-    except Exception:
-        return None
+        return SettlementResponse.model_validate(data), None
+    except (ValueError, ValidationError) as exc:
+        return None, f"/settle returned an invalid response: {exc}"
 
 
 def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
@@ -408,26 +441,60 @@ def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
     if ctx.requirements is None or ctx.signer is None:
         return [mk(c, Status.SKIP, "no --resource requirements / signer") for c in ids]
 
-    from ..payload_builder import build_exact_eip3009_payload
-
     results: list[CheckResult] = []
 
     # FA-SET-001 — valid settle (a real on-chain settlement)
-    good = build_exact_eip3009_payload(ctx.requirements, ctx.signer)
-    r1 = _settle(ctx, good, ctx.requirements)
+    good = _build_payload(ctx, ctx.requirements)
+    r1, r1_error = _settle(ctx, good, ctx.requirements)
     if r1 is None:
-        results.append(mk("FA-SET-001", Status.FAIL, "/settle did not return JSON"))
-    elif r1.get("success") is True and r1.get("transaction") and r1["transaction"] != "0x":
-        results.append(mk("FA-SET-001", Status.PASS, f"tx {r1['transaction']}"))
-    else:
         results.append(
-            mk("FA-SET-001", Status.FAIL, f"valid /settle did not succeed: {str(r1)[:160]}")
+            mk("FA-SET-001", Status.FAIL, r1_error or "/settle did not return a valid response")
         )
+    elif not r1.success:
+        results.append(
+            mk(
+                "FA-SET-001",
+                Status.FAIL,
+                f"valid /settle failed: {r1.error_reason!r}",
+            )
+        )
+    elif r1.network != ctx.requirements.get("network"):
+        results.append(
+            mk("FA-SET-001", Status.FAIL, "settlement network does not match requirement")
+        )
+    elif not ctx.rpc_url:
+        results.append(
+            mk(
+                "FA-SET-001",
+                Status.SKIP,
+                "settlement response received but no RPC proof is available",
+            )
+        )
+    else:
+        from .payment import _verify_tx_onchain
+
+        proof_status, proof_detail = _verify_tx_onchain(
+            ctx.rpc_url,
+            r1.transaction,
+            asset=str(ctx.requirements["asset"]),
+            payer=ctx.signer.address,
+            pay_to=str(ctx.requirements["payTo"]),
+            amount=int(ctx.requirements["amount"]),
+        )
+        results.append(mk("FA-SET-001", proof_status, proof_detail))
 
     # FA-SET-003 — double-settle the SAME payment must be rejected
-    if r1 and r1.get("success") is True:
-        r3 = _settle(ctx, good, ctx.requirements)
-        if r3 is not None and r3.get("success") is True:
+    if r1 and r1.success:
+        r3, r3_error = _settle(ctx, good, ctx.requirements)
+        if r3 is None:
+            results.append(
+                mk(
+                    "FA-SET-003",
+                    Status.FAIL,
+                    r3_error or "second /settle did not return a valid response",
+                )
+            )
+        elif r3.success:
             results.append(
                 mk(
                     "FA-SET-003",
@@ -440,26 +507,28 @@ def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
                 mk(
                     "FA-SET-003",
                     Status.PASS,
-                    f"double-settle rejected (reason {(r3 or {}).get('errorReason')!r})",
+                    f"double-settle rejected (reason {r3.error_reason!r})",
                 )
             )
     else:
         results.append(mk("FA-SET-003", Status.SKIP, "first settle did not succeed"))
 
     # FA-SET-002 — invalid settle (value != requirements) must fail with empty tx
-    cheap = build_exact_eip3009_payload({**ctx.requirements, "amount": "1"}, ctx.signer)
-    r2 = _settle(ctx, cheap, ctx.requirements)
+    cheap = _build_payload(ctx, {**ctx.requirements, "amount": "1"})
+    r2, r2_error = _settle(ctx, cheap, ctx.requirements)
     if r2 is None:
-        results.append(mk("FA-SET-002", Status.FAIL, "/settle did not return JSON"))
-    elif r2.get("success") is True:
+        results.append(
+            mk("FA-SET-002", Status.FAIL, r2_error or "/settle did not return a valid response")
+        )
+    elif r2.success:
         results.append(mk("FA-SET-002", Status.FAIL, "/settle succeeded for an invalid payment"))
-    elif r2.get("transaction"):
+    elif r2.transaction:
         results.append(
             mk("FA-SET-002", Status.FAIL, "failed settle still carries a non-empty tx hash")
         )
     else:
         results.append(
-            mk("FA-SET-002", Status.PASS, f"correctly failed (reason {r2.get('errorReason')!r})")
+            mk("FA-SET-002", Status.PASS, f"correctly failed (reason {r2.error_reason!r})")
         )
 
     return results
@@ -473,6 +542,8 @@ def evaluate_facilitator(ctx: FacilitatorContext | None) -> list[CheckResult]:
         else:
             try:
                 status, detail = check.func(ctx)
+            except httpx.HTTPError:
+                raise
             except Exception as exc:
                 status, detail = Status.ERROR, f"check crashed (suite bug): {exc!r}"
         results.append(
@@ -486,6 +557,7 @@ def run_facilitator_checks(
     resource_url: str | None = None,
     signer: Any | None = None,
     allow_settle: bool = False,
+    rpc_url: str | None = None,
     timeout: float = 30.0,
     transport: httpx.BaseTransport | None = None,
 ) -> list[CheckResult]:
@@ -493,19 +565,27 @@ def run_facilitator_checks(
     with allow_settle, also run the FA-SET /settle tests (moves real funds)."""
     headers = {"User-Agent": USER_AGENT}
     with httpx.Client(
-        timeout=timeout, transport=transport, headers=headers, follow_redirects=True
+        timeout=timeout, transport=transport, headers=headers, follow_redirects=False
     ) as client:
         requirements = None
+        extensions: dict[str, Any] = {}
         if resource_url is not None:
             from ..active import choose_eip3009_requirement
 
-            probe = build_probe(client.request("GET", resource_url))
+            probe = build_probe(client.request("GET", resource_url, follow_redirects=False))
             requirements = choose_eip3009_requirement(probe.raw)
+            extensions_raw = probe.raw.get("extensions") if probe.raw is not None else None
+            extensions = extensions_raw if isinstance(extensions_raw, dict) else {}
+            if allow_settle and requirements is not None:
+                DEFAULT_SAFETY_POLICY.require_matching_rpc(requirements.get("network"), rpc_url)
         ctx = FacilitatorContext(
             base_url=base_url,
             client=client,
             requirements=requirements,
             signer=signer,
+            resource_url=resource_url,
+            extensions=extensions,
+            rpc_url=rpc_url,
             allow_settle=allow_settle,
         )
         return evaluate_facilitator(ctx) + evaluate_settle(ctx)

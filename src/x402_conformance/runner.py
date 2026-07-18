@@ -104,20 +104,9 @@ def run_checks(
         timeout=timeout, transport=transport, follow_redirects=True, headers=headers
     ) as client:
         first = build_probe(_request_with_transient_retry(client, method, url))
+        # Never change the operator-selected method: switching GET to POST can
+        # trigger application side effects. Rerun with an explicit `--method`.
         effective = method
-        # A POST-only (or GET-only) endpoint answers the wrong verb with 404/405. If the
-        # *other* verb reveals a real x402 paywall, adopt it — so a POST-gated resource
-        # isn't a false negative. Otherwise keep the original response so the handshake
-        # checks report it faithfully (a genuine non-402 is still a finding).
-        if not _is_paywall(first) and first.status_code in (404, 405):
-            alt = "POST" if method.upper() == "GET" else "GET"
-            alt_probe = build_probe(_request_with_transient_retry(client, alt, url))
-            if _is_paywall(alt_probe):
-                notes.append(
-                    f"auto-switched method {method.upper()}->{alt}: {method.upper()} "
-                    f"returned {first.status_code}, {alt} reveals an x402 paywall"
-                )
-                first, effective = alt_probe, alt
         # A persistent server error with no paywall signal is unreachable, not a
         # FAIL — bail before further probing so the run is recorded as inconclusive.
         reason = _unreachable_reason(first)

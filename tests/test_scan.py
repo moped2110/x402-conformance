@@ -38,6 +38,23 @@ def test_minor_only_failure_is_conformant() -> None:
     assert e.failed == 1
 
 
+def test_all_skipped_scan_is_inconclusive() -> None:
+    e = summarize_scan("http://x", [_r("A", Status.SKIP)])
+    assert e.conformant is False
+
+
+def test_scan_redacts_url_components_and_errors() -> None:
+    entry = ScanEntry(
+        url="https://user:secret@example.test/private?token=secret",
+        unreachable="failed at https://user:secret@example.test/private?token=secret",
+    )
+    [data] = scan_to_dicts([entry])
+    rendered = str(data)
+    assert data["url"] == "https://example.test"
+    assert "secret" not in rendered
+    assert "/private" not in rendered
+
+
 def test_rank_orders_by_findings_then_unreachable_last() -> None:
     worst = ScanEntry(url="http://worst", gating_failures=3, failed=3, conformant=False)
     mid = ScanEntry(url="http://mid", gating_failures=1, failed=1, conformant=False)

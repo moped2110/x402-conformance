@@ -52,6 +52,24 @@ def _x402_version(s: ProbeSession) -> object:
     return s.first.raw.get("x402Version") if s.first.raw is not None else None
 
 
+def _resource_identity(url: str) -> tuple[str, str, int, str, str] | None:
+    """Canonical HTTP resource identity without weakening scheme or query binding."""
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return None
+    scheme = parsed.scheme.lower()
+    if scheme not in {"http", "https"} or host is None or parsed.username is not None:
+        return None
+    effective_port = port if port is not None else (443 if scheme == "https" else 80)
+    path = parsed.path or "/"
+    if path != "/":
+        path = path.rstrip("/")
+    return scheme, host.lower(), effective_port, path, parsed.query
+
+
 @register("RS-PR-001", "x402Version present and == 2", Severity.MAJOR, f"{_CORE} §5.1.2")
 def pr_001(s: ProbeSession) -> tuple[Status, str]:
     if s.first.raw is None:
@@ -93,12 +111,9 @@ def pr_002(s: ProbeSession) -> tuple[Status, str]:
 def pr_003(s: ProbeSession) -> tuple[Status, str]:
     if s.first.parsed is None:
         return Status.SKIP, "no parsed PaymentRequired payload"
-    advertised = urlsplit(s.first.parsed.resource.url)
-    requested = urlsplit(s.target_url)
-    if (advertised.netloc, advertised.path.rstrip("/")) == (
-        requested.netloc,
-        requested.path.rstrip("/"),
-    ):
+    advertised = _resource_identity(s.first.parsed.resource.url)
+    requested = _resource_identity(s.target_url)
+    if advertised is not None and advertised == requested:
         return Status.PASS, ""
     return Status.FAIL, (
         f"advertised resource.url {s.first.parsed.resource.url!r} does not match "

@@ -5,6 +5,7 @@ __pycache__/
 dist/
 build/
 .venv/
+.venv-*/
 venv/
 .env
 .mypy_cache/
@@ -16,6 +17,7 @@ reports/
 
 # Agent configuration
 CLAUDE.md
+AGENTS.md
 
 # Foundry / on-chain artifacts
 onchain/out/
@@ -23,6 +25,7 @@ onchain/cache/
 onchain/broadcast/
 onchain/lib/
 TODO.md
+TODO-*.md
 
 # Local run config (may hold endpoint URLs / rpc-url); the .example is committed.
 .x402-conformance.toml

@@ -64,6 +64,15 @@ def test_duplicate_registration_is_rejected() -> None:
             return Status.PASS, ""
 
 
+def test_shared_duplicate_guard_rejects_duplicates_for_every_registry() -> None:
+    from x402_conformance.checks.base import append_unique_check
+
+    for registry in (REGISTRY, FA_REGISTRY, DI_REGISTRY, _active_registry()):
+        isolated = [registry[0]]
+        with pytest.raises(ValueError, match="duplicate check id"):
+            append_unique_check(isolated, registry[0], registry[0].check_id)
+
+
 # --- Catalog ↔ code drift guard -------------------------------------------
 #
 # The catalog (docs/conformance-catalog.md) advertises an "Implemented & tested
@@ -78,6 +87,8 @@ import httpx  # noqa: E402
 
 _CATALOG = Path(__file__).resolve().parents[1] / "docs" / "conformance-catalog.md"
 _README = Path(__file__).resolve().parents[1] / "README.md"
+_SUPPORT_MATRIX = Path(__file__).resolve().parents[1] / "docs" / "support-matrix.md"
+_UPSTREAM_PIN = Path(__file__).resolve().parents[1] / ".github" / "upstream-reviewed-commit"
 
 
 def _all_implemented_ids() -> set[str]:
@@ -122,6 +133,37 @@ def test_catalog_implemented_count_matches_code() -> None:
     )
 
 
+def _catalog_rows() -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    for line in _CATALOG.read_text(encoding="utf-8").splitlines():
+        if not re.match(r"^\| (?:(?:RS|FA)-[A-Z]+-[0-9]{3}|DI-[0-9]{3}) \|", line):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        assert len(cells) == 6, f"catalog row has no explicit status column: {line}"
+        rows.append((cells[0], cells[-1]))
+    return rows
+
+
+def test_catalog_ids_are_unique_and_every_row_has_explicit_status() -> None:
+    rows = _catalog_rows()
+    ids = [check_id for check_id, _ in rows]
+    assert len(ids) == len(set(ids)), f"duplicate catalog IDs: {ids}"
+    assert all(status in {"implemented", "planned"} for _, status in rows)
+    assert {cid for cid, status in rows if status == "planned"} == {
+        "RS-NEG-010",
+        "FA-VER-001",
+        "FA-VER-005",
+    }
+
+
+def test_every_implemented_id_has_exactly_one_implemented_catalog_row() -> None:
+    rows = _catalog_rows()
+    implemented = _all_implemented_ids()
+    assert {check_id for check_id, status in rows if status == "implemented"} == implemented
+    for check_id in implemented:
+        assert rows.count((check_id, "implemented")) == 1, check_id
+
+
 def test_readme_check_count_matches_code() -> None:
     # The README headline "N checks across the groups above" is a sales figure a
     # reader trusts. Pin it to the code so it can never quietly go stale again.
@@ -133,3 +175,12 @@ def test_readme_check_count_matches_code() -> None:
     assert stated == actual, (
         f"README says {stated} checks, code emits {actual} — update the README headline"
     )
+
+
+def test_support_matrix_and_upstream_drift_pin_match() -> None:
+    matrix = _SUPPORT_MATRIX.read_text(encoding="utf-8")
+    reviewed = _UPSTREAM_PIN.read_text(encoding="utf-8").strip()
+    assert re.fullmatch(r"[0-9a-f]{7}", reviewed)
+    assert f"main@{reviewed}" in matrix
+    for status in ("supported", "passive-only", "planned", "out of scope"):
+        assert status in matrix

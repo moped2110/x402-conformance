@@ -1,4 +1,4 @@
-"""Tests for structured, tamper-evident run records."""
+"""Tests for structured run records and their integrity checksum."""
 
 from __future__ import annotations
 
@@ -39,7 +39,8 @@ def _record():
 def test_record_has_core_fields_and_hash() -> None:
     rec = _record()
     assert rec["command"] == "check"
-    assert rec["target"] == "https://api.example.com/data"
+    assert rec["target"] == "https://api.example.com"
+    assert rec["targetFingerprint"].startswith("sha256:")
     assert rec["tool"]["name"] == "x402-conformance"
     assert rec["startedAt"] == "2026-07-09T12:00:00+00:00"
     assert rec["durationSeconds"] == 3.0
@@ -77,6 +78,10 @@ def test_redact_url_strips_provider_key() -> None:
     )
     assert _redact_url("https://rpc.example.com:8545/?apikey=abc") == "https://rpc.example.com:8545"
     assert _redact_url(None) is None
+    assert _redact_url("https://user:pass@[2001:db8::1]:8443/signed/TOKEN?q=secret#x") == (
+        "https://[2001:db8::1]:8443"
+    )
+    assert _redact_url("http://host:bad-port/path") == "<unparseable>"
 
 
 def test_clean_inputs_redacts_rpc_and_drops_secrets() -> None:
@@ -135,8 +140,44 @@ def test_journal_carries_exitcode_and_error_for_unreachable_run(tmp_path) -> Non
     assert line["conformant"] is False
 
 
+def test_all_skipped_record_defaults_to_inconclusive() -> None:
+    now = datetime(2026, 7, 9, 12, 0, 0, tzinfo=UTC)
+    rec = build_run_record(
+        command="check",
+        target="https://example.com/data",
+        inputs={"method": "GET"},
+        results=[CheckResult("A", "skip", Severity.MAJOR, "spec", Status.SKIP, "")],
+        signer_address=None,
+        started_at=now,
+        finished_at=now,
+    )
+    assert rec["exitCode"] == 2
+    assert rec["conformant"] is False
+
+
 def test_journal_appends_across_runs(tmp_path) -> None:
     write_run_record(_record(), tmp_path)
     write_run_record(_record(), tmp_path)
     lines = (tmp_path / "runs.jsonl").read_text().strip().splitlines()
     assert len(lines) == 2  # appended, not overwritten
+
+
+def test_target_and_error_never_persist_url_secrets() -> None:
+    start = datetime(2026, 7, 9, 12, 0, 0, tzinfo=UTC)
+    secret_target = "https://alice:password@example.com/signed/SECRET?api_key=TOKEN#fragment"
+    rec = build_run_record(
+        command="check",
+        target=secret_target,
+        inputs={"method": "GET"},
+        results=[],
+        signer_address=None,
+        started_at=start,
+        finished_at=start,
+        error=f"request to {secret_target} failed",
+        override_exit_code=2,
+    )
+    encoded = json.dumps(rec)
+    for secret in ("alice", "password", "SECRET", "TOKEN", "api_key", "fragment"):
+        assert secret not in encoded
+    assert rec["target"] == "https://example.com"
+    assert rec["error"] == "request to https://example.com failed"

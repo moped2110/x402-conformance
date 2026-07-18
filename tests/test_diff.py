@@ -84,3 +84,26 @@ def test_differing_targets_are_flagged() -> None:
 def test_invalid_json_raises_valueerror() -> None:
     with pytest.raises(ValueError):
         diff_reports("{not json", "{}")
+
+
+@pytest.mark.parametrize(
+    "bad_report",
+    [
+        {"results": [1]},
+        {"results": [{"check_id": "A", "status": "pass"}, {"check_id": "A", "status": "fail"}]},
+        {"results": [{"check_id": "", "status": "pass"}]},
+        {"results": [{"check_id": "A", "status": "unknown"}]},
+        {"results": {}},
+        {},
+    ],
+)
+def test_hostile_report_shapes_raise_clear_valueerror(bad_report: dict) -> None:
+    good = _report("http://x", {"A": "pass"})
+    with pytest.raises(ValueError):
+        diff_reports(json.dumps(bad_report), good)
+
+
+@pytest.mark.parametrize(("old_status", "new_status"), [("pass", "skip"), ("skip", "fail")])
+def test_loss_of_evidence_is_a_regression(old_status: str, new_status: str) -> None:
+    d = diff_reports(_report("http://x", {"A": old_status}), _report("http://x", {"A": new_status}))
+    assert [t.check_id for t in d.regressed] == ["A"]

@@ -23,7 +23,7 @@ Reference: https://github.com/kakedashi3/jp402-registry  (community, not x402-co
 from __future__ import annotations
 
 import re
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, DecimalException
 from typing import Any
 
 #: 適格請求書発行事業者登録番号 — "T" followed by exactly 13 digits.
@@ -32,6 +32,12 @@ _T_NUMBER_RE = re.compile(r"^T[0-9]{13}$")
 #: The live 402 uses ``jp402``; the OpenAPI doc uses ``x-jp402``. We tolerate either
 #: spelling on either surface so a deployment that picks the other one isn't missed.
 _JP402_KEYS = ("jp402", "x-jp402")
+
+# Bound attacker-controlled numeric text before later int conversions. uint256
+# amounts need at most 78 decimal digits; 1,000 leaves ample extension headroom
+# while rejecting exponent/digit bombs that would consume excessive CPU/memory.
+_MAX_DECIMAL_DIGITS = 1_000
+_MAX_DECIMAL_EXPONENT = 1_000
 
 
 # --------------------------------------------------------------------------
@@ -77,16 +83,25 @@ def _to_decimal(v: Any) -> Decimal | None:
     Booleans are rejected (``True`` is not a tax amount)."""
     if isinstance(v, bool):
         return None
-    if isinstance(v, int):
-        return Decimal(v)
-    if isinstance(v, float):
-        return Decimal(str(v))
-    if isinstance(v, str):
-        try:
-            return Decimal(v)
-        except InvalidOperation:
+    try:
+        if isinstance(v, int):
+            parsed = Decimal(v)
+        elif isinstance(v, float):
+            parsed = Decimal(str(v))
+        elif isinstance(v, str):
+            parsed = Decimal(v)
+        else:
             return None
-    return None
+    except (DecimalException, ValueError):
+        return None
+    if not parsed.is_finite():
+        return None
+    parts = parsed.as_tuple()
+    if len(parts.digits) > _MAX_DECIMAL_DIGITS:
+        return None
+    if abs(parsed.adjusted()) > _MAX_DECIMAL_EXPONENT and not parsed.is_zero():
+        return None
+    return parsed
 
 
 def _is_power_of_ten(n: int) -> bool:

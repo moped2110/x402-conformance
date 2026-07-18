@@ -10,7 +10,7 @@ from __future__ import annotations
 import enum
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 if TYPE_CHECKING:
     from ..probe import ProbeSession
@@ -63,6 +63,16 @@ class CheckResult:
 
 
 REGISTRY: list[Check] = []
+_RegisteredCheck = TypeVar("_RegisteredCheck")
+
+
+def append_unique_check(
+    registry: list[_RegisteredCheck], item: _RegisteredCheck, check_id: str
+) -> None:
+    """Append one check definition, rejecting duplicate IDs at import time."""
+    if any(getattr(existing, "check_id", None) == check_id for existing in registry):
+        raise ValueError(f"duplicate check id: {check_id}")
+    registry.append(item)
 
 
 def register(
@@ -71,9 +81,7 @@ def register(
     """Decorator: add a check function to the global registry."""
 
     def decorator(func: CheckFunc) -> CheckFunc:
-        if any(c.check_id == check_id for c in REGISTRY):
-            raise ValueError(f"duplicate check id: {check_id}")
-        REGISTRY.append(Check(check_id, title, severity, spec_ref, func))
+        append_unique_check(REGISTRY, Check(check_id, title, severity, spec_ref, func), check_id)
         return func
 
     return decorator

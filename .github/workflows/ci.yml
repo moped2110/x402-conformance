@@ -6,19 +6,52 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Every job is read-only. Publishing is intentionally handled by no workflow in
+# this repository, so neither id-token nor package write access is granted.
+permissions:
+  contents: read
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_NO_INPUT: "1"
+
 jobs:
+  lock:
+    name: Reproducible dependency lock
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/ci.txt
+      - name: Install the hashed CI environment
+        run: python -m pip install --require-hashes -r requirements/ci.txt
+      - name: Verify lock matches project metadata
+        run: |
+          uv pip compile pyproject.toml \
+            --extra dev --extra calibration --extra release --extra supply-chain \
+            --universal --generate-hashes --no-annotate -o requirements/ci.txt
+          git diff --exit-code -- requirements/ci.txt
+
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
         with:
           python-version: "3.12"
-      - run: pip install -e ".[dev]"
+          cache: pip
+          cache-dependency-path: requirements/ci.txt
+      - name: Install the hashed CI environment
+        run: |
+          python -m pip install --require-hashes -r requirements/ci.txt
+          python -m pip install --no-deps --no-build-isolation -e .
       - name: Lint (ruff check)
-        run: python -m ruff check src tests
+        run: python -m ruff check src tests tools
       - name: Format check (ruff format)
-        run: python -m ruff format --check src tests
+        run: python -m ruff format --check src tests tools
 
   test:
     runs-on: ubuntu-latest
@@ -27,45 +60,97 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install (with dev + evm extras)
+          cache: pip
+          cache-dependency-path: requirements/ci.txt
+      - name: Install the hashed CI environment
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          python -m pip install --require-hashes -r requirements/ci.txt
+          python -m pip install --no-deps --no-build-isolation -e .
+          python -m pip check
       - name: Type check (mypy strict)
         run: python -m mypy
       - name: Tests (with coverage gate)
         run: python -m pytest -q --cov --cov-fail-under=85
 
   # Live regression gate: drive the suite against the reference target (which
-  # validates with the REAL x402 SDK) and assert each new check both PASSes a
-  # correct server and CATCHes the matching bug. No chain, no funds.
+  # validates with the real x402 SDK). No chain and no funds are used.
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
         with:
           python-version: "3.12"
-      - run: pip install -e ".[dev,calibration]"
+          cache: pip
+          cache-dependency-path: requirements/ci.txt
+      - name: Install the hashed CI environment
+        run: |
+          python -m pip install --require-hashes -r requirements/ci.txt
+          python -m pip install --no-deps --no-build-isolation -e .
       - name: Verify new features live against the reference target
         run: python tools/verify_new_features.py
 
-  # Manual job (Actions tab → Run workflow): calibrate the active checks against
-  # the verify-capable reference target. No chain needed.
+  release-artifacts:
+    name: Build and smoke-test distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/ci.txt
+      - name: Install the hashed build environment
+        run: python -m pip install --require-hashes -r requirements/ci.txt
+      - name: Build wheel and source distribution
+        run: python -m build --no-isolation
+      - name: Validate distribution metadata
+        run: python -m twine check dist/*
+      - name: Install wheel into a clean environment and smoke-test the CLI
+        run: |
+          python -m venv .wheel-venv
+          .wheel-venv/bin/python -m pip install --require-hashes -r requirements/ci.txt
+          .wheel-venv/bin/python -m pip install --no-deps dist/*.whl
+          .wheel-venv/bin/python -m pip check
+          .wheel-venv/bin/x402-conformance version
+          .wheel-venv/bin/x402-conformance explain RS-HS-001
+
+  solidity:
+    name: Solidity harness (Foundry v1.7.1)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
+      - uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
+        with:
+          version: v1.7.1
+      - name: Compile pinned Solidity source
+        working-directory: onchain
+        run: forge build
+      - name: Run Solidity harness tests
+        working-directory: onchain
+        run: forge test -vvv
+
+  # Manual job (Actions tab -> Run workflow): calibrate active checks against
+  # the verify-capable reference target. No chain and no funds are used.
   calibrate:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
         with:
           python-version: "3.12"
-      - run: pip install -e ".[dev,calibration]"
+          cache: pip
+          cache-dependency-path: requirements/ci.txt
+      - name: Install the hashed CI environment
+        run: |
+          python -m pip install --require-hashes -r requirements/ci.txt
+          python -m pip install --no-deps --no-build-isolation -e .
       - name: Calibrate RS-NEG against the reference target
         run: |
           python tools/calibration_target.py 4500 &

@@ -44,6 +44,7 @@ funds.
 
 **Spec baseline:** x402 Protocol v2, `x402-foundation/x402` @ `d454eb9` (2026-06-08).
 **Test catalog:** see [`docs/conformance-catalog.md`](docs/conformance-catalog.md) — every check carries an ID, severity, and spec reference.
+**Support boundary:** [`docs/support-matrix.md`](docs/support-matrix.md) — exact supported, passive-only, planned, and out-of-scope mechanisms.
 **Architecture:** [`docs/architecture.md`](docs/architecture.md) (how it works, with diagrams). Dated development logs (calibration, on-chain bring-up, report/robustness work) are archived under [`docs/history/`](docs/history/).
 
 ## Status
@@ -58,7 +59,7 @@ funds.
 - **RS-PAY** + **RS-SEC-001** (positive settlement + replay) — `check --pay`: signs a valid funded payment, settles it ON-CHAIN, verifies the tx, and confirms a replay is rejected. Confirmed live against Anvil.
 - **FA-SET** (facilitator `/settle`) — `facilitator --settle`: valid settle, invalid settle, double-settle.
 
-Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **63 checks across the groups above; 270+ offline tests, mypy strict, CI green.**
+Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **63 checks across the groups above; 400+ offline tests, mypy strict, CI green.**
 
 **Solana / SVM — in progress.** The `exact` scheme on Solana works differently from EVM: the client submits a *partial-signed transaction* (an SPL/Token-2022 `TransferChecked` to the recipient's ATA, co-signed by the sponsor `feePayer` at settle time), and a verifier checks the *outcome*, not a signature. The foundations ship behind an opt-in **`[svm]`** extra — CAIP-2 `solana:*` handling, ATA derivation, a spec-faithful partial-signed transaction builder, and tamper primitives for the negative checks. The runnable SVM check group needs a local validator and is **not shipped yet**. This is purely additive: without `[svm]`, the suite behaves exactly as before (no Solana dependency, no EVM path touched).
 
@@ -80,11 +81,20 @@ x402-conformance check https://api.example.com/premium-data
 # Also run active negative checks (sends invalid payments; throwaway signer)
 x402-conformance check https://api.example.com/premium-data --active
 
+# Positive settlement: both a funded testnet key and matching RPC are mandatory
+x402-conformance check https://api.example.com/premium-data --pay \
+  --rpc-url https://sepolia.base.org --signer-key "$X402_TESTNET_PAYER_KEY"
+
 # Pass a unique string from the paid resource to also catch content leaked on a rejection
 x402-conformance check https://api.example.com/premium-data --active --resource-marker "SECRET_TOKEN"
 
 # Facilitator checks (+ /verify negatives when a resource is given)
 x402-conformance facilitator https://facilitator.example --resource https://api.example.com/premium-data
+
+# Direct facilitator settlement has the same key/RPC safety boundary
+x402-conformance facilitator https://facilitator.example --settle \
+  --resource https://api.example.com/premium-data \
+  --rpc-url https://sepolia.base.org --signer-key "$X402_TESTNET_PAYER_KEY"
 
 # Discovery / Bazaar checks
 x402-conformance discovery https://facilitator.example
@@ -108,20 +118,42 @@ x402-conformance explain FA-VER
 # Exit 1 if a previously-passing check regressed, so it doubles as a CI regression gate.
 x402-conformance diff before.json after.json
 
-# Batch-scan many facilitator URLs (PASSIVE — never settles) and rank them by findings.
-x402-conformance scan targets.txt --resource https://api.example.com/premium-data --json scan.json
+# Read-only batch scan: /supported only.
+x402-conformance scan targets.txt --json scan.json
+
+# Active/no-settlement scan: signed invalid /verify probes require explicit authorization.
+x402-conformance scan targets.txt --resource https://api.example.com/premium-data \
+  --authorize-active-verify --json scan.json
 ```
 
-Exit codes: `0` conformant, `1` not conformant (a major/critical check failed), `2` target unreachable.
+Exit codes: `0` assessed and conformant, `1` not conformant (a major/critical check failed),
+`2` inconclusive, unreachable, or invalid input.
 `explain` always exits `0`; `diff` exits `1` on a regression; `scan` exits `1` if any reachable target is non-conformant.
 
-The `check` command auto-detects POST-only resources: if the probed verb returns 404/405 and the
-other verb (GET↔POST) reveals an x402 paywall, it switches automatically.
+The `check` command never changes the selected HTTP method implicitly. Use `--method POST`
+when the protected resource requires POST.
+
+### Payment safety boundary
+
+- Payment signing is allowed only for `eip155:1337`, `eip155:31337`,
+  `eip155:84532` (Base Sepolia), and `eip155:11155111` (Sepolia). A future SVM
+  runner may use Solana devnet/testnet; Solana mainnet is denied.
+- Mainnets and unknown networks are rejected before a payload is built. The CLI
+  repeats the preflight before signer creation, and the runner rechecks the actual
+  challenge in case it changes between requests. There is no mainnet override.
+- `--pay` and `facilitator --settle` require `--rpc-url`; `eth_chainId` must match
+  the advertised CAIP-2 network. They also require a supplied funded testnet key
+  (`--signer-key` or `X402_TESTNET_PAYER_KEY`) rather than a random signer.
+- Payment, `/verify`, `/settle`, and RPC requests never follow redirects. This
+  prevents `PAYMENT-SIGNATURE` headers or settlement bodies crossing an origin or
+  an HTTPS-to-HTTP downgrade.
+- Auto-discovered TOML config cannot enable `active`, `pay`, or `timing`; those
+  modes require an explicit flag on each run. Config keys are type/range checked.
 
 ## Development
 
 ```bash
-pytest          # the suite's own tests (offline, mocked transport) — 270+ tests
+pytest          # the suite's own tests (offline, mocked transport) — 400+ tests
 mypy            # strict type checking
 
 # Calibrate the checks against a verify-capable reference server:
@@ -135,6 +167,9 @@ python tools/verify_new_features.py
 ```
 
 Live-verification runbook (dated, archived): [`docs/history/verify-new-features.md`](docs/history/verify-new-features.md).
+
+The reproducible dependency workflow and complete local release gate are in
+[`docs/supply-chain.md`](docs/supply-chain.md).
 
 No mainnet funds are ever used. Payment-flow tests run against Base Sepolia or mocks only.
 

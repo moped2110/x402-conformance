@@ -20,9 +20,19 @@ from conftest import VALID_PAYMENT_REQUIRED, encode_header
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 
-from x402_conformance.active import run_active_checks, run_payment_checks
+from x402_conformance.active import (
+    ActiveResponse,
+    build_active_context,
+    run_active_checks,
+    run_payment_checks,
+)
 from x402_conformance.checks import Status
-from x402_conformance.payload_builder import _TRANSFER_WITH_AUTHORIZATION_TYPES, EvmSigner
+from x402_conformance.checks.negative import _assert_rejected
+from x402_conformance.payload_builder import (
+    _TRANSFER_WITH_AUTHORIZATION_TYPES,
+    EvmSigner,
+    build_exact_eip3009_payload,
+)
 
 TARGET = "https://api.example.com/premium-data"
 REQ = VALID_PAYMENT_REQUIRED["accepts"][0]
@@ -150,6 +160,38 @@ def test_correct_server_passes_all_active_checks() -> None:
     assert bad == [], bad
     # sanity: we actually ran the group, not skipped everything
     assert any(r.status == Status.PASS for r in results)
+
+
+def test_baseline_payload_echoes_resource_and_required_extensions() -> None:
+    required = json.loads(json.dumps(VALID_PAYMENT_REQUIRED))
+    required["extensions"] = {
+        "required-ext": {
+            "info": {"challenge": "server-owned"},
+            "schema": {"type": "object"},
+        }
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        encoded = request.headers.get("PAYMENT-SIGNATURE")
+        if encoded is None:
+            return httpx.Response(402, headers={"PAYMENT-REQUIRED": encode_header(required)})
+        payload = json.loads(base64.b64decode(encoded))
+        if payload.get("resource") != {"url": TARGET}:
+            return httpx.Response(402)
+        if payload.get("extensions") != required["extensions"]:
+            return httpx.Response(402)
+        return httpx.Response(200, json={"data": "premium"})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        context = build_active_context(client, TARGET, "GET", SIGNER)
+        assert context is not None
+        payload = build_exact_eip3009_payload(
+            context.requirements,
+            context.signer,
+            resource_url=context.resource_url,
+            extensions=context.extensions,
+        )
+        assert context.send(payload).served_resource is True
 
 
 def test_endpoint_connection_crash_is_endpoint_fail_not_suite_error() -> None:
@@ -290,20 +332,45 @@ def test_progress_callback_fires_once_per_check() -> None:
     assert {cid for cid, _, _ in seen} == {r.check_id for r in results}
 
 
-def test_amount_bug_caught_specifically_by_neg_013() -> None:
+def test_amount_bug_is_caught_by_validly_signed_underpayment_checks() -> None:
     # Server verifies signatures but forgets to validate the price against its own.
     results = run_active_checks(TARGET, SIGNER, transport=make_server(check_amount=False))
     # 013 pays a valid-signed token amount and claims it is the price → must be caught
     assert by_id(results, "RS-NEG-013").status == Status.FAIL
-    # post-signing underpayment (005) is still caught by the signature check, so it stays PASS
-    assert by_id(results, "RS-NEG-005").status == Status.PASS
+    # 005 is also validly signed for the lower amount: signature verification
+    # cannot mask the missing semantic amount check.
+    assert by_id(results, "RS-NEG-005").status == Status.FAIL
 
 
 def test_recipient_bug_caught() -> None:
-    results = run_active_checks(
-        TARGET, SIGNER, transport=make_server(check_signature=False, check_recipient=False)
-    )
+    results = run_active_checks(TARGET, SIGNER, transport=make_server(check_recipient=False))
     assert by_id(results, "RS-NEG-007").status == Status.FAIL
+
+
+def test_time_window_bug_caught_with_valid_signatures() -> None:
+    results = run_active_checks(TARGET, SIGNER, transport=make_server(check_time=False))
+    assert by_id(results, "RS-NEG-008").status == Status.FAIL
+    assert by_id(results, "RS-NEG-009").status == Status.FAIL
+
+
+@pytest.mark.parametrize(
+    ("response", "expected_fragment"),
+    [
+        (ActiveResponse(503, {}, b""), "503"),
+        (ActiveResponse(404, {}, b""), "unexpected status"),
+        (ActiveResponse(0, {}, b"", transport_error="connection reset"), "crashed"),
+        (
+            ActiveResponse(402, {}, b"", settlement_error="invalid base64"),
+            "malformed PAYMENT-RESPONSE",
+        ),
+    ],
+)
+def test_invalid_payment_does_not_pass_on_non_rejection_response(
+    response: ActiveResponse, expected_fragment: str
+) -> None:
+    status, detail = _assert_rejected(response)
+    assert status is Status.FAIL
+    assert expected_fragment in detail
 
 
 def test_sec_011_extreme_amount_handled_cleanly_passes() -> None:
