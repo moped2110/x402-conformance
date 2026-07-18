@@ -129,9 +129,11 @@ def run_checks(
     results: list[CheckResult] = []
     for check in REGISTRY:
         try:
-            status, detail = check.func(session)
+            # A check returns (status, detail) or (status, detail, reason_code); the
+            # star capture normalises both without the runner caring which it used.
+            status, detail, *rest = check.func(session)
         except Exception as exc:  # a crashing check is OUR bug, never the target's
-            status, detail = Status.ERROR, f"check crashed (suite bug): {exc!r}"
+            status, detail, rest = Status.ERROR, f"check crashed (suite bug): {exc!r}", []
         results.append(
             CheckResult(
                 check_id=check.check_id,
@@ -140,6 +142,7 @@ def run_checks(
                 spec_ref=check.spec_ref,
                 status=status,
                 detail=detail,
+                reason_code=rest[0] if rest else None,
             )
         )
     return results

@@ -71,6 +71,19 @@
       "enum": [0, 1, 2],
       "description": "0 conformant, 1 non-conformant, 2 inconclusive/unreachable/input error."
     },
+    "inconclusiveReason": {
+      "type": ["string", "null"],
+      "description": "Machine-readable reason an exit-2 verdict is inconclusive; null unless exitCode is 2. 'endpoint_absent': the tested endpoint does not exist or is the wrong kind. 'deferred_pending_upstream': a gating point was reported but deliberately not judged pending upstream. 'not_x402_v2': the mandatory version check did not pass. 'no_checks_applicable': nothing could be evaluated. 'unreachable'/'invalid_input': decided before checks ran.",
+      "enum": [
+        "endpoint_absent",
+        "deferred_pending_upstream",
+        "not_x402_v2",
+        "no_checks_applicable",
+        "unreachable",
+        "invalid_input",
+        null
+      ]
+    },
     "results": {
       "type": "array",
       "items": {
@@ -86,8 +99,8 @@
           "detail": { "type": "string" },
           "reason_code": {
             "type": ["string", "null"],
-            "description": "Optional machine-readable qualifier. Currently only 'deferred_pending_upstream': the finding was reported but deliberately not judged, pending an upstream answer. A report containing one is never conformant.",
-            "enum": ["deferred_pending_upstream", null]
+            "description": "Optional machine-readable qualifier on one check's SKIP. 'deferred_pending_upstream': reported but deliberately not judged pending an upstream answer (a report containing one is never conformant). 'endpoint_absent': the endpoint this check tests does not exist (404/405/501) or is the wrong kind of endpoint.",
+            "enum": ["deferred_pending_upstream", "endpoint_absent", null]
           }
         }
       }

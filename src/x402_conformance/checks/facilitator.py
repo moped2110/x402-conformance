@@ -37,6 +37,7 @@ from ..probe import build_probe
 from ..safety import DEFAULT_SAFETY_POLICY
 from .base import (
     DEFERRED_PENDING_UPSTREAM,
+    ENDPOINT_ABSENT,
     CheckResult,
     Severity,
     Status,
@@ -136,6 +137,15 @@ class FacilitatorContext:
     #: Check IDs whose finding we reported but deliberately did not judge, pending an
     #: upstream answer. Read back in `evaluate_facilitator` to tag the result.
     deferred_checks: set[str] = field(default_factory=set)
+    #: Check IDs skipped because the facilitator endpoint they test does not exist
+    #: (404/405/501). Read back in `evaluate_facilitator` to tag the result as
+    #: ``endpoint_absent`` — "not there", distinct from "not applicable".
+    absent_checks: set[str] = field(default_factory=set)
+
+    def absent(self, check_id: str, detail: str) -> tuple[Status, str]:
+        """Record one check as endpoint-absent and return its SKIP outcome."""
+        self.absent_checks.add(check_id)
+        return Status.SKIP, detail
 
 
 FaFunc = Callable[[FacilitatorContext], "tuple[Status, str]"]
@@ -379,7 +389,7 @@ def fa_ver_002(ctx: FacilitatorContext) -> tuple[Status, str]:
     cheap = _build_payload(ctx, {**ctx.requirements, "amount": "1"})
     result, error, status = _verify(ctx, cheap, ctx.requirements)
     if status in _ENDPOINT_ABSENT:
-        return Status.SKIP, error or _absence_reason("/verify", status or 404)
+        return ctx.absent("FA-VER-002", error or _absence_reason("/verify", status or 404))
     if result is None:
         return Status.FAIL, error or "/verify did not return a valid response"
     if result.is_valid:
@@ -406,7 +416,7 @@ def fa_ver_003(ctx: FacilitatorContext) -> tuple[Status, str]:
     payload = _build_payload(ctx, eoa_req)
     result, error, status = _verify(ctx, payload, eoa_req)
     if status in _ENDPOINT_ABSENT:
-        return Status.SKIP, error or _absence_reason("/verify", status or 404)
+        return ctx.absent("FA-VER-003", error or _absence_reason("/verify", status or 404))
     if result is None:
         return Status.FAIL, error or "/verify did not return a valid response"
     if result.is_valid:
@@ -449,7 +459,7 @@ def fa_ver_004(ctx: FacilitatorContext) -> tuple[Status, str]:
     # would certify robustness that was never exercised — the worst kind of finding,
     # because it manufactures evidence of conformance out of absence.
     if status in _ENDPOINT_ABSENT:
-        return Status.SKIP, _absence_reason("/verify", status)
+        return ctx.absent("FA-VER-004", _absence_reason("/verify", status))
     if 500 <= status <= 599:
         return Status.FAIL, (
             f"/verify returned HTTP {status} on an invalid (EOA-asset) payment — malformed "
@@ -470,7 +480,7 @@ def fa_err_001(ctx: FacilitatorContext) -> tuple[Status, str]:
     cheap = _build_payload(ctx, {**ctx.requirements, "amount": "1"})
     result, error, status = _verify(ctx, cheap, ctx.requirements)
     if status in _ENDPOINT_ABSENT:
-        return Status.SKIP, error or _absence_reason("/verify", status or 404)
+        return ctx.absent("FA-ERR-001", error or _absence_reason("/verify", status or 404))
     if result is None:
         return Status.FAIL, error or "no valid /verify response to inspect"
     reason = result.invalid_reason
@@ -527,10 +537,12 @@ def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
         ),
     }
 
-    def mk(cid: str, status: Status, detail: str = "") -> CheckResult:
+    def mk(
+        cid: str, status: Status, detail: str = "", reason_code: str | None = None
+    ) -> CheckResult:
         """Construct a facilitator settlement CheckResult with shared catalog metadata."""
         title, sev, ref = ids[cid]
-        return CheckResult(cid, title, sev, ref, status, detail)
+        return CheckResult(cid, title, sev, ref, status, detail, reason_code=reason_code)
 
     if not ctx.allow_settle:
         return [
@@ -548,7 +560,7 @@ def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
     # against something that does not exist — and stop sending payloads at it.
     if r1_status in _ENDPOINT_ABSENT:
         reason = r1_error or _absence_reason("/settle", r1_status or 404)
-        return [mk(check_id, Status.SKIP, reason) for check_id in ids]
+        return [mk(check_id, Status.SKIP, reason, ENDPOINT_ABSENT) for check_id in ids]
     if r1 is None:
         results.append(
             mk("FA-SET-001", Status.FAIL, r1_error or "/settle did not return a valid response")
@@ -650,7 +662,11 @@ def evaluate_facilitator(ctx: FacilitatorContext | None) -> list[CheckResult]:
                 raise
             except Exception as exc:
                 status, detail = Status.ERROR, f"check crashed (suite bug): {exc!r}"
-        deferred = ctx is not None and check.check_id in ctx.deferred_checks
+        reason_code: str | None = None
+        if ctx is not None and check.check_id in ctx.deferred_checks:
+            reason_code = DEFERRED_PENDING_UPSTREAM
+        elif ctx is not None and check.check_id in ctx.absent_checks:
+            reason_code = ENDPOINT_ABSENT
         results.append(
             CheckResult(
                 check.check_id,
@@ -659,7 +675,7 @@ def evaluate_facilitator(ctx: FacilitatorContext | None) -> list[CheckResult]:
                 check.spec_ref,
                 status,
                 detail,
-                reason_code=DEFERRED_PENDING_UPSTREAM if deferred else None,
+                reason_code=reason_code,
             )
         )
     return results

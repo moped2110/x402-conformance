@@ -74,6 +74,8 @@ def test_missing_verify_endpoint_skips_instead_of_grading(
         f"{check_id} returned {result.status} for a missing /verify: {result.detail}"
     )
     assert "not implemented" in result.detail
+    # K1-6: the skip is tagged so the run-level verdict can report endpoint_absent.
+    assert result.reason_code == "endpoint_absent"
 
 
 def test_clean_4xx_check_does_not_pass_on_a_missing_endpoint() -> None:
@@ -104,7 +106,9 @@ def test_missing_settle_endpoint_skips_the_whole_group() -> None:
         transport=resource_server_only(),
     )
     for check_id in SETTLE_CHECKS:
-        assert by_id(results, check_id).status is Status.SKIP
+        result = by_id(results, check_id)
+        assert result.status is Status.SKIP
+        assert result.reason_code == "endpoint_absent"
 
 
 def test_a_present_but_broken_verify_still_fails() -> None:

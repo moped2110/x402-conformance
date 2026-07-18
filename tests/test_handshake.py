@@ -84,6 +84,8 @@ def test_facilitator_endpoint_skips_instead_of_failing_the_handshake() -> None:
     hs001 = by_id(results, "RS-HS-001")
     assert hs001.status == Status.SKIP
     assert "facilitator" in hs001.detail
+    # The skip carries the machine reason, so the run's verdict can name endpoint_absent.
+    assert hs001.reason_code == "endpoint_absent"
 
 
 def test_a_facilitator_check_is_inconclusive_never_conformant() -> None:

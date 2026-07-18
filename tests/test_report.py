@@ -8,9 +8,11 @@ from pathlib import Path
 import pytest
 
 from x402_conformance.checks import CheckResult, Severity, Status
+from x402_conformance.checks.base import DEFERRED_PENDING_UPSTREAM, ENDPOINT_ABSENT
 from x402_conformance.report import (
     REPORT_VERSION,
     assessment_exit_code,
+    assessment_reason,
     exit_code,
     summarize,
     to_json,
@@ -20,8 +22,8 @@ from x402_conformance.report import (
 _SCHEMA_PATH = Path(__file__).resolve().parents[1] / "report.schema.json"
 
 
-def _r(cid: str, status: Status, sev: Severity) -> CheckResult:
-    return CheckResult(cid, f"title {cid}", sev, "spec", status, "")
+def _r(cid: str, status: Status, sev: Severity, reason_code: str | None = None) -> CheckResult:
+    return CheckResult(cid, f"title {cid}", sev, "spec", status, "", reason_code=reason_code)
 
 
 def test_summarize_counts() -> None:
@@ -207,3 +209,82 @@ def test_markdown_sanitizes_backticks_in_target() -> None:
     md = to_markdown([_r("A", Status.PASS, Severity.MAJOR)], "http://x/`# pwn")
     assert "`# pwn" not in md
     assert "**Target:** `http://x`" in md
+
+
+# --- K1-6: machine-readable inconclusive reason -----------------------------
+
+
+def test_a_conformant_or_failing_run_has_no_inconclusive_reason() -> None:
+    assert assessment_reason([_r("RS-PR-001", Status.PASS, Severity.MAJOR)]) is None
+    assert assessment_reason([_r("A", Status.FAIL, Severity.MAJOR)]) is None
+
+
+def test_endpoint_absent_outranks_other_inconclusive_reasons() -> None:
+    # The real facilitator-path `check` shape: RS-HS-001 skips as endpoint_absent, a
+    # minor check still passes, and RS-PR-001 skips (no 402 to read) — which alone
+    # would make the reason not_x402_v2. endpoint_absent is more specific and must win.
+    results = [
+        _r("RS-HS-001", Status.SKIP, Severity.MAJOR, reason_code=ENDPOINT_ABSENT),
+        _r("RS-HS-005", Status.PASS, Severity.MINOR),
+        _r("RS-PR-001", Status.SKIP, Severity.MAJOR),
+    ]
+    assert assessment_exit_code(results) == 2
+    assert assessment_reason(results) == "endpoint_absent"
+
+
+def test_deferred_reason_is_named() -> None:
+    results = [_r("FA-SUP-002", Status.SKIP, Severity.MAJOR, reason_code=DEFERRED_PENDING_UPSTREAM)]
+    assert assessment_reason(results) == "deferred_pending_upstream"
+
+
+def test_all_skip_without_a_qualifier_is_no_checks_applicable() -> None:
+    assert assessment_reason([_r("A", Status.SKIP, Severity.MAJOR)]) == "no_checks_applicable"
+    assert assessment_reason([]) == "no_checks_applicable"
+
+
+def test_failed_version_check_is_not_x402_v2() -> None:
+    results = [
+        _r("RS-PR-001", Status.SKIP, Severity.MAJOR),
+        _r("RS-PR-006", Status.PASS, Severity.MAJOR),
+    ]
+    assert assessment_reason(results) == "not_x402_v2"
+
+
+def test_an_explicit_override_wins_when_inconclusive() -> None:
+    assert assessment_reason([], override="unreachable") == "unreachable"
+
+
+def test_to_json_carries_the_reason_only_when_inconclusive() -> None:
+    absent = json.loads(
+        to_json([_r("RS-HS-001", Status.SKIP, Severity.MAJOR, reason_code=ENDPOINT_ABSENT)], "u")
+    )
+    assert absent["exitCode"] == 2
+    assert absent["inconclusiveReason"] == "endpoint_absent"
+
+    conformant = json.loads(to_json([_r("RS-PR-001", Status.PASS, Severity.MAJOR)], "u"))
+    assert conformant["exitCode"] == 0
+    assert conformant["inconclusiveReason"] is None
+
+
+def test_to_json_uses_an_explicit_override_reason() -> None:
+    doc = json.loads(to_json([], "u", 2, inconclusive_reason="unreachable"))
+    assert doc["inconclusiveReason"] == "unreachable"
+
+
+def test_schema_accepts_the_new_fields() -> None:
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    doc = json.loads(
+        to_json([_r("RS-HS-001", Status.SKIP, Severity.MAJOR, reason_code=ENDPOINT_ABSENT)], "u")
+    )
+    assert doc["inconclusiveReason"] == "endpoint_absent"
+    jsonschema.validate(doc, schema)
+
+
+def test_schema_rejects_an_unknown_inconclusive_reason() -> None:
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    doc = json.loads(to_json([_r("RS-PR-001", Status.PASS, Severity.MAJOR)], "u"))
+    doc["inconclusiveReason"] = "totally_made_up"
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(doc, schema)

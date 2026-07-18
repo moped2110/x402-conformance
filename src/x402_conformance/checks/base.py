@@ -34,17 +34,50 @@ class Status(str, enum.Enum):
     ERROR = "error"  # the check itself crashed — a bug in this suite
 
 
-#: Machine-readable reason attached to a SKIP that we chose *not* to judge, as opposed
-#: to one that was simply not applicable. A run containing one can never be CONFORMANT
-#: (see ``report.assessment_exit_code``): certifying conformance while stating that a
-#: gating point was not judged would contradict itself.
-#:
-#: Today the only instance is the Algorand CAIP-2 identifier form, reported upstream as
-#: x402-foundation/x402#2904. This is the first reason code; when more appear they
-#: belong in an enum alongside it rather than as free text.
+# --- Machine-readable reason codes -----------------------------------------------
+#
+# Two related vocabularies. A **per-check** ``reason_code`` qualifies one SKIP; a
+# **run-level** inconclusive reason qualifies the whole exit-2 verdict (report's
+# top-level ``inconclusiveReason``). The run-level set is a superset: it reuses the
+# two per-check codes and adds the reasons only the runner/CLI can know.
+
+#: Per-check: a SKIP we chose *not* to judge (as opposed to one simply not applicable).
+#: A run containing one can never be CONFORMANT (see ``report.assessment_exit_code``):
+#: certifying conformance while stating a gating point was not judged is a contradiction.
+#: First instance: the Algorand CAIP-2 identifier form, upstream x402-foundation/x402#2904.
 DEFERRED_PENDING_UPSTREAM = "deferred_pending_upstream"
 
-CheckFunc = Callable[["ProbeSession"], tuple[Status, str]]
+#: Per-check: the endpoint under test does not exist / is the wrong kind of endpoint —
+#: e.g. a facilitator path answered by the passive resource ``check``, or a facilitator
+#: sub-endpoint that returns 404/405/501. The point was not tested because there was
+#: nothing of that kind there, not because it passed.
+ENDPOINT_ABSENT = "endpoint_absent"
+
+#: Run-level inconclusive reasons that only the runner or CLI can determine.
+INCONCLUSIVE_UNREACHABLE = "unreachable"
+INCONCLUSIVE_INVALID_INPUT = "invalid_input"
+INCONCLUSIVE_NOT_X402_V2 = "not_x402_v2"
+INCONCLUSIVE_NO_CHECKS_APPLICABLE = "no_checks_applicable"
+
+#: The complete set a report's top-level ``inconclusiveReason`` may take (exit 2 only).
+INCONCLUSIVE_REASONS = frozenset(
+    {
+        INCONCLUSIVE_UNREACHABLE,
+        INCONCLUSIVE_INVALID_INPUT,
+        INCONCLUSIVE_NOT_X402_V2,
+        INCONCLUSIVE_NO_CHECKS_APPLICABLE,
+        ENDPOINT_ABSENT,
+        DEFERRED_PENDING_UPSTREAM,
+    }
+)
+
+#: The values a single ``CheckResult.reason_code`` may carry.
+PER_CHECK_REASON_CODES = frozenset({DEFERRED_PENDING_UPSTREAM, ENDPOINT_ABSENT})
+
+#: A check returns ``(status, detail)`` or, when it wants to qualify a SKIP,
+#: ``(status, detail, reason_code)``. The runner normalises both to a CheckResult.
+CheckReturn = tuple[Status, str] | tuple[Status, str, str | None]
+CheckFunc = Callable[["ProbeSession"], CheckReturn]
 
 
 @dataclass(frozen=True)

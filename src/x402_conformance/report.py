@@ -10,7 +10,12 @@ from typing import Any
 
 from . import SPEC_BASELINE, __version__
 from .checks import CheckResult, Severity, Status
-from .checks.base import DEFERRED_PENDING_UPSTREAM
+from .checks.base import (
+    DEFERRED_PENDING_UPSTREAM,
+    ENDPOINT_ABSENT,
+    INCONCLUSIVE_NO_CHECKS_APPLICABLE,
+    INCONCLUSIVE_NOT_X402_V2,
+)
 from .redaction import sanitize_text, sanitize_url, url_fingerprint
 
 _GATING = (Severity.CRITICAL, Severity.MAJOR)
@@ -18,10 +23,12 @@ _BAD = (Status.FAIL, Status.ERROR)
 
 #: Schema version of the JSON report. Bump on any breaking shape change; the
 #: contract is pinned in report.schema.json at the repo root.
-#: 1.2 adds the optional `results[].reason_code`. The schema sets
+#: 1.2 adds the optional `results[].reason_code`. 1.3 adds the top-level
+#: `inconclusiveReason` (the machine-readable reason an exit-2 verdict is inconclusive)
+#: and the `endpoint_absent` per-check reason_code. The schema sets
 #: additionalProperties=false, so a new field is a contract change, not a free addition —
 #: minor bump, same major, consumers pinning major 1 keep working.
-REPORT_VERSION = "1.2"
+REPORT_VERSION = "1.3"
 
 #: SARIF 2.1.0 — the OASIS static-analysis interchange format GitHub code scanning
 #: and bug-bounty platforms ingest. Lets a scan's findings land in a Security tab.
@@ -69,6 +76,33 @@ def assessment_exit_code(results: list[CheckResult]) -> int:
     return 0
 
 
+def _inconclusive_reason_from_results(results: list[CheckResult]) -> str:
+    """Name why a result set reads as inconclusive, most specific cause first.
+
+    Priority: a wrong/absent endpoint (nothing of the tested kind was there) outranks
+    a deferred judgement, which outranks "nothing applied", which outranks a failed
+    version check. Callers only use this when the verdict is already exit 2.
+    """
+    if any(r.reason_code == ENDPOINT_ABSENT for r in results):
+        return ENDPOINT_ABSENT
+    if any(r.reason_code == DEFERRED_PENDING_UPSTREAM for r in results):
+        return DEFERRED_PENDING_UPSTREAM
+    if not results or all(r.status is Status.SKIP for r in results):
+        return INCONCLUSIVE_NO_CHECKS_APPLICABLE
+    return INCONCLUSIVE_NOT_X402_V2
+
+
+def assessment_reason(results: list[CheckResult], *, override: str | None = None) -> str | None:
+    """Return the machine reason an assessment is inconclusive, else None.
+
+    ``override`` lets a caller supply a reason only it can know — the CLI passes
+    ``unreachable`` or ``invalid_input`` for outcomes decided before any check ran.
+    """
+    if assessment_exit_code(results) != 2:
+        return None
+    return override or _inconclusive_reason_from_results(results)
+
+
 def _safe_results(results: list[CheckResult], target_url: str) -> list[CheckResult]:
     """Return report-safe result copies with target and URL-bearing details sanitized."""
     return [
@@ -80,10 +114,24 @@ def _safe_results(results: list[CheckResult], target_url: str) -> list[CheckResu
     ]
 
 
-def to_json(results: list[CheckResult], target_url: str, outcome_code: int | None = None) -> str:
-    """Render the versioned machine-readable conformance report."""
+def to_json(
+    results: list[CheckResult],
+    target_url: str,
+    outcome_code: int | None = None,
+    *,
+    inconclusive_reason: str | None = None,
+) -> str:
+    """Render the versioned machine-readable conformance report.
+
+    ``inconclusive_reason`` is a caller-supplied override for exit-2 outcomes the CLI
+    decided before running checks (unreachable, invalid input); otherwise the reason is
+    derived from the results. It is only emitted when the verdict is exit 2.
+    """
     results = _safe_results(results, target_url)
     code = assessment_exit_code(results) if outcome_code is None else outcome_code
+    reason = None
+    if code == 2:
+        reason = inconclusive_reason or _inconclusive_reason_from_results(results)
     return json.dumps(
         {
             "reportVersion": REPORT_VERSION,
@@ -95,6 +143,7 @@ def to_json(results: list[CheckResult], target_url: str, outcome_code: int | Non
             "summary": summarize(results),
             "conformant": code == 0,
             "exitCode": code,
+            "inconclusiveReason": reason,
             "results": [asdict(r) for r in results],
         },
         indent=2,
