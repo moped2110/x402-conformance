@@ -253,10 +253,31 @@ def fa_sup_002(ctx: FacilitatorContext) -> tuple[Status, str]:
     return Status.PASS, ""
 
 
+#: Statuses that mean the endpoint is not implemented at all, rather than implemented
+#: badly. Absence is NOT a conformance verdict: whatever we were pointed at may simply
+#: not be a facilitator. It must SKIP — never FAIL (we would accuse a correct service)
+#: and never PASS (we would certify behaviour that was never exercised). When every
+#: check skips, the run exits 2 (inconclusive), which is the honest outcome.
+_ENDPOINT_ABSENT = frozenset({404, 405, 501})
+
+
+def _absence_reason(path: str, status: int) -> str:
+    """Explain that an endpoint is missing and point at the right subcommand."""
+    return (
+        f"{path} is not implemented (HTTP {status}) — no facilitator behaviour to test. "
+        "If this target is a resource server rather than a facilitator, run the "
+        "'check' subcommand against the paywalled resource instead."
+    )
+
+
 def _verify(
     ctx: FacilitatorContext, payload: dict[str, Any], requirements: dict[str, Any]
-) -> tuple[VerifyResponse | None, str | None]:
-    """Submit one payment payload to verify and classify its strict response."""
+) -> tuple[VerifyResponse | None, str | None, int | None]:
+    """Submit one payment payload to verify and classify its strict response.
+
+    Returns ``(response, error, status_code)``. Callers must test the status against
+    ``_ENDPOINT_ABSENT`` before treating ``error`` as a conformance failure.
+    """
     req = {"x402Version": 2, "paymentPayload": payload, "paymentRequirements": requirements}
     try:
         resp = ctx.client.post(
@@ -264,13 +285,15 @@ def _verify(
         )
     except httpx.HTTPError:
         raise
+    if resp.status_code in _ENDPOINT_ABSENT:
+        return None, _absence_reason("/verify", resp.status_code), resp.status_code
     if not 200 <= resp.status_code < 500:
-        return None, f"/verify returned HTTP {resp.status_code}"
+        return None, f"/verify returned HTTP {resp.status_code}", resp.status_code
     try:
         data: Any = json.loads(resp.text)
-        return VerifyResponse.model_validate(data), None
+        return VerifyResponse.model_validate(data), None, resp.status_code
     except (ValueError, ValidationError) as exc:
-        return None, f"/verify returned an invalid response: {exc}"
+        return None, f"/verify returned an invalid response: {exc}", resp.status_code
 
 
 def _verify_raw(
@@ -310,7 +333,9 @@ def fa_ver_002(ctx: FacilitatorContext) -> tuple[Status, str]:
     # tamper would be caught by the signature check instead, masking an
     # amount-validation gap — so we re-sign (cf. RS-NEG-013).
     cheap = _build_payload(ctx, {**ctx.requirements, "amount": "1"})
-    result, error = _verify(ctx, cheap, ctx.requirements)
+    result, error, status = _verify(ctx, cheap, ctx.requirements)
+    if status in _ENDPOINT_ABSENT:
+        return Status.SKIP, error or _absence_reason("/verify", status or 404)
     if result is None:
         return Status.FAIL, error or "/verify did not return a valid response"
     if result.is_valid:
@@ -335,7 +360,9 @@ def fa_ver_003(ctx: FacilitatorContext) -> tuple[Status, str]:
     # silent no-op. /verify must report isValid:false (ideally asset_not_deployed_contract).
     eoa_req = {**ctx.requirements, "asset": _EOA_ASSET}
     payload = _build_payload(ctx, eoa_req)
-    result, error = _verify(ctx, payload, eoa_req)
+    result, error, status = _verify(ctx, payload, eoa_req)
+    if status in _ENDPOINT_ABSENT:
+        return Status.SKIP, error or _absence_reason("/verify", status or 404)
     if result is None:
         return Status.FAIL, error or "/verify did not return a valid response"
     if result.is_valid:
@@ -374,6 +401,11 @@ def fa_ver_004(ctx: FacilitatorContext) -> tuple[Status, str]:
     status, _ = _verify_raw(ctx, payload, eoa_req)
     if status is None:
         return Status.SKIP, "/verify unreachable — no response to inspect"
+    # A 404/405/501 means the endpoint does not exist. Treating that as "a clean 4xx"
+    # would certify robustness that was never exercised — the worst kind of finding,
+    # because it manufactures evidence of conformance out of absence.
+    if status in _ENDPOINT_ABSENT:
+        return Status.SKIP, _absence_reason("/verify", status)
     if 500 <= status <= 599:
         return Status.FAIL, (
             f"/verify returned HTTP {status} on an invalid (EOA-asset) payment — malformed "
@@ -392,7 +424,9 @@ def fa_err_001(ctx: FacilitatorContext) -> tuple[Status, str]:
     if ctx.requirements is None or ctx.signer is None:
         return Status.SKIP, "no --resource requirements / signer to trigger an error"
     cheap = _build_payload(ctx, {**ctx.requirements, "amount": "1"})
-    result, error = _verify(ctx, cheap, ctx.requirements)
+    result, error, status = _verify(ctx, cheap, ctx.requirements)
+    if status in _ENDPOINT_ABSENT:
+        return Status.SKIP, error or _absence_reason("/verify", status or 404)
     if result is None:
         return Status.FAIL, error or "no valid /verify response to inspect"
     reason = result.invalid_reason
@@ -405,8 +439,12 @@ def fa_err_001(ctx: FacilitatorContext) -> tuple[Status, str]:
 
 def _settle(
     ctx: FacilitatorContext, payload: dict[str, Any], requirements: dict[str, Any]
-) -> tuple[SettlementResponse | None, str | None]:
-    """Submit one payment payload to settle and classify its strict response."""
+) -> tuple[SettlementResponse | None, str | None, int | None]:
+    """Submit one payment payload to settle and classify its strict response.
+
+    Returns ``(response, error, status_code)``. As with ``_verify``, a status in
+    ``_ENDPOINT_ABSENT`` means the endpoint does not exist and must not be graded.
+    """
     req = {"x402Version": 2, "paymentPayload": payload, "paymentRequirements": requirements}
     try:
         resp = ctx.client.post(
@@ -414,13 +452,15 @@ def _settle(
         )
     except httpx.HTTPError:
         raise
+    if resp.status_code in _ENDPOINT_ABSENT:
+        return None, _absence_reason("/settle", resp.status_code), resp.status_code
     if not 200 <= resp.status_code < 500:
-        return None, f"/settle returned HTTP {resp.status_code}"
+        return None, f"/settle returned HTTP {resp.status_code}", resp.status_code
     try:
         data: Any = json.loads(resp.text)
-        return SettlementResponse.model_validate(data), None
+        return SettlementResponse.model_validate(data), None, resp.status_code
     except (ValueError, ValidationError) as exc:
-        return None, f"/settle returned an invalid response: {exc}"
+        return None, f"/settle returned an invalid response: {exc}", resp.status_code
 
 
 def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
@@ -459,7 +499,12 @@ def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
 
     # FA-SET-001 — valid settle (a real on-chain settlement)
     good = _build_payload(ctx, ctx.requirements)
-    r1, r1_error = _settle(ctx, good, ctx.requirements)
+    r1, r1_error, r1_status = _settle(ctx, good, ctx.requirements)
+    # No /settle endpoint: skip the whole group rather than grade three checks
+    # against something that does not exist — and stop sending payloads at it.
+    if r1_status in _ENDPOINT_ABSENT:
+        reason = r1_error or _absence_reason("/settle", r1_status or 404)
+        return [mk(check_id, Status.SKIP, reason) for check_id in ids]
     if r1 is None:
         results.append(
             mk("FA-SET-001", Status.FAIL, r1_error or "/settle did not return a valid response")
@@ -499,7 +544,7 @@ def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
 
     # FA-SET-003 — double-settle the SAME payment must be rejected
     if r1 and r1.success:
-        r3, r3_error = _settle(ctx, good, ctx.requirements)
+        r3, r3_error, _r3_status = _settle(ctx, good, ctx.requirements)
         if r3 is None:
             results.append(
                 mk(
@@ -529,7 +574,7 @@ def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
 
     # FA-SET-002 — invalid settle (value != requirements) must fail with empty tx
     cheap = _build_payload(ctx, {**ctx.requirements, "amount": "1"})
-    r2, r2_error = _settle(ctx, cheap, ctx.requirements)
+    r2, r2_error, _r2_status = _settle(ctx, cheap, ctx.requirements)
     if r2 is None:
         results.append(
             mk("FA-SET-002", Status.FAIL, r2_error or "/settle did not return a valid response")
