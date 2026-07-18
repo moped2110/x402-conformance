@@ -55,6 +55,7 @@ class _CrossFetchAllowlist:
 
     @classmethod
     def parse(cls, entries: Sequence[str]) -> _CrossFetchAllowlist:
+        """Parse exact hosts, IP addresses, and CIDR entries into a fail-closed cross-fetch allowlist."""
         hosts: set[str] = set()
         networks: list[IpNetwork] = []
         for raw_entry in entries:
@@ -73,6 +74,7 @@ class _CrossFetchAllowlist:
         return cls(frozenset(hosts), tuple(networks))
 
     def permits(self, host: str, address: IpAddress) -> bool:
+        """Return whether a host or resolved address is explicitly allowed for cross-fetching."""
         if _canonical_host(host) in self.hosts:
             return True
         return any(address in network for network in self.networks)
@@ -90,6 +92,7 @@ class _ValidatedTarget:
 
 
 def _canonical_host(host: str) -> str:
+    """Normalize a hostname to lowercase IDNA form and reject ambiguous values."""
     value = host.rstrip(".").lower()
     if not value or "%" in value:
         raise ValueError(f"invalid hostname: {host!r}")
@@ -100,6 +103,7 @@ def _canonical_host(host: str) -> str:
 
 
 def _system_resolver(host: str, port: int) -> Iterable[str]:
+    """Yield every stream-capable address returned by the operating-system resolver."""
     for _family, _socktype, _proto, _canonname, sockaddr in socket.getaddrinfo(
         host, port, type=socket.SOCK_STREAM
     ):
@@ -107,6 +111,7 @@ def _system_resolver(host: str, port: int) -> Iterable[str]:
 
 
 def _resolve_addresses(host: str, port: int, resolver: AddressResolver) -> tuple[IpAddress, ...]:
+    """Resolve a host into a unique non-empty tuple of validated IP addresses."""
     try:
         literal = ipaddress.ip_address(host)
     except ValueError:
@@ -125,6 +130,7 @@ def _resolve_addresses(host: str, port: int, resolver: AddressResolver) -> tuple
 def _is_public_address(address: IpAddress) -> bool:
     # Python deliberately reports some multicast ranges as globally scoped, so
     # check every forbidden class explicitly instead of relying on ``is_global``.
+    """Accept only globally routable addresses outside forbidden special-use ranges."""
     return address.is_global and not (
         address.is_loopback
         or address.is_private
@@ -136,6 +142,7 @@ def _is_public_address(address: IpAddress) -> bool:
 
 
 def _format_host_header(host: str, port: int, scheme: str) -> str:
+    """Build an HTTP Host header with IPv6 brackets and only non-default ports."""
     display_host = f"[{host}]" if ":" in host else host
     default_port = 443 if scheme == "https" else 80
     return display_host if port == default_port else f"{display_host}:{port}"
@@ -147,6 +154,7 @@ def _validate_cross_fetch_target(
     resolver: AddressResolver,
     allowlist: _CrossFetchAllowlist,
 ) -> _ValidatedTarget:
+    """Validate, resolve, and normalize a resource URL before any cross-fetch connection."""
     try:
         parsed = urlsplit(url)
         port = parsed.port
@@ -218,6 +226,7 @@ class _SafeCrossFetcher:
     requests_per_host: Counter[str] = field(default_factory=Counter)
 
     def __call__(self, url: str) -> httpx.Response:
+        """Fetch a discovery resource through DNS-pinned, capped, redirect-safe requests."""
         current_url = url
         previous_scheme: str | None = None
         for redirect_count in range(_MAX_REDIRECTS + 1):
@@ -240,6 +249,7 @@ class _SafeCrossFetcher:
         raise AssertionError("redirect loop bound is unreachable")
 
     def _reserve_request(self, host: str) -> None:
+        """Enforce total and per-host cross-fetch request budgets before network I/O."""
         if self.total_requests >= _MAX_CROSS_FETCH_REQUESTS:
             raise CrossFetchError("cross-fetch total request cap reached")
         if self.requests_per_host[host] >= _MAX_CROSS_FETCH_REQUESTS_PER_HOST:
@@ -248,6 +258,7 @@ class _SafeCrossFetcher:
         self.requests_per_host[host] += 1
 
     def _request(self, target: _ValidatedTarget) -> httpx.Response:
+        """Try each validated peer address and return the first successful pinned response."""
         if self.test_client is not None:
             return self.test_client.get(target.url, follow_redirects=False)
         errors: list[str] = []
@@ -259,6 +270,7 @@ class _SafeCrossFetcher:
         raise CrossFetchError("connection failed: " + "; ".join(errors[:3]))
 
     def _request_pinned(self, target: _ValidatedTarget, address: IpAddress) -> httpx.Response:
+        """Perform one bounded HTTP request over the already validated peer address."""
         raw_socket = socket.create_connection((str(address), target.port), timeout=self.timeout)
         connection: http.client.HTTPConnection
         try:
@@ -328,7 +340,10 @@ DI_REGISTRY: list[_DiCheck] = []
 
 
 def _register(cid: str, title: str, sev: Severity, ref: str) -> Callable[[DiFunc], DiFunc]:
+    """Create a decorator that adds one uniquely identified discovery check."""
+
     def deco(f: DiFunc) -> DiFunc:
+        """Register the decorated discovery check and return it unchanged."""
         append_unique_check(DI_REGISTRY, _DiCheck(cid, title, sev, ref, f), cid)
         return f
 
@@ -336,12 +351,14 @@ def _register(cid: str, title: str, sev: Severity, ref: str) -> Callable[[DiFunc
 
 
 def _resources_url(base: str) -> str:
+    """Build the canonical discovery-resources endpoint below a base URL."""
     return f"{base.rstrip('/')}/discovery/resources"
 
 
 def _get_json(
     ctx: DiscoveryContext, url: str, params: dict[str, Any] | None = None
 ) -> dict[str, Any] | None:
+    """Fetch a discovery URL and return only a successful top-level JSON object."""
     try:
         resp = ctx.client.get(url, params=params)
         if resp.status_code >= 500:
@@ -361,14 +378,17 @@ def _get_json(
 
 
 def _is_int(value: object) -> TypeGuard[int]:
+    """Recognize JSON integers while excluding booleans."""
     return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _is_finite_number(value: object) -> TypeGuard[int | float]:
+    """Recognize finite JSON numbers while excluding booleans."""
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def _validate_requirement(value: object, path: str) -> list[str]:
+    """Validate one discovered PaymentRequirements object and return field-level problems."""
     if not isinstance(value, dict):
         return [f"{path} not an object"]
     problems: list[str] = []
@@ -392,6 +412,7 @@ def _validate_discovery_body(
     expected_limit: int | None = None,
     expected_offset: int | None = None,
 ) -> list[str]:
+    """Validate the discovery envelope, pagination invariants, items, and payment requirements."""
     problems: list[str] = []
     if not _is_int(body.get("x402Version")) or body["x402Version"] != 2:
         problems.append("x402Version must be the integer 2")
@@ -457,6 +478,7 @@ def _validate_discovery_body(
     f"{_CORE} sections 8.1, 8.3",
 )
 def di_001(ctx: DiscoveryContext) -> tuple[Status, str]:
+    """Evaluate DI-001: /discovery/resources returns schema-valid items + pagination."""
     body = _get_json(ctx, _resources_url(ctx.base_url))
     if body is None:
         return Status.FAIL, "GET /discovery/resources did not return 200 with a JSON object"
@@ -467,6 +489,7 @@ def di_001(ctx: DiscoveryContext) -> tuple[Status, str]:
 
 
 def _item_has_accept_value(item: object, key: str, value: str) -> bool:
+    """Test whether any payment requirement in an item has the requested field value."""
     if not isinstance(item, dict) or not isinstance(item.get("accepts"), list):
         return False
     return any(
@@ -476,6 +499,7 @@ def _item_has_accept_value(item: object, key: str, value: str) -> bool:
 
 
 def _first_accept_value(items: list[Any], key: str) -> str | None:
+    """Find the first usable payment-requirement value for a filter probe."""
     for item in items:
         if not isinstance(item, dict) or not isinstance(item.get("accepts"), list):
             continue
@@ -487,6 +511,7 @@ def _first_accept_value(items: list[Any], key: str) -> str | None:
 
 
 def _first_item_value(items: list[Any], key: str) -> str | None:
+    """Find the first non-empty string field on a discovery item."""
     for item in items:
         value = item.get(key) if isinstance(item, dict) else None
         if isinstance(value, str) and value:
@@ -495,6 +520,7 @@ def _first_item_value(items: list[Any], key: str) -> str | None:
 
 
 def _first_extension(items: list[Any]) -> str | None:
+    """Find the first advertised extension identifier in the discovery items."""
     for item in items:
         extensions = item.get("extensions") if isinstance(item, dict) else None
         if isinstance(extensions, dict) and extensions:
@@ -513,6 +539,7 @@ class _FilterProbe:
 
 
 def _filter_probes(items: list[Any]) -> list[_FilterProbe]:
+    """Derive positive and negative filter probes from the baseline discovery result."""
     type_value = _first_item_value(items, "type")
     pay_to = _first_accept_value(items, "payTo")
     scheme = _first_accept_value(items, "scheme")
@@ -521,15 +548,19 @@ def _filter_probes(items: list[Any]) -> list[_FilterProbe]:
         return []
 
     def type_matches(item: object, expected: str = type_value) -> bool:
+        """Return whether a discovery item carries the sampled resource type."""
         return isinstance(item, dict) and item.get("type") == expected
 
     def pay_to_matches(item: object, expected: str = pay_to) -> bool:
+        """Return whether a discovery item offers the sampled payment recipient."""
         return _item_has_accept_value(item, "payTo", expected)
 
     def scheme_matches(item: object, expected: str = scheme) -> bool:
+        """Return whether a discovery item offers the sampled payment scheme."""
         return _item_has_accept_value(item, "scheme", expected)
 
     def network_matches(item: object, expected: str = network) -> bool:
+        """Return whether a discovery item offers the sampled CAIP-2 network."""
         return _item_has_accept_value(item, "network", expected)
 
     extension = _first_extension(items)
@@ -545,6 +576,7 @@ def _filter_probes(items: list[Any]) -> list[_FilterProbe]:
     else:
 
         def extension_matches(item: object, expected: str = extension) -> bool:
+            """Return whether a discovery item advertises the sampled extension."""
             return (
                 isinstance(item, dict)
                 and isinstance(item.get("extensions"), dict)
@@ -562,6 +594,7 @@ def _filter_probes(items: list[Any]) -> list[_FilterProbe]:
     f"{_CORE} section 8.1",
 )
 def di_002(ctx: DiscoveryContext) -> tuple[Status, str]:
+    """Evaluate DI-002: Discovery filters and offset pagination are honored."""
     url = _resources_url(ctx.base_url)
     body = _get_json(ctx, url)
     if body is None or not isinstance(body.get("items"), list) or not body["items"]:
@@ -660,6 +693,7 @@ def _accept_identity(a: dict[str, Any]) -> tuple[str, str, str, str]:
     f"{_CORE} section 8.3 + arXiv:2605.11781 (IV metadata manipulation)",
 )
 def di_003(ctx: DiscoveryContext) -> tuple[Status, str]:
+    """Evaluate DI-003: Listed accepts are consistent with the resource's live 402 (staleness)."""
     body = _get_json(ctx, _resources_url(ctx.base_url))
     if body is None or not isinstance(body.get("items"), list) or not body["items"]:
         return Status.SKIP, "no discoverable items to cross-check"
@@ -709,6 +743,7 @@ def di_003(ctx: DiscoveryContext) -> tuple[Status, str]:
 
 
 def evaluate_discovery(ctx: DiscoveryContext | None) -> list[CheckResult]:
+    """Run the complete discovery registry with safe cross-fetch policy and stable results."""
     results: list[CheckResult] = []
     for check in DI_REGISTRY:
         if ctx is None:

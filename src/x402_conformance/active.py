@@ -99,6 +99,7 @@ class ActiveResponse:
 
     @property
     def settled_ok(self) -> bool:
+        """Report whether the parsed settlement response explicitly records success."""
         return self.settlement is not None and self.settlement.success
 
 
@@ -121,10 +122,12 @@ class ActiveContext:
 
 
 def _b64_json(obj: dict[str, Any]) -> str:
+    """Serialize a payment payload as compact JSON wrapped in base64 for the HTTP header."""
     return base64.b64encode(json.dumps(obj).encode()).decode()
 
 
 def parse_settlement(headers: dict[str, str]) -> tuple[SettlementResponse | None, str | None]:
+    """Decode and strictly validate an optional PAYMENT-RESPONSE header."""
     raw = headers.get(PAYMENT_RESPONSE_HEADER)
     if raw is None:
         return None, None
@@ -178,6 +181,7 @@ def choose_eip3009_requirement(
 
 
 def _response_from(response: httpx.Response) -> ActiveResponse:
+    """Normalize an HTTP response and its settlement header into an active-check response."""
     headers = {k.lower(): v for k, v in response.headers.items()}
     settlement, settlement_error = parse_settlement(headers)
     redirect = (
@@ -221,6 +225,7 @@ def build_active_context(
     marker_bytes = resource_marker.encode() if resource_marker else None
 
     def _do(headers: dict[str, str]) -> ActiveResponse:
+        """Send a payment-bearing request with bounded transient retries and content-leak detection."""
         transport_err: str | None = None
         for attempt in range(_MAX_RETRIES + 1):
             try:
@@ -254,12 +259,15 @@ def build_active_context(
         return ActiveResponse(status_code=0, headers={}, body=b"", transport_error=transport_err)
 
     def send(payload: dict[str, Any]) -> ActiveResponse:
+        """Encode and send a structured payment payload."""
         return _do({PAYMENT_SIGNATURE_HEADER: _b64_json(payload)})
 
     def send_header(header_value: str) -> ActiveResponse:
+        """Send an exact caller-supplied PAYMENT-SIGNATURE header value."""
         return _do({PAYMENT_SIGNATURE_HEADER: header_value})
 
     def send_with_headers(payload: dict[str, Any], extra: dict[str, str]) -> ActiveResponse:
+        """Send a payment payload together with additional adversarial headers."""
         return _do({PAYMENT_SIGNATURE_HEADER: _b64_json(payload), **extra})
 
     return ActiveContext(

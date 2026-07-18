@@ -29,6 +29,7 @@ PAY_CHECK_IDS = ["RS-PAY-001", "RS-PAY-002", "RS-PAY-003", "RS-PAY-004", "RS-SEC
 
 
 def _result(cid: str, title: str, sev: Severity, status: Status, detail: str = "") -> CheckResult:
+    """Construct a payment-flow CheckResult with the correct shared severity and reference."""
     return CheckResult(cid, title, sev, f"{_CORE} §6.1.3", status, detail)
 
 
@@ -59,6 +60,7 @@ def _read_token_balance(rpc_url: str, token: str, owner: str) -> int | None:
 
 
 def _hex(value: object) -> str:
+    """Normalize bytes, integers, or hex-like values into lowercase prefixed hex."""
     if isinstance(value, bytes):
         return "0x" + value.hex()
     raw = value.hex() if hasattr(value, "hex") else str(value)
@@ -67,6 +69,7 @@ def _hex(value: object) -> str:
 
 
 def _address_topic(address: str) -> str:
+    """Encode an EVM address as the zero-padded topic representation."""
     return "0x" + address.removeprefix("0x").lower().rjust(64, "0")
 
 
@@ -124,6 +127,7 @@ def _verify_tx_onchain(
     pay_to: str,
     amount: int,
 ) -> tuple[Status, str]:
+    """Prove a successful receipt contains exactly the expected token Transfer event."""
     if not _EVM_TX_HASH_RE.fullmatch(tx_hash):
         return Status.FAIL, f"settlement transaction {tx_hash!r} is not a canonical EVM tx hash"
     try:
@@ -154,6 +158,7 @@ def _verify_tx_onchain(
 def evaluate_payment(
     context: ActiveContext | None, rpc_url: str | None = None
 ) -> list[CheckResult]:
+    """Run positive payment, settlement-header, on-chain proof, and replay checks in order."""
     sev_c, sev_m = Severity.CRITICAL, Severity.MAJOR
     titles = {
         "RS-PAY-001": "Valid funded payment is accepted and the resource delivered",

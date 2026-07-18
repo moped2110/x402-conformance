@@ -89,6 +89,7 @@ class VerifyResponse(WireModel):
 
     @model_validator(mode="after")
     def validate_reason(self) -> VerifyResponse:
+        """Enforce consistency between facilitator validity and invalidReason."""
         if self.is_valid and self.invalid_reason is not None:
             raise ValueError("valid verification must not carry invalidReason")
         if not self.is_valid and not self.invalid_reason:

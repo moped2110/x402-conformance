@@ -71,10 +71,12 @@ class DiffResult:
 
     @property
     def has_regressions(self) -> bool:
+        """Report whether this comparison contains any newly regressed check."""
         return bool(self.regressed)
 
     @property
     def unchanged(self) -> bool:
+        """Return checks whose status and identity are unchanged between reports."""
         return not (
             self.fixed or self.regressed or self.other_changes or self.added or self.removed
         )
@@ -136,6 +138,7 @@ def format_diff(d: DiffResult) -> str:
         return "\n".join(lines) + "\n"
 
     def _block(label: str, items: list[Transition]) -> None:
+        """Render one labeled group of report-diff entries."""
         if not items:
             return
         lines.append(f"{label} ({len(items)}):")

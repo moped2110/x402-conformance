@@ -63,6 +63,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 - **ruff pinned exactly** (`ruff==0.15.20`, `dev` extra): the formatter's output varies across
   releases, so an unpinned CI ruff and a local ruff disagreed on `format --check`. Pinning keeps
   local == CI; bump deliberately.
+- **Review handoff and function documentation gate**: `docs/REVIEW-HANDOFF.md`
+  provides a safety-first independent-review route, contracts, function index,
+  test map, and known limits. Every function in `src/` and executable `tools/`
+  now has an inline docstring; an AST-based checker and CI step prevent drift.
 
 ## [0.2.0] — 2026-07-09
 

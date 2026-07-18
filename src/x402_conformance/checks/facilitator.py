@@ -145,7 +145,10 @@ FA_REGISTRY: list[_FaCheck] = []
 
 
 def _register(cid: str, title: str, sev: Severity, ref: str) -> Callable[[FaFunc], FaFunc]:
+    """Create a decorator that adds one uniquely identified facilitator check."""
+
     def deco(f: FaFunc) -> FaFunc:
+        """Register the decorated facilitator check and return it unchanged."""
         append_unique_check(FA_REGISTRY, _FaCheck(cid, title, sev, ref, f), cid)
         return f
 
@@ -153,6 +156,7 @@ def _register(cid: str, title: str, sev: Severity, ref: str) -> Callable[[FaFunc
 
 
 def _build_payload(ctx: FacilitatorContext, requirements: dict[str, Any]) -> dict[str, Any]:
+    """Build a resource-bound EIP-3009 payload from the facilitator check context."""
     from ..payload_builder import EvmSigner, build_exact_eip3009_payload
 
     return build_exact_eip3009_payload(
@@ -164,6 +168,7 @@ def _build_payload(ctx: FacilitatorContext, requirements: dict[str, Any]) -> dic
 
 
 def _get_supported(ctx: FacilitatorContext) -> dict[str, Any] | None:
+    """Fetch and strictly validate the facilitator's supported-capabilities response."""
     if ctx.supported is not None:
         return ctx.supported
     try:
@@ -191,6 +196,7 @@ def _get_supported(ctx: FacilitatorContext) -> dict[str, Any] | None:
     f"{_CORE} §7.3",
 )
 def fa_sup_001(ctx: FacilitatorContext) -> tuple[Status, str]:
+    """Evaluate FA-SUP-001: /supported (if present) returns kinds[], extensions[], signers{}."""
     body = _get_supported(ctx)
     if body is None:
         # /supported is OPTIONAL (CORE §7.3): a facilitator may omit it and still be
@@ -220,6 +226,7 @@ def fa_sup_001(ctx: FacilitatorContext) -> tuple[Status, str]:
     f"{_CORE} §7.3.1",
 )
 def fa_sup_002(ctx: FacilitatorContext) -> tuple[Status, str]:
+    """Evaluate FA-SUP-002: Each supported kind is well-formed (x402Version 1/2, scheme; v2 network is CAIP-2)."""
     body = _get_supported(ctx)
     if body is None or not isinstance(body.get("kinds"), list):
         return Status.SKIP, "no valid /supported.kinds to inspect"
@@ -249,6 +256,7 @@ def fa_sup_002(ctx: FacilitatorContext) -> tuple[Status, str]:
 def _verify(
     ctx: FacilitatorContext, payload: dict[str, Any], requirements: dict[str, Any]
 ) -> tuple[VerifyResponse | None, str | None]:
+    """Submit one payment payload to verify and classify its strict response."""
     req = {"x402Version": 2, "paymentPayload": payload, "paymentRequirements": requirements}
     try:
         resp = ctx.client.post(
@@ -294,6 +302,7 @@ def _verify_raw(
     f"{_CORE} §7.1, §9",
 )
 def fa_ver_002(ctx: FacilitatorContext) -> tuple[Status, str]:
+    """Evaluate FA-VER-002: /verify rejects invalid payloads with isValid:false."""
     if ctx.requirements is None or ctx.signer is None:
         return Status.SKIP, "no --resource requirements / signer to build a payment"
     # Validly sign for a token amount but verify against the REAL requirements:
@@ -316,6 +325,7 @@ def fa_ver_002(ctx: FacilitatorContext) -> tuple[Status, str]:
     f"{_CORE} §7.1 + x402#2554 asset_not_deployed_contract",
 )
 def fa_ver_003(ctx: FacilitatorContext) -> tuple[Status, str]:
+    """Evaluate FA-VER-003: /verify rejects an asset that is not a deployed contract (EOA)."""
     if ctx.requirements is None or ctx.signer is None:
         return Status.SKIP, "no --resource requirements / signer to build a payment"
     if str(ctx.requirements.get("asset", "")).lower() == _EOA_ASSET.lower():
@@ -349,6 +359,7 @@ def fa_ver_003(ctx: FacilitatorContext) -> tuple[Status, str]:
     f"{_CORE} §7.1",
 )
 def fa_ver_004(ctx: FacilitatorContext) -> tuple[Status, str]:
+    """Evaluate FA-VER-004: /verify handles an invalid payment with a clean 4xx, not a 5xx server error."""
     if ctx.requirements is None or ctx.signer is None:
         return Status.SKIP, "no --resource requirements / signer to build a payment"
     if str(ctx.requirements.get("asset", "")).lower() == _EOA_ASSET.lower():
@@ -377,6 +388,7 @@ def fa_ver_004(ctx: FacilitatorContext) -> tuple[Status, str]:
     "FA-ERR-001", "invalidReason is from the CORE §9 error registry", Severity.MINOR, f"{_CORE} §9"
 )
 def fa_err_001(ctx: FacilitatorContext) -> tuple[Status, str]:
+    """Evaluate FA-ERR-001: invalidReason is from the CORE §9 error registry."""
     if ctx.requirements is None or ctx.signer is None:
         return Status.SKIP, "no --resource requirements / signer to trigger an error"
     cheap = _build_payload(ctx, {**ctx.requirements, "amount": "1"})
@@ -394,6 +406,7 @@ def fa_err_001(ctx: FacilitatorContext) -> tuple[Status, str]:
 def _settle(
     ctx: FacilitatorContext, payload: dict[str, Any], requirements: dict[str, Any]
 ) -> tuple[SettlementResponse | None, str | None]:
+    """Submit one payment payload to settle and classify its strict response."""
     req = {"x402Version": 2, "paymentPayload": payload, "paymentRequirements": requirements}
     try:
         resp = ctx.client.post(
@@ -431,6 +444,7 @@ def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
     }
 
     def mk(cid: str, status: Status, detail: str = "") -> CheckResult:
+        """Construct a facilitator settlement CheckResult with shared catalog metadata."""
         title, sev, ref = ids[cid]
         return CheckResult(cid, title, sev, ref, status, detail)
 
@@ -535,6 +549,7 @@ def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
 
 
 def evaluate_facilitator(ctx: FacilitatorContext | None) -> list[CheckResult]:
+    """Run supported, verify, and optional testnet settlement checks for a facilitator."""
     results: list[CheckResult] = []
     for check in FA_REGISTRY:
         if ctx is None:

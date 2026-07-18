@@ -118,10 +118,12 @@ _TRANSFER_WITH_AUTHORIZATION_TYPES = {
 
 
 def _b64(obj: JsonObject) -> str:
+    """Serialize an object as compact base64-encoded JSON for an x402 header."""
     return base64.b64encode(json.dumps(obj).encode()).decode()
 
 
 def payment_required() -> JsonObject:
+    """Build the local on-chain facilitator's canonical payment challenge."""
     return {
         "x402Version": 2,
         "resource": {"url": f"http://127.0.0.1:{PORT}/data"},
@@ -183,6 +185,7 @@ def _check_signature(auth: JsonObject, signature: str) -> str | None:
 
 
 def _check_balance(auth: JsonObject) -> str | None:
+    """Check whether the authorizer has enough mock-token balance for the payment."""
     try:
         bal = token.functions.balanceOf(Web3.to_checksum_address(str(auth["from"]))).call()
         if int(cast(Any, bal)) < int(cast(Any, auth["value"])):
@@ -193,6 +196,7 @@ def _check_balance(auth: JsonObject) -> str | None:
 
 
 def _transfer_function(auth: JsonObject, signature: str) -> Any:
+    """Bind the decoded authorization and signature to the token transfer call."""
     return token.functions.transferWithAuthorization(
         Web3.to_checksum_address(str(auth["from"])),
         Web3.to_checksum_address(str(auth["to"])),
@@ -287,6 +291,7 @@ def settle(auth: JsonObject, signature: str) -> JsonObject:
 
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code: int, headers: dict[str, str] | None = None, body: bytes = b"") -> None:
+        """Write one JSON or empty HTTP response with explicit content metadata."""
         self.send_response(code)
         for k, v in (headers or {}).items():
             self.send_header(k, v)
@@ -294,6 +299,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802
+        """Serve the local protected resource and facilitator capability endpoint."""
         if self.path.rstrip("/").endswith("/supported"):
             self._send(200, {"Content-Type": "application/json"}, json.dumps(SUPPORTED).encode())
             return
@@ -315,6 +321,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(402, {"PAYMENT-RESPONSE": _b64(result)})
 
     def do_POST(self) -> None:  # noqa: N802
+        """Handle local facilitator verify and settle requests without following redirects."""
         path = self.path.rstrip("/")
         length = int(self.headers.get("Content-Length", 0))
         try:
@@ -345,6 +352,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404)
 
     def log_message(self, *a: object) -> None:
+        """Suppress the local facilitator's default request logging."""
         pass
 
 

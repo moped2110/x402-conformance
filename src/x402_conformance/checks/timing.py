@@ -65,6 +65,7 @@ def classify_timing(
 
 
 def _result(status: Status, detail: str) -> CheckResult:
+    """Construct the advisory timing CheckResult with stable metadata."""
     return CheckResult(TIMING_CHECK_ID, _TITLE, Severity.MINOR, f"{_CORE} §10.1", status, detail)
 
 
@@ -74,6 +75,7 @@ def _sample(
     n: int,
     time_fn: Callable[[], float],
 ) -> list[float]:
+    """Measure one payment rejection using the injected monotonic clock."""
     durations: list[float] = []
     for _ in range(n):
         t0 = time_fn()

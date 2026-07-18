@@ -35,6 +35,7 @@ _REDIRECT_STATUS = frozenset({301, 302, 303, 307, 308})
 
 
 def _network_chain_id(network: str) -> int:
+    """Parse and validate the integer chain ID in an EVM CAIP-2 identifier."""
     namespace, separator, reference = network.partition(":")
     if namespace != "eip155" or not separator or not reference.isdecimal():
         raise SafetyViolation(f"payment network {network!r} is not a valid EVM CAIP-2 id")
@@ -82,6 +83,7 @@ class SafetyPolicy:
     allowed_svm_networks: frozenset[str] = frozenset(_ALLOWED_SVM_NETWORKS)
 
     def require_safe_network(self, network: object) -> str:
+        """Require a reviewed local or testnet CAIP-2 network before payment construction."""
         if not isinstance(network, str) or not network:
             raise SafetyViolation("payment requirement has no valid CAIP-2 network")
         if network.startswith("eip155:"):
@@ -100,6 +102,7 @@ class SafetyPolicy:
         raise SafetyViolation(f"payment network {network!r} is unsupported and denied")
 
     def require_matching_rpc(self, network: object, rpc_url: str | None) -> int:
+        """Require an EVM RPC whose reported chain exactly matches the safe advertised network."""
         safe_network = self.require_safe_network(network)
         if not safe_network.startswith("eip155:"):
             raise SafetyViolation("eth_chainId validation is only available for EVM payments")

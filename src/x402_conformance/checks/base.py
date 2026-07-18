@@ -81,6 +81,7 @@ def register(
     """Decorator: add a check function to the global registry."""
 
     def decorator(func: CheckFunc) -> CheckFunc:
+        """Register the decorated passive check while rejecting duplicate catalog IDs."""
         append_unique_check(REGISTRY, Check(check_id, title, severity, spec_ref, func), check_id)
         return func
 

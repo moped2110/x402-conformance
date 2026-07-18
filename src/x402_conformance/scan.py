@@ -69,6 +69,7 @@ def rank_scan(entries: list[ScanEntry]) -> list[ScanEntry]:
 
 
 def format_scan(entries: list[ScanEntry]) -> str:
+    """Render ranked facilitator scan results and their aggregate outcome."""
     ranked = rank_scan(entries)
     lines = [f"facilitator scan — {len(ranked)} target(s), ranked by findings", ""]
     for e in ranked:

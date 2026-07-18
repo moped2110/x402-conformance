@@ -1,6 +1,6 @@
 # Calibration Run — 2026-06-09
 
-**Goal:** Per the calibration principle (CLAUDE.md), the suite must run green against the upstream reference implementation before it is allowed to judge third-party endpoints. Any failure against the reference is a suite bug — or an upstream finding.
+**Goal:** Per the project's calibration principle, the suite must run green against the upstream reference implementation before it is allowed to judge third-party endpoints. Any failure against the reference is a suite bug — or an upstream finding.
 
 **Setup:**
 - Target: upstream e2e FastAPI reference server (`e2e/servers/fastapi`, x402 Python SDK, editable from repo @ `d454eb9`)

@@ -60,6 +60,7 @@ def _clean_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
 
 
 def _content_hash(record: dict[str, Any]) -> str:
+    """Compute the canonical SHA-256 integrity checksum excluding the checksum field itself."""
     payload = {k: v for k, v in record.items() if k != "runId"}
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()

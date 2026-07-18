@@ -19,6 +19,7 @@ python -m pip check
 
 python -m ruff check src tests tools
 python -m ruff format --check src tests tools
+python tools/check_function_docs.py
 python -m mypy
 python -m pytest -q --cov --cov-fail-under=85
 python tools/verify_new_features.py

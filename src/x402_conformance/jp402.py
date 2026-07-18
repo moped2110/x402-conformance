@@ -181,6 +181,7 @@ def find_invoice_blocks(openapi: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
 
     def _invoice(container: Any) -> None:
+        """Collect an invoice block when the candidate value is an object."""
         if isinstance(container, dict):
             blk = container.get("x-jp402")
             if isinstance(blk, dict) and isinstance(blk.get("invoice"), dict):

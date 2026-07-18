@@ -13,6 +13,7 @@ _HTTP_REF = "transports-v2/http.md §Payment Required Signaling"
 
 @register("RS-HS-001", "Unpaid request is answered with HTTP 402", Severity.MAJOR, _HTTP_REF)
 def hs_001(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-HS-001: Unpaid request is answered with HTTP 402."""
     code = s.first.status_code
     if code == 402:
         return Status.PASS, ""
@@ -34,6 +35,7 @@ def hs_001(s: ProbeSession) -> tuple[Status, str]:
 
 @register("RS-HS-002", "402 response carries PAYMENT-REQUIRED header", Severity.MAJOR, _HTTP_REF)
 def hs_002(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-HS-002: 402 response carries PAYMENT-REQUIRED header."""
     if s.first.status_code != 402:
         return Status.SKIP, "no 402 response to inspect"
     if s.first.header_b64 is None:
@@ -43,6 +45,7 @@ def hs_002(s: ProbeSession) -> tuple[Status, str]:
 
 @register("RS-HS-003", "PAYMENT-REQUIRED header is valid base64", Severity.MAJOR, _HTTP_REF)
 def hs_003(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-HS-003: PAYMENT-REQUIRED header is valid base64."""
     if s.first.header_b64 is None:
         return Status.SKIP, "header not present"
     if s.first.decode_error is not None:
@@ -57,6 +60,7 @@ def hs_003(s: ProbeSession) -> tuple[Status, str]:
     "x402-specification-v2.md §5.1",
 )
 def hs_004(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-HS-004: Decoded header is valid JSON matching the PaymentRequired schema."""
     if s.first.decoded is None:
         return Status.SKIP, "nothing decodable"
     if s.first.json_error is not None:
@@ -79,6 +83,7 @@ def hs_004(s: ProbeSession) -> tuple[Status, str]:
     "transports-v2/http.md §Header Summary",
 )
 def hs_005(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-HS-005: No deprecated legacy X-* payment headers in V2 response."""
     legacy = s.first.legacy_headers_present
     if legacy:
         return Status.FAIL, (
@@ -95,6 +100,7 @@ def hs_005(s: ProbeSession) -> tuple[Status, str]:
     "transports-v2/http.md §Response Body",
 )
 def hs_006(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-HS-006: Protocol data complete via headers alone (body not required)."""
     if s.first.parsed is None:
         return Status.SKIP, "no parseable PaymentRequired header"
     # If the header parsed against the full schema, the client needs nothing
@@ -109,6 +115,7 @@ def hs_006(s: ProbeSession) -> tuple[Status, str]:
     "RFC 9111 + testcase PR1",
 )
 def hs_007(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-HS-007: 402 with payment details is not cacheable."""
     if s.first.status_code != 402:
         return Status.SKIP, "no 402 response to inspect"
     cache_control = s.first.headers.get("cache-control", "").lower()
@@ -128,6 +135,7 @@ def hs_007(s: ProbeSession) -> tuple[Status, str]:
 
 
 def _positive_max_age(cache_control: str) -> bool:
+    """Detect a positive max-age or s-maxage directive in Cache-Control."""
     for part in cache_control.split(","):
         part = part.strip()
         if part.startswith("max-age=") or part.startswith("s-maxage="):

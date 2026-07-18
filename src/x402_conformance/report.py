@@ -28,6 +28,7 @@ _TOOL_URI = "https://github.com/moped2110/x402-conformance"
 
 
 def summarize(results: list[CheckResult]) -> dict[str, int]:
+    """Count PASS, FAIL, SKIP, and ERROR outcomes for a result set."""
     return {
         "total": len(results),
         "passed": sum(r.status == Status.PASS for r in results),
@@ -61,6 +62,7 @@ def assessment_exit_code(results: list[CheckResult]) -> int:
 
 
 def _safe_results(results: list[CheckResult], target_url: str) -> list[CheckResult]:
+    """Return report-safe result copies with target and URL-bearing details sanitized."""
     return [
         replace(
             result,
@@ -71,6 +73,7 @@ def _safe_results(results: list[CheckResult], target_url: str) -> list[CheckResu
 
 
 def to_json(results: list[CheckResult], target_url: str, outcome_code: int | None = None) -> str:
+    """Render the versioned machine-readable conformance report."""
     results = _safe_results(results, target_url)
     code = assessment_exit_code(results) if outcome_code is None else outcome_code
     return json.dumps(
@@ -209,6 +212,7 @@ def _md_inline_code(text: str) -> str:
 def to_markdown(
     results: list[CheckResult], target_url: str, outcome_code: int | None = None
 ) -> str:
+    """Render a sanitized human-readable Markdown conformance report."""
     results = _safe_results(results, target_url)
     code = assessment_exit_code(results) if outcome_code is None else outcome_code
     s = summarize(results)
@@ -371,6 +375,7 @@ def _explain_catalog() -> dict[str, tuple[str, Severity, str]]:
 
 
 def _explain_line(cid: str, title: str, sev: Severity) -> str:
+    """Format one compact check-catalog entry for explain output."""
     return f"  {cid:<12} [{sev.value:<8}] {title}"
 
 

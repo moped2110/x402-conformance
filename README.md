@@ -46,6 +46,7 @@ funds.
 **Test catalog:** see [`docs/conformance-catalog.md`](docs/conformance-catalog.md) — every check carries an ID, severity, and spec reference.
 **Support boundary:** [`docs/support-matrix.md`](docs/support-matrix.md) — exact supported, passive-only, planned, and out-of-scope mechanisms.
 **Architecture:** [`docs/architecture.md`](docs/architecture.md) (how it works, with diagrams). Dated development logs (calibration, on-chain bring-up, report/robustness work) are archived under [`docs/history/`](docs/history/).
+**Independent review:** [`docs/REVIEW-HANDOFF.md`](docs/REVIEW-HANDOFF.md) — safety-first review order, contracts, function index, tests, and known limits.
 
 ## Status
 
@@ -155,6 +156,7 @@ when the protected resource requires POST.
 ```bash
 pytest          # the suite's own tests (offline, mocked transport) — 400+ tests
 mypy            # strict type checking
+python tools/check_function_docs.py  # every production/tool function has a docstring
 
 # Calibrate the checks against a verify-capable reference server:
 python tools/calibration_target.py 4500 &

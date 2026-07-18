@@ -120,6 +120,7 @@ _CHECK_CONFIG_KEYS = frozenset(
 
 
 def _config_error(message: str) -> None:
+    """Render a configuration error and terminate the command as inconclusive."""
     typer.secho(f"invalid [check] config: {message}", fg=typer.colors.RED, err=True)
     raise typer.Exit(2)
 
@@ -546,6 +547,7 @@ def check(
     def _write_record(
         res: list[CheckResult], *, error: str | None = None, ec: int | None = None
     ) -> None:
+        """Build and persist a sanitized run record unless logging was disabled."""
         if run_log_dir is None:
             return
         from .run_record import build_run_record, write_run_record
@@ -617,6 +619,7 @@ def check(
             from .active import run_active_checks
 
             def _progress(r: CheckResult, done: int, total: int) -> None:
+                """Render one concise active-check progress update for the terminal."""
                 typer.secho(
                     f"[{done:>2}/{total}] {r.check_id:<10} {r.status.value}",
                     fg=typer.colors.BLUE,

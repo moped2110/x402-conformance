@@ -7,6 +7,8 @@ of work stood on a given date).
 
 ## Living docs (current source of truth)
 
+- [`REVIEW-HANDOFF.md`](REVIEW-HANDOFF.md) — safety-first technical review guide,
+  contracts, production function index, test map, and reviewer checklist.
 - [`architecture.md`](architecture.md) — how the suite works: the passive / active /
   settlement pipelines, the report contract, and the module map.
 - [`conformance-catalog.md`](conformance-catalog.md) — the canonical check catalog.

@@ -31,6 +31,7 @@ _REQUIRED_ACCEPT_FIELDS = ("scheme", "network", "amount", "asset", "payTo", "max
 
 
 def _accepts_raw(s: ProbeSession) -> list[dict[str, object]] | None:
+    """Return only object entries from the raw accepts array, or None for a missing array."""
     if s.first.raw is None:
         return None
     accepts = s.first.raw.get("accepts")
@@ -49,6 +50,7 @@ _V1_SKIP = "endpoint advertises x402 v1, not v2 — this suite tests v2 (see RS-
 
 
 def _x402_version(s: ProbeSession) -> object:
+    """Read the uncoerced x402Version value from the raw challenge."""
     return s.first.raw.get("x402Version") if s.first.raw is not None else None
 
 
@@ -72,6 +74,7 @@ def _resource_identity(url: str) -> tuple[str, str, int, str, str] | None:
 
 @register("RS-PR-001", "x402Version present and == 2", Severity.MAJOR, f"{_CORE} §5.1.2")
 def pr_001(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-001: x402Version present and == 2."""
     if s.first.raw is None:
         return Status.SKIP, "no decoded PaymentRequired payload"
     version = s.first.raw.get("x402Version")
@@ -90,6 +93,7 @@ def pr_001(s: ProbeSession) -> tuple[Status, str]:
     "RS-PR-002", "resource object present with required url", Severity.MAJOR, f"{_CORE} §5.1.2"
 )
 def pr_002(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-002: resource object present with required url."""
     if s.first.raw is None:
         return Status.SKIP, "no decoded PaymentRequired payload"
     if _x402_version(s) == 1:
@@ -109,6 +113,7 @@ def pr_002(s: ProbeSession) -> tuple[Status, str]:
     f"{_CORE} §5.1.2",
 )
 def pr_003(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-003: resource.url matches the requested resource."""
     if s.first.parsed is None:
         return Status.SKIP, "no parsed PaymentRequired payload"
     advertised = _resource_identity(s.first.parsed.resource.url)
@@ -123,6 +128,7 @@ def pr_003(s: ProbeSession) -> tuple[Status, str]:
 
 @register("RS-PR-004", "accepts array present with >= 1 entry", Severity.MAJOR, f"{_CORE} §5.1.2")
 def pr_004(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-004: accepts array present with >= 1 entry."""
     if s.first.raw is None:
         return Status.SKIP, "no decoded PaymentRequired payload"
     accepts = _accepts_raw(s)
@@ -140,6 +146,7 @@ def pr_004(s: ProbeSession) -> tuple[Status, str]:
     f"{_CORE} §5.1.2",
 )
 def pr_005(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-005: Every accepts entry carries all required fields."""
     if _x402_version(s) == 1:
         return Status.SKIP, _V1_SKIP
     accepts = _accepts_raw(s)
@@ -157,6 +164,7 @@ def pr_005(s: ProbeSession) -> tuple[Status, str]:
 
 @register("RS-PR-006", "network is valid CAIP-2", Severity.MAJOR, f"{_CORE} §11.1")
 def pr_006(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-006: network is valid CAIP-2."""
     accepts = _accepts_raw(s)
     if not accepts:
         return Status.SKIP, "no accepts entries to inspect"
@@ -177,6 +185,7 @@ def pr_006(s: ProbeSession) -> tuple[Status, str]:
     f"{_CORE} §5.1.2",
 )
 def pr_007(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-007: amount is an integer string in atomic units."""
     accepts = _accepts_raw(s)
     if not accepts:
         return Status.SKIP, "no accepts entries to inspect"
@@ -199,6 +208,7 @@ def pr_007(s: ProbeSession) -> tuple[Status, str]:
     f"{_CORE} §5.1.2 + scheme_exact_evm.md",
 )
 def pr_008(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-008: EVM asset is a well-formed contract address."""
     accepts = _accepts_raw(s)
     if not accepts:
         return Status.SKIP, "no accepts entries to inspect"
@@ -241,6 +251,7 @@ def pr_008(s: ProbeSession) -> tuple[Status, str]:
     "scheme_exact_evm.md §1 extra fields",
 )
 def pr_009(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-009: exact/eip3009 entries carry extra.name and extra.version (EIP-712 domain)."""
     accepts = _accepts_raw(s)
     if not accepts:
         return Status.SKIP, "no accepts entries to inspect"
@@ -276,6 +287,7 @@ def pr_009(s: ProbeSession) -> tuple[Status, str]:
     f"{_CORE} §5.1.2 ResourceInfo",
 )
 def pr_010(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-010: ResourceInfo constraints (serviceName/tags/iconUrl limits)."""
     if s.first.parsed is None:
         return Status.SKIP, "no parsed PaymentRequired payload"
     r = s.first.parsed.resource
@@ -307,6 +319,7 @@ def pr_010(s: ProbeSession) -> tuple[Status, str]:
     f"{_CORE} §5.1.2 Extensions",
 )
 def pr_011(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-011: extensions entries each carry info and schema."""
     if s.first.raw is None:
         return Status.SKIP, "no decoded PaymentRequired payload"
     extensions = s.first.raw.get("extensions")
@@ -335,6 +348,7 @@ def pr_011(s: ProbeSession) -> tuple[Status, str]:
     f"{_CORE} §5.1",
 )
 def pr_012(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-012: Payment requirements stable across identical unpaid requests."""
     if s.second is None or s.first.raw is None or s.second.raw is None:
         return Status.SKIP, "need two decodable probes to compare"
     if s.first.raw.get("accepts") == s.second.raw.get("accepts"):
@@ -352,6 +366,7 @@ def pr_012(s: ProbeSession) -> tuple[Status, str]:
     f"{_CORE} §11.1 + testcase N1/N2",
 )
 def pr_013(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-013: payTo/asset match the network's CAIP-2 namespace."""
     accepts = _accepts_raw(s)
     if not accepts:
         return Status.SKIP, "no accepts entries to inspect"
@@ -386,6 +401,7 @@ def pr_013(s: ProbeSession) -> tuple[Status, str]:
     f"{_CORE} §5.1.2 + testcase N5",
 )
 def pr_014(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-014: amount is strictly positive."""
     accepts = _accepts_raw(s)
     if not accepts:
         return Status.SKIP, "no accepts entries to inspect"
@@ -417,6 +433,7 @@ def pr_015(s: ProbeSession) -> tuple[Status, str]:
     # (2026-06-29): the live 402 carries `jp402.tax` (excl_jpyc/vat_jpyc/rate) on the
     # accepts entry — the qualified-invoice/registrationNumber lives in the seller's
     # OpenAPI doc instead (see jp402.find_invoice_blocks / validate_invoice).
+    """Evaluate RS-PR-015: jp402 tax breakdown (if present) is structurally consistent."""
     if s.first.raw is None:
         return Status.SKIP, "no decoded PaymentRequired payload"
     found = find_jp402_accept(s.first.raw)
@@ -453,6 +470,7 @@ def pr_016(s: ProbeSession) -> tuple[Status, str]:
     # the 402 advertised `jp402`; here we validate the `x-jp402.invoice` block(s).
     # Opt-in + MINOR: never gates a non-JP endpoint, and an unreachable/absent doc is
     # a SKIP (we couldn't check) — only a present-but-malformed invoice FAILs.
+    """Evaluate RS-PR-016: jp402 OpenAPI invoice (when jp402 is advertised) is structurally valid."""
     if s.first.raw is None or find_jp402(s.first.raw) is None:
         return Status.SKIP, "no jp402 advertised (opt-in JP-rail check)"
     if s.openapi is None:

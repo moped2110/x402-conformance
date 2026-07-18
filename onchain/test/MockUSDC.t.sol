@@ -24,13 +24,7 @@ contract MockUSDCTest {
         bytes memory invalidSignature = new bytes(65);
 
         try token.transferWithAuthorization(
-            address(this),
-            address(0xBEEF),
-            1,
-            0,
-            block.timestamp + 1 hours,
-            nonce,
-            invalidSignature
+            address(this), address(0xBEEF), 1, 0, block.timestamp + 1 hours, nonce, invalidSignature
         ) {
             revert("invalid authorization accepted");
         } catch {}
@@ -45,13 +39,7 @@ contract MockUSDCTest {
         bytes memory invalidSignature = new bytes(65);
 
         try token.transferWithAuthorization(
-            address(this),
-            address(0xBEEF),
-            1,
-            0,
-            block.timestamp,
-            nonce,
-            invalidSignature
+            address(this), address(0xBEEF), 1, 0, block.timestamp, nonce, invalidSignature
         ) {
             revert("expired authorization accepted");
         } catch {}

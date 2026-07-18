@@ -13,7 +13,7 @@ our EIP-712 digest is byte-identical to the reference implementation's.
 
     pip install x402-conformance[evm]
 
-No mainnet keys, ever. Signers are testnet-only throwaway keys (see CLAUDE.md).
+No mainnet keys, ever. Signers are testnet-only throwaway keys (see SECURITY.md).
 """
 
 from __future__ import annotations
@@ -47,6 +47,7 @@ _TRANSFER_WITH_AUTHORIZATION_TYPES: dict[str, list[dict[str, str]]] = {
 
 
 def _require_evm() -> None:
+    """Fail with an installation hint when the optional EVM signer is unavailable."""
     if not _EVM_AVAILABLE:
         raise RuntimeError(
             "EVM payload signing requires eth-account. Install with: "
@@ -69,6 +70,7 @@ class EvmSigner:
 
     @classmethod
     def from_key(cls, private_key: str) -> EvmSigner:
+        """Construct a testnet EVM signer from an explicitly supplied private key."""
         _require_evm()
         return cls(Account.from_key(private_key))
 
@@ -80,6 +82,7 @@ class EvmSigner:
 
     @property
     def address(self) -> str:
+        """Expose the checksummed public address of the wrapped EVM account."""
         return self.account.address
 
 
@@ -186,6 +189,7 @@ def _sign_authorization(
     token_name: str,
     token_version: str,
 ) -> str:
+    """Sign an EIP-3009 authorization using the exact advertised EIP-712 token domain."""
     domain = {
         "name": token_name,
         "version": token_version,
