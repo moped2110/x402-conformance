@@ -5,6 +5,27 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- **A missing facilitator endpoint is no longer graded.** Pointing `facilitator` at something that
+  is not a facilitator produced both kinds of wrong answer at once: FA-VER-002/003 and FA-ERR-001
+  failed because `/verify` "did not answer properly", while FA-VER-004 **passed** because 404 is
+  technically a clean 4xx — certifying an endpoint that does not exist. A 404/405/501 on `/verify`
+  or `/settle` is now absence: `SKIP`, never FAIL and never PASS, and the FA-SET group stops
+  sending payloads. Found by running the tool against a real resource server on 2026-07-18.
+- **FA-SUP-002 defers the Algorand CAIP-2 identifier form** pending
+  [x402-foundation/x402#2904](https://github.com/x402-foundation/x402/issues/2904). The finding is
+  reported in full but does not gate; see `docs/conformance-catalog.md` for the reasoning and the
+  removal condition.
+- **A deferred finding forces an inconclusive verdict.** Deferring alone was unsafe: with the only
+  gating finding turned into a SKIP, a run came out `CONFORMANT` on one passed check out of nine.
+  A run containing `reason_code = deferred_pending_upstream` is now never conformant.
+- **Report schema 1.1 → 1.2**: `results[].reason_code` added as an optional, nullable field. The
+  schema sets `additionalProperties: false`, so this is a contract change rather than a free
+  addition — same major, consumers pinning major `1` keep working.
+- **CI runs on every branch**, not only `main`. Handed-over branch work previously reached `main`
+  without ever having seen CI, which is how two dependency locks passed every local gate and then
+  broke the whole matrix on merge.
+
 ### Added
 - **RS-SEC-008 timing-oracle probe** (`check --timing`, opt-in): checks whether an endpoint's
   rejection *time* leaks which validation failed — a wrong-signature payment (fails early, at
