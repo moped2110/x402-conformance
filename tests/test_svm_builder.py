@@ -79,6 +79,16 @@ def test_instruction_layout_and_transfer_outcome() -> None:
     assert bytes(memo.data) == b"pi_test_123"
 
 
+def test_no_memo_yields_the_three_instruction_reference_layout() -> None:
+    # include_memo=False drops the Memo entirely: exactly the reference client's payload
+    # (cu-limit, cu-price, transfer), and portable to facilitators that do not allowlist
+    # the Memo program (e.g. the Kora demo). This is the FA-SVM live baseline.
+    tx = _decode(_build(include_memo=False))
+    keys = [str(k) for k in tx.message.account_keys]
+    assert len(tx.message.instructions) == 3
+    assert MEMO_PROGRAM not in keys
+
+
 def test_client_signature_is_valid_for_message() -> None:
     tx = _decode(_build())
     # Re-signing the tx's own 0x80-prefixed message with the payer must reproduce the

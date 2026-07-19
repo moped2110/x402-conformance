@@ -151,6 +151,10 @@ def _build(
         pay_to=ctx.pay_to if pay_to is None else pay_to,
         amount=ctx.amount if amount is None else amount,
         recent_blockhash=ctx.recent_blockhash,
+        # Memo-free 3-instruction baseline: matches the x402 reference client exactly and
+        # stays portable to facilitators (like the Kora demo) that do not allowlist Memo,
+        # so a rejection reflects the tamper — not an unrelated program-allowlist policy.
+        include_memo=False,
         token_program=ctx.token_program,
         tamper=tamper,
     )

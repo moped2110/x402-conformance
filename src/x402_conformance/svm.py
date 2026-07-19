@@ -129,6 +129,7 @@ def build_exact_svm_transaction(
     amount: int,
     recent_blockhash: str,
     memo: str | None = None,
+    include_memo: bool = True,
     token_program: str = TOKEN_PROGRAM,
     compute_unit_limit: int = DEFAULT_COMPUTE_UNIT_LIMIT,
     compute_unit_price: int = DEFAULT_COMPUTE_UNIT_PRICE,
@@ -138,10 +139,15 @@ def build_exact_svm_transaction(
 
     Mirrors the x402 reference client (``scheme_exact_svm.md``): instructions are
     SetComputeUnitLimit, SetComputeUnitPrice, ``TransferChecked`` (to the ATA derived
-    from ``pay_to``+``mint``), then a Memo (``memo`` or a random 16-byte nonce). The
-    message ``payer`` is the sponsor's ``feePayer`` — whose signature slot is left as
-    a default placeholder for /settle; only the client (payer) signs here. Requires
-    the ``[svm]`` extra.
+    from ``pay_to``+``mint``), then — when ``include_memo`` — a Memo (``memo`` or a
+    random 16-byte nonce). The message ``payer`` is the sponsor's ``feePayer`` — whose
+    signature slot is left as a default placeholder for /settle; only the client
+    (payer) signs here. Requires the ``[svm]`` extra.
+
+    The captured reference payload carries no Memo, and a facilitator may not allowlist
+    the Memo program (the Kora demo does not). Pass ``include_memo=False`` for a minimal
+    3-instruction payload that matches the reference exactly and is maximally portable —
+    which is what the live FA-SVM check group uses for its baseline.
 
     ``recent_blockhash`` is a base58 blockhash (from RPC live, or a fixed value in
     offline tests). Returns the base64-encoded serialized ``VersionedTransaction``.
@@ -178,7 +184,6 @@ def build_exact_svm_transaction(
         ],
         data=encode_transfer_checked(amount, decimals),
     )
-    memo_data = memo.encode("utf-8") if memo else binascii.hexlify(os.urandom(16))
     instructions = [
         Instruction(
             program_id=compute_budget,
@@ -191,12 +196,19 @@ def build_exact_svm_transaction(
             data=encode_set_compute_unit_price(compute_unit_price),
         ),
         transfer_ix,
-        Instruction(program_id=Pubkey.from_string(MEMO_PROGRAM), accounts=[], data=memo_data),
     ]
+    memo_ix = None
+    if include_memo:
+        memo_data = memo.encode("utf-8") if memo else binascii.hexlify(os.urandom(16))
+        memo_ix = Instruction(
+            program_id=Pubkey.from_string(MEMO_PROGRAM), accounts=[], data=memo_data
+        )
+        instructions.append(memo_ix)
 
     if tamper == SvmTamper.DROP_COMPUTE_BUDGET:
-        # Only transfer + memo → 2 instructions, outside the Path-1 3..7 window.
-        instructions = [transfer_ix, instructions[3]]
+        # Drop both ComputeBudget instructions → below the Path-1 3-instruction floor
+        # (1 without a memo, 2 with), outside the 3..7 window either way.
+        instructions = [transfer_ix] if memo_ix is None else [transfer_ix, memo_ix]
     elif tamper == SvmTamper.DOUBLE_TRANSFER:
         # A second matching TransferChecked — §1.4 requires exactly one.
         instructions = [*instructions, transfer_ix]
