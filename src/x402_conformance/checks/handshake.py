@@ -6,13 +6,13 @@ Passive checks on the unpaid request — no payment is ever made here.
 from __future__ import annotations
 
 from ..probe import PAYMENT_REQUIRED_HEADER, ProbeSession, facilitator_path_kind
-from .base import ENDPOINT_ABSENT, Severity, Status, register
+from .base import ENDPOINT_ABSENT, CheckReturn, Severity, Status, register
 
 _HTTP_REF = "transports-v2/http.md §Payment Required Signaling"
 
 
 @register("RS-HS-001", "Unpaid request is answered with HTTP 402", Severity.MAJOR, _HTTP_REF)
-def hs_001(s: ProbeSession) -> tuple[Status, str]:
+def hs_001(s: ProbeSession) -> CheckReturn:
     """Evaluate RS-HS-001: Unpaid request is answered with HTTP 402."""
     code = s.first.status_code
     if code == 402:
