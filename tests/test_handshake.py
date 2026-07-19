@@ -49,6 +49,25 @@ def test_no_method_switch_when_neither_verb_is_a_paywall() -> None:
     assert by_id(results, "RS-HS-001").status == Status.FAIL
 
 
+def test_method_post_reaches_a_post_only_paywall() -> None:
+    # K2-10: a POST-only paywalled API answers 405 to GET but 402 to POST. With the
+    # operator-selected method the tool reaches the real paywall instead of grading a
+    # spurious 405 from the wrong verb — and GET still reports the 405 faithfully,
+    # never silently switching (side effects).
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(
+                402, headers={"PAYMENT-REQUIRED": encode_header(VALID_PAYMENT_REQUIRED)}
+            )
+        return httpx.Response(405, json={})
+
+    transport = httpx.MockTransport(handler)
+    post = run_checks(TARGET_URL, method="POST", transport=transport)
+    assert by_id(post, "RS-HS-001").status == Status.PASS
+    get = run_checks(TARGET_URL, method="GET", transport=transport)
+    assert by_id(get, "RS-HS-001").status == Status.FAIL
+
+
 def test_spec_example_endpoint_is_conformant(valid_transport: httpx.MockTransport) -> None:
     """The spec's own example payload must pass every gating check."""
     results = run_checks(TARGET_URL, transport=valid_transport)
