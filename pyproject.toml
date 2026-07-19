@@ -122,6 +122,7 @@ ignore = [
 "tests/test_svm_harness.py" = ["E402"]
 "tests/test_svm_verify.py" = ["E402"]
 "tests/test_svm_reference.py" = ["E402"]
+"tests/test_svm_facilitator.py" = ["E402"]
 
 [tool.coverage.run]
 source = ["x402_conformance"]
