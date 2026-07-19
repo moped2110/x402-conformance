@@ -41,18 +41,15 @@ def verify_exact_svm_transaction(
     pay_to: str,
     amount: int,
     fee_payer: str,
-    token_program: str = "",
 ) -> str | None:
     """Return the spec error code for the first Path-1 violation, or None if valid.
 
-    ``token_program`` defaults to the SPL Token program via the ATA derivation; pass
-    the Token-2022 program to check a Token-2022 payment.
+    The destination ATA is derived under the token program of the actual transfer
+    instruction, so SPL Token and Token-2022 payments are both handled without the
+    caller having to say which one it is.
     """
     from solders.transaction import VersionedTransaction
 
-    from .svm import TOKEN_PROGRAM
-
-    program = token_program or TOKEN_PROGRAM
     tx = VersionedTransaction.from_bytes(base64.b64decode(b64_transaction))
     message = tx.message
     keys = [str(k) for k in message.account_keys]
@@ -67,8 +64,13 @@ def verify_exact_svm_transaction(
         # A token instruction that is not TransferChecked, or no token transfer at all.
         return ERR_NOT_TRANSFER_CHECKED
 
-    expected_dest = derive_ata(pay_to, mint, program)
-    matching = [ix for ix in transfers if keys[ix.accounts[2]] == expected_dest]
+    def _hits_payee(ix: object) -> bool:
+        """True if this transfer's destination is the ATA of payTo under its own program."""
+        dest = keys[ix.accounts[2]]  # type: ignore[attr-defined]
+        program = keys[ix.program_id_index]  # type: ignore[attr-defined]
+        return dest == derive_ata(pay_to, mint, program)
+
+    matching = [ix for ix in transfers if _hits_payee(ix)]
     if len(matching) > 1:
         # §1.4: exactly one matching transfer. A second one (double settle) is invalid.
         return ERR_EXACTLY_ONE
