@@ -92,9 +92,9 @@ python_version = "3.11"
 strict = true
 files = ["src", "tools/onchain_facilitator.py"]
 
-# solders/solana ship partial type info; don't let missing stubs break strict mode.
+# solders/solana/spl ship partial type info; don't let missing stubs break strict mode.
 [[tool.mypy.overrides]]
-module = ["solders.*", "solana.*"]
+module = ["solders.*", "solana.*", "spl.*"]
 ignore_missing_imports = true
 
 [tool.ruff]
@@ -119,6 +119,8 @@ ignore = [
 "tests/test_svm_foundation.py" = ["E402"]
 "tests/test_svm_builder.py" = ["E402"]
 "tests/test_svm_tamper.py" = ["E402"]
+"tests/test_svm_harness.py" = ["E402"]
+"tests/test_svm_verify.py" = ["E402"]
 
 [tool.coverage.run]
 source = ["x402_conformance"]
