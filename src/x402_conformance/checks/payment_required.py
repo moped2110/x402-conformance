@@ -385,7 +385,10 @@ def pr_013(s: ProbeSession) -> tuple[Status, str]:
                 problems.append(
                     f"accepts[{i}].{field}={value!r} is not an EVM address but network is {network}"
                 )
-            elif namespace == "solana" and looks_evm:
+            elif namespace in ("solana", "xrpl") and looks_evm:
+                # A 0x EVM address on a non-EVM rail is an unambiguous mismatch: Solana
+                # uses base58 accounts, XRPL uses classic r-addresses. This is safe to
+                # gate without a per-chain address validator (which we do not have).
                 problems.append(
                     f"accepts[{i}].{field}={value!r} is an EVM address but network is {network}"
                 )
