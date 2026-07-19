@@ -12,6 +12,9 @@ from __future__ import annotations
 import pytest
 
 pytest.importorskip("solders")
+# The harness writes SPL account layouts, so it needs the full [svm] extra (solana/spl),
+# not just solders. CI installs solders alone, so skip there rather than error.
+pytest.importorskip("spl")
 
 from x402_conformance.svm import build_exact_svm_transaction
 from x402_conformance.svm_harness import SvmHarness
