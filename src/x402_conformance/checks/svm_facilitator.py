@@ -300,7 +300,9 @@ def _load_payer_keypair_bytes(source: str) -> bytes:
     return from_b58
 
 
-def _fetch_recent_blockhash(client: httpx.Client, rpc_url: str) -> str:  # pragma: no cover - live RPC
+def _fetch_recent_blockhash(
+    client: httpx.Client, rpc_url: str
+) -> str:  # pragma: no cover - live RPC
     """Fetch a fresh base58 blockhash from a Solana RPC (``getLatestBlockhash``)."""
     resp = client.post(
         rpc_url,
