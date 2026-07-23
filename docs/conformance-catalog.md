@@ -117,32 +117,28 @@ These are the money tests: a server that delivers the resource despite an invali
 | ID | Test | Expected | Spec ref | Sev | Status |
 |----|------|----------|----------|-----|--------|
 | FA-SUP-001 | `GET /supported` **if present** returns `kinds[]`, `extensions[]`, `signers{}` | Schema-valid when present; absent (404) is SKIP — `/supported` is optional (§7.3), requirements come inline in the 402 | CORE §7.3 | M | implemented |
-| FA-SUP-002 | Each kind is well-formed: `x402Version` 1 or 2, `scheme`, non-empty `network`; a **v2** kind's network is CAIP-2 (a **v1** kind carries a legacy name, e.g. `base-sepolia`). **Exception, dated:** an `algorand:` network in the untruncated base64 form is reported but not judged — see below | Pass — version-aware, so a facilitator serving both v1+v2 isn't false-flagged | CORE §7.3.1 | M | implemented |
+| FA-SUP-002 | Each kind is well-formed: `x402Version` 1 or 2, `scheme`, non-empty `network`; a **v2** kind's network is CAIP-2 (a **v1** kind carries a legacy name, e.g. `base-sepolia`) | Pass — version-aware, so a facilitator serving both v1+v2 isn't false-flagged; a non-CAIP-2 v2 network fails (see note) | CORE §7.3.1 | M | implemented |
 
-#### FA-SUP-002 — deferred Algorand identifier form (since 2026-07-18)
+#### FA-SUP-002 — Algorand CAIP-2 (dated deferral retired 2026-07-23)
 
-x402's reference facilitator and its docs advertise Algorand networks as the untruncated
-standard-base64 genesis hash, e.g. `algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=`.
-[CAIP-2](https://chainagnostic.org/CAIPs/caip-2) (Status: Final) allows
+x402's reference facilitator once advertised Algorand networks as the untruncated
+standard-base64 genesis hash (e.g. `algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=`),
+which [CAIP-2](https://chainagnostic.org/CAIPs/caip-2) (Final) does not permit — its reference is
 `[-_a-zA-Z0-9]{1,32}`, and the
 [Algorand namespace profile](https://namespaces.chainagnostic.org/algorand/caip2) requires
-URL-safe base64 truncated to 32 characters — so the advertised form is not valid CAIP-2.
+URL-safe base64 truncated to 32 characters. We reported it as
+[x402#2904](https://github.com/x402-foundation/x402/issues/2904); rather than gate on a point
+under clarification, the check *deferred* that one form (`SKIP` +
+`reason_code = deferred_pending_upstream`, run inconclusive).
 
-Reported upstream as
-[x402-foundation/x402#2904](https://github.com/x402-foundation/x402/issues/2904). Until that is
-answered the check **reports the finding but does not gate on it**: the ecosystem may have
-adopted the longer form deliberately, and gating on a point under clarification would break the
-suite's zero-false-gating position.
-
-Mechanically the result is `SKIP` carrying `reason_code = deferred_pending_upstream`, and a run
-containing a deferral can never be `CONFORMANT` — it comes out **inconclusive** (exit 2). We do
-not certify conformance while stating that a gating point was not judged.
-
-The exception is deliberately narrow and pinned by tests
-(`tests/test_facilitator_algorand_deferral.py`): only the `algorand:` namespace, only the
-identifier *encoding*, and only when nothing else in the response is wrong. **Remove it once
-#2904 is answered** — either by restoring the plain failure, or by accepting the form as
-x402-specific and saying so here.
+It is resolved: the fix shipped in
+[x402#2931](https://github.com/x402-foundation/x402/pull/2931) — canonical URL-safe ids truncated
+to 32 chars (e.g. `algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDe`), with legacy full-hash forms
+normalized on input. The deferral has therefore been **retired**: a non-CAIP-2 v2 network is a
+plain `FAIL` again and the canonical form `PASS`es. Pinned by
+`tests/test_facilitator_algorand_caip2.py`. (The general `deferred_pending_upstream` mechanism
+remains for any future point under clarification; Algorand was simply its first and now-closed
+instance.)
 | FA-VER-001 | `POST /verify` with valid payload | `{isValid:true, payer}` | CORE §7.1 | M | planned |
 | FA-VER-002 | `/verify` with each RS-NEG payload class | `isValid:false` + correct `invalidReason` code | CORE §7.1, §9 | C | implemented |
 | FA-VER-003 | `/verify` with an **asset that is an EOA** (no bytecode) | `isValid:false` — facilitator must pre-flight `eth_getCode` and reject (`asset_not_deployed_contract`), else settlement is a silent no-op | CORE §7.1 + x402#2554 | C | implemented |
