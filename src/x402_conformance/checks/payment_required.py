@@ -29,6 +29,41 @@ _PRINTABLE_ASCII_RE = re.compile(r"^[\x20-\x7e]*$")
 
 _REQUIRED_ACCEPT_FIELDS = ("scheme", "network", "amount", "asset", "payTo", "maxTimeoutSeconds")
 
+# The complete v2 PaymentRequirements vocabulary for one accepts entry
+# (CORE §5.1.2): the six required fields plus the optional `extra`. `resource`,
+# `description`, and `mimeType` are top-level ResourceInfo, not per-entry.
+_KNOWN_ACCEPT_FIELDS = frozenset({*_REQUIRED_ACCEPT_FIELDS, "extra"})
+
+# Payment schemes the protocol names (CORE Document Scope + §6). A `scheme`
+# value outside this set is unpayable by any conformant client.
+_KNOWN_SCHEMES = frozenset({"exact", "upto", "batch-settlement"})
+
+# Scheme-specific `extra` vocabularies, from the scheme specs. `exact` on EVM
+# (scheme_exact_evm.md) uses the EIP-712 domain fields; `upto` on SVM
+# (scheme_upto_svm.md) uses the payment-channel fields. A key from one scheme
+# appearing on an entry declaring the other is a scheme/extra mismatch.
+_EXACT_EXTRA_KEYS = frozenset({"assetTransferMethod", "name", "version"})
+_UPTO_EXTRA_KEYS = frozenset(
+    {
+        "feePayer",
+        "receiverAuthorizer",
+        "withdrawDelay",
+        "tokenProgram",
+        "recentBlockhash",
+        "recentSlot",
+        "validAfter",
+    }
+)
+
+
+def _hkey(v: object) -> object:
+    """Return a hashable stand-in for grouping: the value itself, or its repr."""
+    try:
+        hash(v)
+    except TypeError:
+        return repr(v)
+    return v
+
 
 def _accepts_raw(s: ProbeSession) -> list[dict[str, object]] | None:
     """Return only object entries from the raw accepts array, or None for a missing array."""
@@ -490,3 +525,126 @@ def pr_016(s: ProbeSession) -> tuple[Status, str]:
     if problems:
         return Status.FAIL, "; ".join(problems)
     return Status.PASS, f"{len(invoices)} x-jp402 invoice block(s) structurally valid"
+
+
+@register(
+    "RS-PR-017",
+    "accepts scheme is a known payment scheme",
+    Severity.MAJOR,
+    f"{_CORE} Document Scope + §6",
+)
+def pr_017(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-017: accepts scheme is a known payment scheme."""
+    accepts = _accepts_raw(s)
+    if not accepts:
+        return Status.SKIP, "no accepts entries to inspect"
+    bad = []
+    for i, e in enumerate(accepts):
+        scheme = e.get("scheme")
+        if not isinstance(scheme, str):
+            continue  # RS-PR-005 handles a missing/non-string scheme
+        if scheme not in _KNOWN_SCHEMES:
+            bad.append(f"accepts[{i}].scheme={scheme!r}")
+    if bad:
+        return Status.FAIL, (
+            "unknown payment scheme(s): "
+            + ", ".join(bad)
+            + f" — not one of {sorted(_KNOWN_SCHEMES)}; no conformant client can pay these"
+        )
+    return Status.PASS, ""
+
+
+@register(
+    "RS-PR-018",
+    "no contradictory accepts entries for the same rail+asset",
+    Severity.MAJOR,
+    f"{_CORE} §5.1.2",
+)
+def pr_018(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-018: no contradictory accepts entries for the same rail+asset."""
+    accepts = _accepts_raw(s)
+    if not accepts:
+        return Status.SKIP, "no accepts entries to inspect"
+    # Offering the same asset on the same rail (scheme+network) at two different
+    # (payTo, amount) pairs is a genuine ambiguity: a client cannot tell which
+    # recipient or price is real. Two entries that differ only by asset (pay in
+    # USDC *or* DAI) are a legitimate choice, not a contradiction — so the group
+    # key includes asset and only (payTo, amount) variance within a group fails.
+    groups: dict[tuple[object, object, object], set[tuple[object, object]]] = {}
+    for e in accepts:
+        key = (_hkey(e.get("scheme")), _hkey(e.get("network")), _hkey(e.get("asset")))
+        groups.setdefault(key, set()).add((_hkey(e.get("payTo")), _hkey(e.get("amount"))))
+    problems = []
+    for (scheme, network, asset), variants in groups.items():
+        if len(variants) > 1:
+            problems.append(
+                f"scheme={scheme!r} network={network!r} asset={asset!r} offered with "
+                f"{len(variants)} different (payTo, amount) combinations"
+            )
+    if problems:
+        return Status.FAIL, "; ".join(problems) + " — ambiguous which payment is the real one"
+    return Status.PASS, ""
+
+
+@register(
+    "RS-PR-019",
+    "accepts extra fields match the entry's scheme",
+    Severity.MINOR,
+    "scheme_exact_evm.md + scheme_upto_svm.md",
+)
+def pr_019(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-019: accepts extra fields match the entry's scheme."""
+    if _x402_version(s) == 1:
+        return Status.SKIP, _V1_SKIP
+    accepts = _accepts_raw(s)
+    if not accepts:
+        return Status.SKIP, "no accepts entries to inspect"
+    problems = []
+    for i, e in enumerate(accepts):
+        raw_extra = e.get("extra")
+        if not isinstance(raw_extra, dict):
+            continue
+        keys = set(raw_extra)
+        scheme = e.get("scheme")
+        if scheme == "exact":
+            leaked = sorted(keys & _UPTO_EXTRA_KEYS)
+            if leaked:
+                problems.append(
+                    f"accepts[{i}] scheme=exact carries upto-only extra field(s): "
+                    + ", ".join(leaked)
+                )
+        elif scheme == "upto" and "assetTransferMethod" in keys:
+            # scheme_upto_svm.md §3: upto has no assetTransferMethod discriminator.
+            problems.append(
+                f"accepts[{i}] scheme=upto carries exact-only extra.assetTransferMethod"
+            )
+    if problems:
+        return Status.FAIL, "; ".join(problems) + " — extra does not match the declared scheme"
+    return Status.PASS, ""
+
+
+@register(
+    "RS-PR-020",
+    "accepts entries carry no fields outside the v2 schema",
+    Severity.MINOR,
+    f"{_CORE} §5.1.2",
+)
+def pr_020(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-020: accepts entries carry no fields outside the v2 schema."""
+    if _x402_version(s) == 1:
+        return Status.SKIP, _V1_SKIP
+    accepts = _accepts_raw(s)
+    if not accepts:
+        return Status.SKIP, "no accepts entries to inspect"
+    problems = []
+    for i, e in enumerate(accepts):
+        unknown = sorted(set(e) - _KNOWN_ACCEPT_FIELDS)
+        if unknown:
+            problems.append(f"accepts[{i}] has non-v2 field(s): " + ", ".join(unknown))
+    if problems:
+        return Status.FAIL, (
+            "; ".join(problems)
+            + " — outside the §5.1.2 PaymentRequirements set; a conformant client ignores "
+            "them, so any payment-relevant data placed here is silently dropped"
+        )
+    return Status.PASS, ""

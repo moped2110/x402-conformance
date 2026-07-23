@@ -10,8 +10,8 @@
 
 ## Implementation status (v0.2.0)
 
-**Implemented & tested (63 checks):**
-- RS-HS-001…007, RS-PR-001…016 — passive (`check`). RS-PR-008 now does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
+**Implemented & tested (67 checks):**
+- RS-HS-001…007, RS-PR-001…020 — passive (`check`). RS-PR-008 now does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
 - RS-NEG-001/002/003/004/005/006/007/008/009/011/012/013/014/015 + RS-SEC-003 + RS-SEC-004 + RS-SEC-005 + RS-SEC-006 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
 - RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) — on-chain (`check --pay`)
 - FA-SUP-001/002, FA-VER-002/003/004, FA-ERR-001 — `facilitator`; FA-SET-001/002/003 — `facilitator --settle`
@@ -65,6 +65,10 @@ proof.
 | RS-PR-014 | amount is strictly positive | `amount` > 0 (not "0", not negative) — a zero/negative price is a logic hole | CORE §5.1.2 + N5 | M | implemented |
 | RS-PR-016 | **jp402 OpenAPI invoice** (when `jp402` is advertised) is structurally valid | The qualified-invoice metadata (`registrationNumber` `^T[0-9]{13}$`) lives in the seller's OpenAPI doc (`x-jp402.invoice` at `info` / per-operation), not on the live 402. The runner fetches `/openapi.json` only when the 402 advertises `jp402`; an unreachable/absent doc is a SKIP, a present-but-malformed invoice FAILs. Community extension, MINOR | jp402-registry | m | implemented |
 | RS-PR-015 | **jp402 tax** breakdown (if present) is structurally consistent | Opt-in JP-rail check: SKIP unless `jp402` advertised on the live 402; validates the `tax` block (`excl_jpyc`/`vat_jpyc`/`rate`) — `vat == excl * rate` and `excl + vat` scaling onto `amount` by a power of ten. The qualified-invoice `registrationNumber` (`^T[0-9]{13}$`) lives in the OpenAPI doc (`x-jp402.invoice`), validated by `find_invoice_blocks` + `validate_invoice`. Community extension (jp402-registry), not core; MINOR so it never gates | jp402-registry | m | implemented |
+| RS-PR-017 | accepts `scheme` is a known payment scheme | `scheme` ∈ {`exact`, `upto`, `batch-settlement`} — an invented scheme is unpayable by any conformant client. A missing/non-string scheme is left to RS-PR-005 | CORE Document Scope + §6 | M | implemented |
+| RS-PR-018 | no contradictory accepts entries for the same rail+asset | Two entries sharing `scheme`+`network`+`asset` but differing in (`payTo`, `amount`) are ambiguous — a client cannot tell which recipient/price is real. Differing only by `asset` (pay in USDC *or* DAI) is a legitimate choice; byte-identical duplicates collapse | CORE §5.1.2 | M | implemented |
+| RS-PR-019 | accepts `extra` fields match the entry's scheme | Cross-scheme leakage: an `exact` entry carrying an upto-only channel field (`feePayer`/`receiverAuthorizer`/`withdrawDelay`/…) or an `upto` entry carrying the exact-only `assetTransferMethod`. Skips on v1. MINOR (never gates) | scheme_exact_evm.md + scheme_upto_svm.md | m | implemented |
+| RS-PR-020 | accepts entries carry no fields outside the v2 schema | Any key beyond {`scheme`,`network`,`amount`,`asset`,`payTo`,`maxTimeoutSeconds`,`extra`} (e.g. legacy `outputSchema`) — a conformant client ignores it, so payment-relevant data placed there is silently dropped. Skips on v1. MINOR (never gates) | CORE §5.1.2 | m | implemented |
 
 ## 3. RS-PAY — Payment flow, positive path (testnet/mock only)
 

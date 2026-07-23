@@ -314,6 +314,8 @@ _REMEDIATION: dict[str, str] = {
     "RS-PR-009": "Add `extra.name` and `extra.version` to each exact/eip3009 entry — clients need them to build the EIP-712 domain.",
     "RS-PR-013": "Match payTo/asset to the network namespace (EVM address for eip155, Solana address for solana).",
     "RS-PR-014": "Set a strictly positive `amount` (> 0).",
+    "RS-PR-017": "Advertise a protocol-named `scheme` (exact / upto / batch-settlement) — a client can't pay an unknown one.",
+    "RS-PR-018": "Don't offer the same scheme+network+asset at two different payTo/amount values; pick one, or vary the asset.",
     "RS-NEG-003": "Reject a payment whose signature doesn't recover to `from` before serving or settling.",
     "RS-NEG-005": "Reject underpayment: the authorized value must equal the required amount.",
     "RS-NEG-007": "Reject a payment whose `to` doesn't match your payTo (recipient mismatch).",
