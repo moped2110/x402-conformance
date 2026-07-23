@@ -12,10 +12,17 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   technically a clean 4xx — certifying an endpoint that does not exist. A 404/405/501 on `/verify`
   or `/settle` is now absence: `SKIP`, never FAIL and never PASS, and the FA-SET group stops
   sending payloads. Found by running the tool against a real resource server on 2026-07-18.
-- **FA-SUP-002 defers the Algorand CAIP-2 identifier form** pending
-  [x402-foundation/x402#2904](https://github.com/x402-foundation/x402/issues/2904). The finding is
-  reported in full but does not gate; see `docs/conformance-catalog.md` for the reasoning and the
-  removal condition.
+- **FA-SUP-002 Algorand CAIP-2 deferral retired.** The identifier form was briefly deferred pending
+  [x402-foundation/x402#2904](https://github.com/x402-foundation/x402/issues/2904); it is resolved
+  ([#2931](https://github.com/x402-foundation/x402/pull/2931), canonical URL-safe 32-char ids with
+  legacy normalization on input). A non-CAIP-2 v2 network is a plain FAIL again; the general
+  `deferred_pending_upstream` mechanism stays for future points under clarification. See
+  `docs/conformance-catalog.md`.
+- **Upstream review pin `aad8e4e` → `61349de`** (2026-07-23). Reviewed the 24 commits in between:
+  besides the Algorand fix above, everything lands in passive-only or planned rows (SVM SIWx/blockhash,
+  Stellar/AVM scheme rewrites, `upto`-SVM spec, batch-settlement asset handling, SDK fixes). Error-reason
+  registry confirmed drift-free against the live `x402Specs.ts`; `SPEC_BASELINE` (`d454eb9`) unchanged —
+  no supported Core-check semantics moved.
 - **A deferred finding forces an inconclusive verdict.** Deferring alone was unsafe: with the only
   gating finding turned into a SKIP, a run came out `CONFORMANT` on one passed check out of nine.
   A run containing `reason_code = deferred_pending_upstream` is now never conformant.

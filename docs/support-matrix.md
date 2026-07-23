@@ -5,7 +5,7 @@ run is conformance for the rows marked **supported**, not a blanket certificate 
 every x402 transport, network, scheme, or transfer mechanism.
 
 **Tool spec baseline:** `x402-foundation/x402@d454eb9` (2026-06-08)
-**Latest upstream review:** `main@aad8e4e` (2026-07-17), rechecked 2026-07-18
+**Latest upstream review:** `main@61349de` (2026-07-23), rechecked 2026-07-23
 **Review sources:** [upstream commits](https://github.com/x402-foundation/x402/commits/main/),
 [V2 core specification](https://github.com/x402-foundation/x402/blob/main/specs/x402-specification-v2.md),
 [scheme specifications](https://github.com/x402-foundation/x402/tree/main/specs/schemes), and
