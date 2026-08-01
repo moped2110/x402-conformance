@@ -35,6 +35,11 @@ onchain = [
     "eth-account>=0.13,<0.14",
     "web3>=6.0",
 ]
+# The MCP server (`x402-conformance-mcp`). Optional because the CLI and the
+# library have no use for it, and it pulls a server stack most users never run.
+mcp = [
+    "mcp>=2.0",
+]
 # SVM (Solana) exact-scheme support: ATA derivation + partial-signed transaction
 # building. Purely additive — no EVM path depends on this. See ../SOLANA-PLAN.md.
 svm = [
@@ -79,6 +84,7 @@ supply-chain = [
 
 [project.scripts]
 x402-conformance = "x402_conformance.cli:app"
+x402-conformance-mcp = "x402_conformance.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/x402_conformance"]

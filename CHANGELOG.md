@@ -5,6 +5,18 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **MCP server (`x402-conformance-mcp`, optional `[mcp]` extra).** Exposes the passive surface —
+  `check_endpoint`, `explain_check`, `diff_reports`, `check_discovery` — over the Model Context
+  Protocol, so an agent in Claude Code or Cursor can test an endpoint without leaving the editor.
+  `check_endpoint` returns the failures with their detail and spec reference plus the full versioned
+  report, so the result can go straight back into `diff_reports` after a fix.
+  It **cannot** sign, settle, or probe `/verify`: the tools take no signer key, no RPC URL and no
+  `active` flag, and the module never imports the signing path — both enforced by
+  `tests/test_mcp_server.py`. The payment-safety invariant requires an explicit flag per run so a
+  transactional mode cannot be enabled by configuration nobody read, and an agent deciding for
+  itself is that case. Those modes stay in the CLI.
+
 ### Changed
 - **A missing facilitator endpoint is no longer graded.** Pointing `facilitator` at something that
   is not a facilitator produced both kinds of wrong answer at once: FA-VER-002/003 and FA-ERR-001

@@ -151,6 +151,43 @@ when the protected resource requires POST.
 - Auto-discovered TOML config cannot enable `active`, `pay`, or `timing`; those
   modes require an explicit flag on each run. Config keys are type/range checked.
 
+## MCP server (for coding agents)
+
+`x402-conformance-mcp` exposes the **passive** surface over the Model Context
+Protocol, so an agent in Claude Code, Claude Desktop or Cursor can check an
+endpoint without leaving the editor.
+
+```bash
+pip install "x402-conformance[mcp]"
+```
+
+```jsonc
+// Claude Code: .mcp.json — or the equivalent block in your client's config
+{
+  "mcpServers": {
+    "x402-conformance": { "command": "x402-conformance-mcp" }
+  }
+}
+```
+
+Four tools: `check_endpoint` (two unpaid requests, verdict plus every failure
+with its detail and spec reference), `explain_check` (offline — what a check ID
+means and how to fix it), `diff_reports` (did my fix work, did anything
+regress), and `check_discovery` (DI-* against a Bazaar base URL). `check_endpoint`
+returns the full versioned report alongside the digest, so it can be handed
+straight back to `diff_reports` without writing a file.
+
+**It cannot sign or settle a payment, and it cannot probe a facilitator's
+`/verify`.** Not by default — at all. The tools take no signer key, no RPC URL
+and no `active` flag, and the module never imports the signing path
+(`tests/test_mcp_server.py` enforces both). The payment-safety invariant says
+transactional modes need an explicit flag per run so they cannot be switched on
+by configuration nobody read; an agent choosing for itself is that same case.
+Those modes stay in the CLI, where a person types the flag.
+
+Transport defaults to stdio, which is what an editor spawns. Set
+`X402_MCP_TRANSPORT=sse` or `streamable-http` for a shared deployment.
+
 ## Development
 
 ```bash
