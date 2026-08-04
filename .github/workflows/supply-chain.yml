@@ -33,6 +33,7 @@ jobs:
           # this comparison reports drift that does not exist.
           uv pip compile pyproject.toml \
             --extra dev --extra calibration --extra release --extra supply-chain \
+            --extra mcp \
             --universal --python-version 3.11 --generate-hashes --no-annotate \
             --no-header --upgrade -o /tmp/ci-updated.txt
           tail -n +3 requirements/ci.txt > /tmp/ci-current.txt

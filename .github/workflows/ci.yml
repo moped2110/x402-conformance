@@ -39,6 +39,7 @@ jobs:
           # fails on 3.11. Keep this flag in sync with supply-chain.yml.
           uv pip compile pyproject.toml \
             --extra dev --extra calibration --extra release --extra supply-chain \
+            --extra mcp \
             --universal --python-version 3.11 --generate-hashes --no-annotate \
             -o requirements/ci.txt
           git diff --exit-code -- requirements/ci.txt
