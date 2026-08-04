@@ -166,8 +166,15 @@ instance.)
 The versioned [`support-matrix.md`](support-matrix.md) is authoritative. In
 summary, Permit2, ERC-7710, runnable SVM, `upto`, and `batch-settlement` are
 planned. V1 and unsupported network families receive shared-envelope checks
-only. MCP/A2A transports, mainnet payment execution, custody, and legal/tax
-certification are out of scope.
+only. Endpoints that speak x402 **over** MCP or A2A, mainnet payment execution,
+custody, and legal/tax certification are out of scope.
+
+That last point is worth stating precisely, because the package ships an MCP
+server of its own (`x402-conformance-mcp`). Being *driven* over MCP and being
+*tested* over MCP are different things: the server runs the same passive checks
+the CLI runs, against ordinary HTTP endpoints. It adds no check and assesses no
+new transport. See the *Interfaces* section of the support matrix for what it can
+and cannot be asked to do.
 
 ## 9. Test infrastructure notes
 

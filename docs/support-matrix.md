@@ -25,10 +25,29 @@ Status meanings:
 |---|---|---|
 | HTTP x402 V2 | supported | 402 signaling, strict `PaymentRequired`, resource identity, headers, robustness, reports, facilitator, and Bazaar discovery checks. The selected HTTP method is never changed implicitly. |
 | HTTP x402 V1 | passive-only | Recognized and reported as V1; exit 2 (`INCONCLUSIVE`) for a V2 assessment. |
-| MCP and A2A transports | out of scope | No transport adapter or verdict. |
+| x402 **over** MCP or A2A | out of scope | No transport adapter and no verdict: an endpoint that speaks x402 over MCP is not something this suite can assess. Not to be confused with *Interfaces* below — this row is about what gets tested, that section is about how the suite is driven. |
 | `jp402` / `x-jp402` metadata | passive-only | Optional structural and arithmetic validation; not tax, legal, or invoice-compliance advice. |
 | Bazaar discovery | supported | Strict response/pagination/filter checks. Cross-fetch is public-address-only by default with DNS pinning, redirect revalidation, caps, and explicit allowlists. |
 | Builder-code and other extension payloads | passive-only | Unknown extension data is preserved; semantic correctness of builder-code arrays is not yet assessed. |
+
+## Interfaces (how the suite is driven)
+
+Two interfaces reach the same checks. They differ in what they can be asked to do,
+because they differ in who is asking.
+
+| Interface | Status | Scope and boundary |
+|---|---|---|
+| CLI (`x402-conformance`) | supported | The full surface. Transactional modes (`--pay`, `facilitator --settle`) exist here and require an explicit flag per run, per SECURITY.md. |
+| MCP server (`x402-conformance-mcp`, `[mcp]` extra) | supported, passive only | Exposes `check_endpoint`, `check_discovery`, `explain_check` and `diff_reports`. It cannot sign, settle, or probe `/verify`: the tools take no signer key, no RPC URL and no `active` flag, and the module never imports the signing path. That is structural, not a default — an agent deciding for itself to sign is precisely the case SECURITY.md's per-run flag rule exists to prevent. |
+
+**Destination policy on the MCP server.** `check_endpoint` and `check_discovery` take a
+URL from the caller, so how far they reach depends on the transport. On `stdio` the
+caller has exactly the reach of the person who started the server, and local addresses
+are fetched — that is the intended use, testing an endpoint you are building. On the
+shared transports (`sse`, `streamable-http`) only publicly routable destinations are
+fetched, using the same address policy as the Bazaar cross-fetch; otherwise the server
+would be a way to reach networks the caller cannot reach itself. The transport is the
+operator's choice at start-up and is never a tool parameter.
 
 ## Schemes, networks, and transfer methods
 
