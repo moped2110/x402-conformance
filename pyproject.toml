@@ -67,6 +67,12 @@ dev = [
     "aiohttp>=3.14.3",  # PYSEC-2026-3545 / -3546 / -3547
     "jsonschema>=4.0",
     "solders>=0.21",
+    # The MCP SDK is in `dev` as well as its own extra, deliberately. Without it
+    # installed, mypy resolves the server module's imports to Any and then reports
+    # its tool decorator as untyped — three failures that say nothing about the
+    # code. A gate that shows false red is a gate people stop reading. CI already
+    # installs it; this makes the local run agree.
+    "mcp>=2.0",
 ]
 # Live calibration / verify-new-features tooling. tools/calibration_target.py is a
 # reference target that validates payments with the REAL x402 SDK, so a green
