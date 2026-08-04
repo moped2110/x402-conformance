@@ -23,13 +23,24 @@ The passive checks are still real network calls to a third-party endpoint: two
 unpaid HTTP requests, exactly what a client that cannot pay would send. That is
 the most an agent should be able to initiate on its own recognisance.
 
+How far those calls may reach depends on the transport, because the transport
+decides who is calling. On stdio the caller is the person who started the server
+and has exactly their reach, so a local address is theirs to fetch — which is the
+main use case, testing the endpoint you are building on localhost. Over ``sse`` or
+``streamable-http`` the server is reachable by others, and a target that resolves
+inside the network would make it an SSRF pivot whose response comes back inside
+the check details. On those transports only public destinations are fetched. The
+policy is the Bazaar cross-fetch policy, imported rather than restated.
+
 Anything transactional stays where a human types it: the CLI, one flag, one run.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -50,6 +61,53 @@ from .runner import EndpointUnreachable, run_checks
 # HTTP ones exist for a shared deployment and are chosen by the operator, never
 # by a caller.
 TRANSPORTS = ("stdio", "sse", "streamable-http")
+
+# The transports that expose this server to somebody other than the person who
+# started it. On stdio the caller already has exactly the user's own reach, so a
+# local address is theirs to fetch and blocking it would break the main use case:
+# testing the endpoint you are building on localhost. Over HTTP the server becomes
+# a request primitive aimed at whatever host appears in a prompt, and a target that
+# resolves inside the network is an SSRF pivot whose response comes back in the
+# check details.
+SHARED_TRANSPORTS = frozenset({"sse", "streamable-http"})
+
+log = logging.getLogger("x402_conformance.mcp")
+
+
+def _non_public_refusal(url: str) -> str | None:
+    """Return why a URL may not be fetched over a shared transport, or None.
+
+    Delegates to the Bazaar cross-fetch policy instead of restating it. Two address
+    policies in one package would drift apart, and that one already handles IP
+    literals, IDNA hostnames and the special-use ranges Python still calls global.
+    """
+    from .checks.discovery import (
+        CrossFetchError,
+        _canonical_host,
+        _is_public_address,
+        _resolve_addresses,
+        _system_resolver,
+    )
+
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"}:
+        return f"unsupported URL scheme {parsed.scheme!r}: only http and https are fetched"
+    if not parsed.hostname:
+        return "the URL has no host"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        host = _canonical_host(parsed.hostname)
+        addresses = _resolve_addresses(host, port, _system_resolver)
+    except (ValueError, CrossFetchError) as exc:
+        return str(exc)
+    if all(_is_public_address(address) for address in addresses):
+        return None
+    return (
+        f"{host} resolves to a non-public address. This server is reachable over a "
+        "shared transport, so it will not fetch destinations the caller could not "
+        "reach itself. Run it on stdio to test an endpoint on your own machine."
+    )
+
 
 INSTRUCTIONS = """\
 Conformance testing for x402 payment endpoints, against the pinned spec baseline.
@@ -87,14 +145,20 @@ def _failure_digest(results: list[Any]) -> list[dict[str, str]]:
     ]
 
 
-def build_server() -> Any:
+def build_server(transport: str = "stdio") -> Any:
     """Construct the MCP server with the passive conformance tools bound.
 
     Imported lazily by ``main`` so that the optional MCP dependency is only
     required by somebody actually starting the server, not by importing the
     package.
+
+    ``transport`` decides how far a caller may reach: see ``SHARED_TRANSPORTS``.
+    It is the operator's choice at start-up, never a tool argument, because the
+    whole point is that the caller cannot widen it.
     """
     from mcp.server.mcpserver import MCPServer
+
+    guard_targets = transport in SHARED_TRANSPORTS
 
     server = MCPServer(
         name="x402-conformance",
@@ -114,6 +178,14 @@ def build_server() -> Any:
     )
     def check_endpoint(url: str, method: str = "GET", timeout: float = 10.0) -> dict[str, Any]:
         """Run the passive conformance checks against one endpoint."""
+        if guard_targets and (refusal := _non_public_refusal(url)) is not None:
+            return {
+                "verdict": "refused",
+                "reason": refusal,
+                "target": url,
+                "summary": None,
+                "failures": [],
+            }
         try:
             results = run_checks(url, method=method, timeout=timeout)
         except EndpointUnreachable as exc:
@@ -127,9 +199,13 @@ def build_server() -> Any:
                 "failures": [],
             }
         except httpx.HTTPError as exc:
+            # The exception text carries transport internals and, on a shared
+            # deployment, describes hosts the caller may not be entitled to learn
+            # about. It goes to the operator's log; the caller gets the verdict.
+            log.warning("check_endpoint transport failure for %r: %s", url, exc)
             return {
                 "verdict": "inconclusive",
-                "reason": f"request failed: {exc}",
+                "reason": "the request failed before the endpoint could be judged",
                 "target": url,
                 "summary": None,
                 "failures": [],
@@ -195,12 +271,21 @@ def build_server() -> Any:
         """Run the discovery conformance checks against one Bazaar base URL."""
         from .checks.discovery import run_discovery_checks
 
+        if guard_targets and (refusal := _non_public_refusal(url)) is not None:
+            return {
+                "verdict": "refused",
+                "reason": refusal,
+                "target": url,
+                "summary": None,
+                "failures": [],
+            }
         try:
             results = run_discovery_checks(url, timeout=timeout)
         except httpx.HTTPError as exc:
+            log.warning("check_discovery transport failure for %r: %s", url, exc)
             return {
                 "verdict": "inconclusive",
-                "reason": f"discovery endpoint unreachable: {exc}",
+                "reason": "the discovery endpoint could not be reached",
                 "target": url,
                 "summary": None,
                 "failures": [],
@@ -232,7 +317,7 @@ def main() -> None:
             file=sys.stderr,
         )
         raise SystemExit(2)
-    build_server().run(transport=transport)
+    build_server(transport).run(transport=transport)
 
 
 if __name__ == "__main__":

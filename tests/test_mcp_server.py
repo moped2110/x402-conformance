@@ -204,3 +204,93 @@ def test_the_instructions_state_the_boundary() -> None:
     """The client shows these to the model; the limit belongs where it will be read."""
     assert "no payments" in mcp_server.INSTRUCTIONS
     assert "command-line tool" in mcp_server.INSTRUCTIONS
+
+
+# --- How far a caller may reach depends on the transport ----------------------
+#
+# On stdio the caller is the person who started the server, so a local address is
+# theirs to fetch. Over a shared transport the server would otherwise be a way to
+# reach networks the caller cannot reach itself, with the response coming back in
+# the check details.
+
+
+def call_on(transport: str, name: str, arguments: dict[str, Any]) -> Any:
+    """Invoke one tool on a server built for a specific transport."""
+    server = mcp_server.build_server(transport)
+    result = asyncio.run(server.call_tool(name, arguments))
+    return getattr(result, "structured_content", None) or result
+
+
+def never_called(*args: Any, **kwargs: Any) -> list[CheckResult]:
+    """Stand in for run_checks and fail loudly if the guard let a request through."""
+    raise AssertionError("the target was fetched despite being non-public")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1:8080/pay",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://10.0.0.5/pay",
+        "http://[::1]:8080/pay",
+    ],
+)
+def test_a_shared_transport_refuses_a_non_public_target(monkeypatch, url: str) -> None:
+    """Loopback, link-local metadata and RFC1918 are all refused before any request."""
+    monkeypatch.setattr(mcp_server, "run_checks", never_called)
+    result = call_on("sse", "check_endpoint", {"url": url})
+
+    assert result["verdict"] == "refused"
+    assert "non-public" in result["reason"] or "no host" in result["reason"]
+
+
+def test_discovery_is_guarded_the_same_way(monkeypatch) -> None:
+    """The Bazaar tool takes a URL too, so it needs the same boundary."""
+    result = call_on("sse", "check_discovery", {"url": "http://127.0.0.1:9/"})
+    assert result["verdict"] == "refused"
+
+
+def test_stdio_still_reaches_a_local_endpoint(monkeypatch) -> None:
+    """The main use case — testing the endpoint you are building — must survive.
+
+    Blocking localhost on stdio would break it for no security: the agent already
+    runs with the user's own reach there.
+    """
+    monkeypatch.setattr(mcp_server, "run_checks", lambda *a, **k: [passing()])
+    result = call_on("stdio", "check_endpoint", {"url": "http://127.0.0.1:3000/pay"})
+
+    assert result["verdict"] != "refused"
+
+
+def test_a_public_target_is_allowed_on_a_shared_transport(monkeypatch) -> None:
+    """The guard rejects a destination, not the whole tool."""
+    monkeypatch.setattr(mcp_server, "run_checks", lambda *a, **k: [passing()])
+    result = call_on("sse", "check_endpoint", {"url": "http://1.1.1.1/pay"})
+
+    assert result["verdict"] != "refused"
+
+
+def test_a_non_http_scheme_is_refused(monkeypatch) -> None:
+    """file:// and friends are not destinations this tool fetches."""
+    monkeypatch.setattr(mcp_server, "run_checks", never_called)
+    result = call_on("sse", "check_endpoint", {"url": "file:///etc/passwd"})
+
+    assert result["verdict"] == "refused"
+
+
+def test_a_transport_error_does_not_hand_its_text_to_the_caller(monkeypatch) -> None:
+    """Exception text describes hosts and internals; the caller gets the verdict.
+
+    The detail belongs in the operator's log, not in an agent's context — on a
+    shared deployment it would describe a network the caller cannot see.
+    """
+
+    def boom(*args: Any, **kwargs: Any) -> list[CheckResult]:
+        """Fail the way a transport does, with an address in the message."""
+        raise httpx.ConnectError("connection to 10.0.0.5:8080 refused")
+
+    monkeypatch.setattr(mcp_server, "run_checks", boom)
+    result = call_on("stdio", "check_endpoint", {"url": "https://example.test/pay"})
+
+    assert result["verdict"] == "inconclusive"
+    assert "10.0.0.5" not in json.dumps(result)
