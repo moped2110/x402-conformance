@@ -34,11 +34,17 @@ evm = [
 onchain = [
     "eth-account>=0.13,<0.14",
     "web3>=6.0",
+    # Security floor for a transitive of web3, not a direct dependency.
+    # `pip-audit --strict` fails the supply-chain job below this version.
+    "aiohttp>=3.14.3",  # PYSEC-2026-3545 / -3546 / -3547
 ]
 # The MCP server (`x402-conformance-mcp`). Optional because the CLI and the
 # library have no use for it, and it pulls a server stack most users never run.
 mcp = [
     "mcp>=2.0",
+    # Security floor for a transitive of mcp, not a direct dependency. The MCP
+    # server stack must not ship a known-vulnerable crypto library.
+    "cryptography>=50.0.0",  # PYSEC-2026-3552
 ]
 # SVM (Solana) exact-scheme support: ATA derivation + partial-signed transaction
 # building. Purely additive — no EVM path depends on this. See ../SOLANA-PLAN.md.
@@ -55,6 +61,10 @@ dev = [
     "ruff==0.15.20",
     "eth-account>=0.13,<0.14",
     "web3>=6.0",
+    # Same security floor as the `onchain` extra: aiohttp is a web3 transitive, and
+    # this is the extra the CI lock is compiled from, so the floor has to be here
+    # too or `pip-audit --strict` keeps failing the supply-chain job.
+    "aiohttp>=3.14.3",  # PYSEC-2026-3545 / -3546 / -3547
     "jsonschema>=4.0",
     "solders>=0.21",
 ]
