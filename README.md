@@ -50,7 +50,7 @@ funds.
 
 ## Status
 
-**v0.2.0** — working tool. CI (pytest + mypy on Python 3.11–3.13) in `.github/workflows/ci.yml`; full release notes in [`CHANGELOG.md`](CHANGELOG.md). Implemented check groups:
+**v0.3.0** — working tool. CI (pytest + mypy on Python 3.11–3.13) in `.github/workflows/ci.yml`; full release notes in [`CHANGELOG.md`](CHANGELOG.md). Implemented check groups:
 
 - **RS-HS** (handshake) and **RS-PR** (PaymentRequired schema) — passive, no payment.
 - **RS-NEG** + **RS-SEC-010** (negative / security) — `--active`: signs deliberately-invalid payments and verifies the endpoint rejects them. Throwaway signer, no funds, no chain needed.
@@ -62,9 +62,9 @@ funds.
 
 Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **69 checks across the groups above; 590+ offline tests, mypy strict, CI green.**
 
-**Solana / SVM — in progress.** The `exact` scheme on Solana works differently from EVM: the client submits a *partial-signed transaction* (an SPL/Token-2022 `TransferChecked` to the recipient's ATA, co-signed by the sponsor `feePayer` at settle time), and a verifier checks the *outcome*, not a signature. The foundations ship behind an opt-in **`[svm]`** extra — CAIP-2 `solana:*` handling, ATA derivation, a spec-faithful partial-signed transaction builder, and tamper primitives for the negative checks. The runnable SVM check group needs a local validator and is **not shipped yet**. This is purely additive: without `[svm]`, the suite behaves exactly as before (no Solana dependency, no EVM path touched).
+**Solana / SVM — in progress.** The `exact` scheme on Solana works differently from EVM: the client submits a *partial-signed transaction* (an SPL/Token-2022 `TransferChecked` to the recipient's ATA, co-signed by the sponsor `feePayer` at settle time), and a verifier checks the *outcome*, not a signature. The foundations ship behind an opt-in **`[svm]`** extra — CAIP-2 `solana:*` handling, ATA derivation, a spec-faithful partial-signed transaction builder, and tamper primitives for the negative checks. A first runnable group ships: **FA-SVM** sends a valid partial-signed payload and six tampered ones to a facilitator's `/verify` (never `/settle`). The *settlement* path still needs a local validator and is **not shipped yet**. This is purely additive: without `[svm]`, the suite behaves exactly as before (no Solana dependency, no EVM path touched).
 
-Since v0.1.0 (see [`CHANGELOG.md`](CHANGELOG.md)): a developer-focused fix-it report (`check --fix`), v1-envelope handling (real JPYC endpoints no longer read as broken), asset-is-an-EOA rejection (x402#2554), an opt-in `x-jp402` invoice check, and added robustness checks (oversized header, control/Unicode input, non-32-byte nonce, bad `x402Version`, unoffered scheme/network).
+Since v0.2.0 (see [`CHANGELOG.md`](CHANGELOG.md)): six new passive checks on the challenge — four on `accepts` overspecification, two grading the challenge as JSON *text* (literals RFC 8259 does not define, duplicate keys) — the FA-SVM live `/verify` group, an MCP server for the passive surface, a machine-readable `inconclusiveReason` (report 1.3), and the Algorand CAIP-2 alignment that landed upstream as x402#2931.
 
 ## Install
 

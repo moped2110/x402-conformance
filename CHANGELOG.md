@@ -5,7 +5,28 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-08-06
+
 ### Added
+- **Six new passive checks on the PaymentRequired challenge (catalog 63 → 69).**
+  *Overspecification (RS-PR-017…020):* `scheme` must be one the protocol names, or no conformant
+  client can pay it — RS-PR-005 only ever checked that the field was present, never that its value
+  was payable; two entries offering the same scheme+network+asset at different `payTo`/`amount` are
+  ambiguous about which payment is real; `extra` must belong to the declared scheme; and no field
+  may sit outside the §5.1.2 set, because a client ignores the rest and payment-relevant data put
+  there is silently dropped. That last one is the case x402-trust caught observationally after five
+  days of bounced payments (`outputSchema` on an `accepts` entry) — this catches it from the
+  challenge alone.
+  *JSON text (RS-PR-021/022):* the challenge is also graded as text. Literals RFC 8259 does not
+  define (`NaN`, `Infinity`) and duplicate object keys both make a challenge mean different things
+  to different parsers — Python's decoder accepts them, Go's does not — so an endpoint can look
+  correct in testing and be unreadable to part of its clients.
+- **FA-SVM live `/verify` conformance group.** A valid partial-signed SVM payload plus six tampered
+  ones (dropped ComputeBudget, not-TransferChecked, double transfer, fee payer inside the transfer,
+  underpayment, wrong ATA) are sent to a facilitator's `/verify` — never `/settle`, per the money
+  invariant. Standalone, outside the default run. Validated against the real x402 reference payload,
+  and run live against the Kora demo facilitator: five of seven tampered payloads were accepted,
+  which is empirical evidence that the reference facilitator does not verify x402 structure at all.
 - **MCP server (`x402-conformance-mcp`, optional `[mcp]` extra).** Exposes the passive surface —
   `check_endpoint`, `explain_check`, `diff_reports`, `check_discovery` — over the Model Context
   Protocol, so an agent in Claude Code or Cursor can test an endpoint without leaving the editor.
@@ -17,35 +38,6 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   transactional mode cannot be enabled by configuration nobody read, and an agent deciding for
   itself is that case. Those modes stay in the CLI.
 
-### Changed
-- **A missing facilitator endpoint is no longer graded.** Pointing `facilitator` at something that
-  is not a facilitator produced both kinds of wrong answer at once: FA-VER-002/003 and FA-ERR-001
-  failed because `/verify` "did not answer properly", while FA-VER-004 **passed** because 404 is
-  technically a clean 4xx — certifying an endpoint that does not exist. A 404/405/501 on `/verify`
-  or `/settle` is now absence: `SKIP`, never FAIL and never PASS, and the FA-SET group stops
-  sending payloads. Found by running the tool against a real resource server on 2026-07-18.
-- **FA-SUP-002 Algorand CAIP-2 deferral retired.** The identifier form was briefly deferred pending
-  [x402-foundation/x402#2904](https://github.com/x402-foundation/x402/issues/2904); it is resolved
-  ([#2931](https://github.com/x402-foundation/x402/pull/2931), canonical URL-safe 32-char ids with
-  legacy normalization on input). A non-CAIP-2 v2 network is a plain FAIL again; the general
-  `deferred_pending_upstream` mechanism stays for future points under clarification. See
-  `docs/conformance-catalog.md`.
-- **Upstream review pin `aad8e4e` → `61349de`** (2026-07-23). Reviewed the 24 commits in between:
-  besides the Algorand fix above, everything lands in passive-only or planned rows (SVM SIWx/blockhash,
-  Stellar/AVM scheme rewrites, `upto`-SVM spec, batch-settlement asset handling, SDK fixes). Error-reason
-  registry confirmed drift-free against the live `x402Specs.ts`; `SPEC_BASELINE` (`d454eb9`) unchanged —
-  no supported Core-check semantics moved.
-- **A deferred finding forces an inconclusive verdict.** Deferring alone was unsafe: with the only
-  gating finding turned into a SKIP, a run came out `CONFORMANT` on one passed check out of nine.
-  A run containing `reason_code = deferred_pending_upstream` is now never conformant.
-- **Report schema 1.1 → 1.2**: `results[].reason_code` added as an optional, nullable field. The
-  schema sets `additionalProperties: false`, so this is a contract change rather than a free
-  addition — same major, consumers pinning major `1` keep working.
-- **CI runs on every branch**, not only `main`. Handed-over branch work previously reached `main`
-  without ever having seen CI, which is how two dependency locks passed every local gate and then
-  broke the whole matrix on merge.
-
-### Added
 - **RS-SEC-008 timing-oracle probe** (`check --timing`, opt-in): checks whether an endpoint's
   rejection *time* leaks which validation failed — a wrong-signature payment (fails early, at
   signature recovery) vs. a valid-signature wrong-amount payment (fails later) that reject with
@@ -69,8 +61,46 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   partial-signed transaction builder (`build_exact_svm_transaction`, mirrors the x402 reference
   client), and tamper primitives (`SvmTamper`) for the negative checks. **Additive and
   self-contained**: no EVM path is touched, and the SVM tests skip unless `[svm]` is installed, so
-  the core suite stays chain- and Solana-free. No runnable SVM checks yet — they need the
-  local-validator harness; the plan is in `../SOLANA-PLAN.md`.
+  the core suite stays chain- and Solana-free. The FA-SVM `/verify` group above now ships on top of
+  these; the *settlement* path still needs a local validator. Plan in `../SOLANA-PLAN.md`.
+
+### Changed
+- **A missing facilitator endpoint is no longer graded.** Pointing `facilitator` at something that
+  is not a facilitator produced both kinds of wrong answer at once: FA-VER-002/003 and FA-ERR-001
+  failed because `/verify` "did not answer properly", while FA-VER-004 **passed** because 404 is
+  technically a clean 4xx — certifying an endpoint that does not exist. A 404/405/501 on `/verify`
+  or `/settle` is now absence: `SKIP`, never FAIL and never PASS, and the FA-SET group stops
+  sending payloads. Found by running the tool against a real resource server on 2026-07-18.
+- **FA-SUP-002 Algorand CAIP-2 deferral retired.** The identifier form was briefly deferred pending
+  [x402-foundation/x402#2904](https://github.com/x402-foundation/x402/issues/2904); it is resolved
+  ([#2931](https://github.com/x402-foundation/x402/pull/2931), canonical URL-safe 32-char ids with
+  legacy normalization on input). A non-CAIP-2 v2 network is a plain FAIL again; the general
+  `deferred_pending_upstream` mechanism stays for future points under clarification. See
+  `docs/conformance-catalog.md`.
+- **Upstream review pin `aad8e4e` → `61349de`** (2026-07-23). Reviewed the 24 commits in between:
+  besides the Algorand fix above, everything lands in passive-only or planned rows (SVM SIWx/blockhash,
+  Stellar/AVM scheme rewrites, `upto`-SVM spec, batch-settlement asset handling, SDK fixes). Error-reason
+  registry confirmed drift-free against the live `x402Specs.ts`; `SPEC_BASELINE` (`d454eb9`) unchanged —
+  no supported Core-check semantics moved.
+- **A deferred finding forces an inconclusive verdict.** Deferring alone was unsafe: with the only
+  gating finding turned into a SKIP, a run came out `CONFORMANT` on one passed check out of nine.
+  A run containing `reason_code = deferred_pending_upstream` is now never conformant.
+- **Report schema 1.1 → 1.3**, in two steps within this cycle. `results[].reason_code` came first
+  (1.2), then a top-level `inconclusiveReason` (1.3) so a consumer can tell *why* a run was
+  inconclusive without parsing prose: `endpoint_absent`, `deferred_pending_upstream`,
+  `no_checks_applicable`, `not_x402_v2`, plus `unreachable`/`invalid_input` as CLI overrides. The
+  schema sets `additionalProperties: false`, so each is a contract change rather than a free
+  addition — same major, consumers pinning major `1` keep working.
+- **RS-PR-013 now gates XRPL cross-wiring too.** An EVM `0x` address on an `xrpl:` rail is as
+  unambiguously wrong as one on a Solana rail. The passive checks were already chain-agnostic, so
+  this was a widening of an existing rule rather than a new mechanism.
+- **CI runs on every branch**, not only `main`. Handed-over branch work previously reached `main`
+  without ever having seen CI, which is how two dependency locks passed every local gate and then
+  broke the whole matrix on merge.
+
+- `check` warns when its target URL looks like a facilitator/discovery endpoint (`/supported`,
+  `/verify`, `/settle`, `.well-known/x402`) — a passive resource check there yields a false
+  RS-HS-001; the note points to the `facilitator` subcommand.
 
 ### Fixed
 - **Payment modes now fail closed outside explicit test networks.** A central
@@ -94,10 +124,24 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   Upstream adopted it into the TS `ErrorReasons` enum, so it moved from the local-extension set into
   `SPEC_ERROR_REASONS` (the live drift guard caught the divergence).
 
-### Changed
-- `check` warns when its target URL looks like a facilitator/discovery endpoint (`/supported`,
-  `/verify`, `/settle`, `.well-known/x402`) — a passive resource check there yields a false
-  RS-HS-001; the note points to the `facilitator` subcommand.
+### Security
+- **The MCP server only fetches public destinations over a shared transport.** `check_endpoint` and
+  `check_discovery` take a URL from the caller, and this package's address policy lived only in the
+  Bazaar cross-fetch path. Over `stdio` that is harmless — the agent has exactly the reach of the
+  person who started it, and blocking localhost would break the main use case, testing the endpoint
+  you are building. Over `sse`/`streamable-http` the server is reachable by others, and an internal
+  target makes it an SSRF pivot whose response returns inside the check details. Verified before the
+  fix: requests to `127.0.0.1` and `169.254.169.254` went out with nothing refusing them. The
+  transport is a start-up argument, never a tool parameter, so a caller cannot widen its own reach.
+- **Transport exception text no longer reaches the caller.** On a shared deployment its wording
+  describes hosts the caller is not entitled to learn about. The verdict goes back; the detail goes
+  to the operator's log.
+- **Security floors on two transitive dependencies.** `cryptography` arrives via the new `mcp`
+  extra and `aiohttp` via `web3`; both sat at versions with published advisories
+  (PYSEC-2026-3552, PYSEC-2026-3545/3546/3547), which `pip-audit --strict` fails the supply-chain
+  job for. Floors rather than pins, declared in every extra that pulls the parent — a floor only in
+  `onchain` left the audit red while the file looked fixed, because the CI lock is compiled from
+  `dev`.
 
 ### Tooling
 - **ruff pinned exactly** (`ruff==0.15.20`, `dev` extra): the formatter's output varies across
