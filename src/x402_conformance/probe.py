@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
@@ -60,6 +61,11 @@ class Probe:
     json_error: str | None = None
     parsed: PaymentRequired | None = None
     parse_error: str | None = None
+    # Findings about the JSON *text*, recorded while decoding rather than inferred
+    # afterwards: once the document is a dict, a duplicate key and a JSON literal
+    # that RFC 8259 does not define are both invisible.
+    nonstandard_json_literals: tuple[str, ...] = ()
+    duplicate_json_keys: tuple[str, ...] = ()
 
     @property
     def legacy_headers_present(self) -> list[str]:
@@ -85,6 +91,46 @@ class ProbeSession:
     notes: list[str] = field(default_factory=list)
 
 
+# A PaymentRequired challenge travels base64-encoded in an HTTP response header, so
+# the HTTP layer already bounds it. This is a second bound on the decoded bytes:
+# cheap, and it makes an oversized challenge a refusal rather than a parse.
+_MAX_CHALLENGE_BYTES = 256 * 1024
+
+
+_JsonFindings = dict[str, list[str]]
+_ParseConstant = Callable[[str], float]
+_ObjectPairsHook = Callable[[list[tuple[str, object]]], dict[str, object]]
+
+
+def _collect_json_findings() -> tuple[_JsonFindings, _ParseConstant, _ObjectPairsHook]:
+    """Build the two json.loads hooks and the record they write into.
+
+    Both hooks preserve the default behaviour exactly — the same dict comes out with
+    the same values — and only note what the text contained on the way past. The
+    parse must not change: every other check reads the parsed document, and a
+    stricter parser here would silently alter their input.
+    """
+    found: _JsonFindings = {"literals": [], "duplicates": []}
+    constants = {"NaN": float("nan"), "Infinity": float("inf"), "-Infinity": float("-inf")}
+
+    def parse_constant(name: str) -> float:
+        """Record a non-RFC-8259 literal and return what json would have returned."""
+        if name not in found["literals"]:
+            found["literals"].append(name)
+        return constants.get(name, float("nan"))
+
+    def object_pairs_hook(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        """Record repeated keys, then collapse last-wins exactly as json does."""
+        seen: set[str] = set()
+        for key, _value in pairs:
+            if key in seen and key not in found["duplicates"]:
+                found["duplicates"].append(key)
+            seen.add(key)
+        return dict(pairs)
+
+    return found, parse_constant, object_pairs_hook
+
+
 def build_probe(response: httpx.Response) -> Probe:
     """Stage base64, JSON, and strict schema parsing without raising on hostile input."""
     headers = {k.lower(): v for k, v in response.headers.items()}
@@ -103,15 +149,29 @@ def build_probe(response: httpx.Response) -> Probe:
         except (binascii.Error, ValueError) as exc:
             decode_error = f"invalid base64: {exc}"
 
-    if decoded is not None:
+    findings, parse_constant, object_pairs_hook = _collect_json_findings()
+
+    if decoded is not None and len(decoded) > _MAX_CHALLENGE_BYTES:
+        json_error = (
+            f"challenge is {len(decoded)} bytes, over the {_MAX_CHALLENGE_BYTES}-byte "
+            "limit — not parsed"
+        )
+    elif decoded is not None:
         try:
-            loaded = json.loads(decoded)
+            loaded = json.loads(
+                decoded, parse_constant=parse_constant, object_pairs_hook=object_pairs_hook
+            )
             if isinstance(loaded, dict):
                 raw = loaded
             else:
                 json_error = f"top-level JSON is {type(loaded).__name__}, expected object"
         except json.JSONDecodeError as exc:
             json_error = f"invalid JSON: {exc}"
+        except RecursionError:
+            # Deeply nested input exhausts the decoder's stack. That is a crash on
+            # hostile input, which SECURITY.md puts in scope — and a header carrying
+            # a thousand open brackets is under a kilobyte.
+            json_error = "JSON nesting is too deep to parse"
 
     if raw is not None:
         try:
@@ -122,6 +182,8 @@ def build_probe(response: httpx.Response) -> Probe:
             )
 
     return Probe(
+        nonstandard_json_literals=tuple(findings["literals"]),
+        duplicate_json_keys=tuple(findings["duplicates"]),
         status_code=response.status_code,
         headers=headers,
         body=response.content,

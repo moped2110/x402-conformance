@@ -10,8 +10,8 @@
 
 ## Implementation status (v0.2.0)
 
-**Implemented & tested (67 checks):**
-- RS-HS-001…007, RS-PR-001…020 — passive (`check`). RS-PR-008 now does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
+**Implemented & tested (69 checks):**
+- RS-HS-001…007, RS-PR-001…022 — passive (`check`). RS-PR-008 now does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
 - RS-NEG-001/002/003/004/005/006/007/008/009/011/012/013/014/015 + RS-SEC-003 + RS-SEC-004 + RS-SEC-005 + RS-SEC-006 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
 - RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) — on-chain (`check --pay`)
 - FA-SUP-001/002, FA-VER-002/003/004, FA-ERR-001 — `facilitator`; FA-SET-001/002/003 — `facilitator --settle`
@@ -69,6 +69,8 @@ proof.
 | RS-PR-018 | no contradictory accepts entries for the same rail+asset | Two entries sharing `scheme`+`network`+`asset` but differing in (`payTo`, `amount`) are ambiguous — a client cannot tell which recipient/price is real. Differing only by `asset` (pay in USDC *or* DAI) is a legitimate choice; byte-identical duplicates collapse | CORE §5.1.2 | M | implemented |
 | RS-PR-019 | accepts `extra` fields match the entry's scheme | Cross-scheme leakage: an `exact` entry carrying an upto-only channel field (`feePayer`/`receiverAuthorizer`/`withdrawDelay`/…) or an `upto` entry carrying the exact-only `assetTransferMethod`. Skips on v1. MINOR (never gates) | scheme_exact_evm.md + scheme_upto_svm.md | m | implemented |
 | RS-PR-020 | accepts entries carry no fields outside the v2 schema | Any key beyond {`scheme`,`network`,`amount`,`asset`,`payTo`,`maxTimeoutSeconds`,`extra`} (e.g. legacy `outputSchema`) — a conformant client ignores it, so payment-relevant data placed there is silently dropped. Skips on v1. MINOR (never gates) | CORE §5.1.2 | m | implemented |
+| RS-PR-021 | challenge is standard JSON (no `NaN`/`Infinity` literals) | RFC 8259 defines no such literals. Python's decoder accepts them, Go's rejects them — so the challenge is readable to some clients and not others, while looking fine in testing | RFC 8259 §6 + CORE §5.1.1 | M | implemented |
+| RS-PR-022 | challenge has no duplicate object keys | RFC 8259 permits repeats but leaves the meaning to the parser (last-wins, first-wins, reject are all in use). On a payment challenge that is a field whose value depends on who reads it | RFC 8259 §4 + CORE §5.1.1 | M | implemented |
 
 ## 3. RS-PAY — Payment flow, positive path (testnet/mock only)
 

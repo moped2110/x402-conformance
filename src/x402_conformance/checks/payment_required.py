@@ -648,3 +648,45 @@ def pr_020(s: ProbeSession) -> tuple[Status, str]:
             "them, so any payment-relevant data placed here is silently dropped"
         )
     return Status.PASS, ""
+
+
+@register(
+    "RS-PR-021",
+    "challenge is standard JSON (no NaN/Infinity literals)",
+    Severity.MAJOR,
+    "RFC 8259 §6 + " + _CORE + " §5.1.1",
+)
+def pr_021(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-021: challenge is standard JSON (no NaN/Infinity literals)."""
+    if s.first.raw is None:
+        return Status.SKIP, "no decoded PaymentRequired payload"
+    literals = s.first.nonstandard_json_literals
+    if not literals:
+        return Status.PASS, ""
+    return Status.FAIL, (
+        f"challenge contains the non-standard JSON literal(s) {', '.join(literals)} — "
+        "RFC 8259 defines no such values. Python's decoder accepts them, Go's and "
+        "the JSON specification's do not, so this challenge is unreadable to part of "
+        "your clients while looking fine to the rest"
+    )
+
+
+@register(
+    "RS-PR-022",
+    "challenge has no duplicate object keys",
+    Severity.MAJOR,
+    "RFC 8259 §4 + " + _CORE + " §5.1.1",
+)
+def pr_022(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-022: challenge has no duplicate object keys."""
+    if s.first.raw is None:
+        return Status.SKIP, "no decoded PaymentRequired payload"
+    duplicates = s.first.duplicate_json_keys
+    if not duplicates:
+        return Status.PASS, ""
+    return Status.FAIL, (
+        f"challenge repeats the key(s) {', '.join(repr(k) for k in duplicates)}. "
+        "RFC 8259 permits this but leaves the meaning to the parser: last-wins, "
+        "first-wins and outright rejection are all in use. On a payment challenge "
+        "that is a field whose value depends on which client reads it"
+    )

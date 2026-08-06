@@ -23,7 +23,7 @@ Status meanings:
 
 | Area | Status | Assessed behavior / boundary |
 |---|---|---|
-| HTTP x402 V2 | supported | 402 signaling, strict `PaymentRequired`, resource identity, headers, robustness, reports, facilitator, and Bazaar discovery checks. The selected HTTP method is never changed implicitly. |
+| HTTP x402 V2 | supported | 402 signaling, strict `PaymentRequired`, resource identity, headers, robustness, reports, facilitator, and Bazaar discovery checks. The challenge is also assessed as JSON *text*: literals RFC 8259 does not define and duplicate object keys are findings, because both make a challenge mean different things to different parsers. The selected HTTP method is never changed implicitly. |
 | HTTP x402 V1 | passive-only | Recognized and reported as V1; exit 2 (`INCONCLUSIVE`) for a V2 assessment. |
 | x402 **over** MCP or A2A | out of scope | No transport adapter and no verdict: an endpoint that speaks x402 over MCP is not something this suite can assess. Not to be confused with *Interfaces* below — this row is about what gets tested, that section is about how the suite is driven. |
 | `jp402` / `x-jp402` metadata | passive-only | Optional structural and arithmetic validation; not tax, legal, or invoice-compliance advice. |
