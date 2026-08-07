@@ -470,3 +470,51 @@ def test_cross_fetch_enforces_redirect_and_request_caps() -> None:
 def test_invalid_private_allowlist_is_rejected(entry: str) -> None:
     with pytest.raises(ValueError, match="allowlist"):
         run_discovery_checks(BASE, cross_fetch_allowlist=(entry,))
+
+
+# --- DI-004 — external $ref/$id in a catalogued schema (x402#3039) ----------------
+
+
+def _item_with_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    item = copy.deepcopy(ITEM)
+    item["extensions"] = {"bazaar": {"category": "finance", "schema": schema}}
+    return item
+
+
+def test_di_004_passes_on_same_document_fragments() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"a": {"$ref": "#/definitions/a"}},
+        "definitions": {"a": {"type": "string"}},
+    }
+    body = valid_body(items=[_item_with_schema(schema)])
+    result = by_id(run(make_bazaar(body=body)), "DI-004")
+    assert result.status == Status.PASS
+
+
+def test_di_004_flags_a_remote_ref_and_names_the_resource() -> None:
+    """A catalogued schema pointing at a remote document makes any validator that
+    compiles it issue an outbound request the catalogue author chose."""
+    schema = {"properties": {"a": {"$ref": "http://169.254.169.254/latest/meta-data/"}}}
+    body = valid_body(items=[_item_with_schema(schema)])
+    result = by_id(run(make_bazaar(body=body)), "DI-004")
+    assert result.status == Status.FAIL
+    assert "169.254.169.254" in result.detail
+    assert "api.example.com" in result.detail
+
+
+def test_di_004_never_dereferences_the_reference(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Resolving the reference is exactly the request the spec forbids, so the
+    check must report on it without fetching it."""
+    seen: list[str] = []
+    schema = {"properties": {"a": {"$ref": "https://evil.example/schema.json"}}}
+    body = valid_body(items=[_item_with_schema(schema)])
+    result = by_id(run(make_bazaar(body=body, seen=seen)), "DI-004")
+    assert result.status == Status.FAIL
+    assert not any("evil.example" in url for url in seen)
+
+
+def test_di_004_skips_without_any_catalogued_schema() -> None:
+    """The stock ITEM carries extensions but no schema — nothing to inspect."""
+    result = by_id(run(make_bazaar(body=valid_body())), "DI-004")
+    assert result.status == Status.SKIP

@@ -742,6 +742,78 @@ def di_003(ctx: DiscoveryContext) -> tuple[Status, str]:
     return Status.PASS, detail
 
 
+def external_schema_references(node: object, path: str = "schema") -> list[str]:
+    """Collect ``$ref``/``$id`` values that are not same-document fragments.
+
+    A JSON Schema reference that is not a ``#``-fragment makes the *validator*
+    fetch something: ``jsonschema``'s default resolver dereferences ``http(s)://``,
+    ``file://`` and relative references during schema compilation, before the
+    instance is ever checked. A Bazaar ``schema`` is attacker-controlled — it
+    arrives in the payment payload — so cataloguing one turns the facilitator into
+    an SSRF and local-file-read gadget (CWE-918). The spec was made explicit about
+    this in x402#3039: references MUST be same-document fragments, and facilitators
+    MUST NOT resolve external ones.
+
+    Returns human-readable locations, so the finding says *where*, not just "found".
+    """
+    found: list[str] = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key in ("$ref", "$id") and not (isinstance(value, str) and value.startswith("#")):
+                found.append(f"{path}.{key}={value!r}")
+            found.extend(external_schema_references(value, f"{path}.{key}"))
+    elif isinstance(node, list):
+        for i, item in enumerate(node):
+            found.extend(external_schema_references(item, f"{path}[{i}]"))
+    return found
+
+
+@_register(
+    "DI-004",
+    "Catalogued discovery schemas carry no external $ref/$id (SSRF)",
+    Severity.MAJOR,
+    f"{_CORE} extensions/bazaar.md + x402#3039 (CWE-918)",
+)
+def di_004(ctx: DiscoveryContext) -> tuple[Status, str]:
+    """Evaluate DI-004: catalogued discovery schemas carry no external $ref/$id."""
+    body = _get_json(ctx, _resources_url(ctx.base_url))
+    if body is None or not isinstance(body.get("items"), list) or not body["items"]:
+        return Status.SKIP, "no discoverable items to inspect"
+
+    # We only *read* the catalogue and report. Resolving one of these references
+    # to see what happens is precisely the request the spec forbids, and it would
+    # aim our traffic wherever the entry says — so the check never dereferences.
+    problems: list[str] = []
+    inspected = 0
+    for item in body["items"]:
+        if not isinstance(item, dict):
+            continue
+        extensions = item.get("extensions")
+        if not isinstance(extensions, dict):
+            continue
+        for name, extension in extensions.items():
+            if not isinstance(extension, dict):
+                continue
+            schema = extension.get("schema")
+            if schema is None:
+                continue
+            inspected += 1
+            resource = item.get("resource")
+            where = _display_url(resource) if isinstance(resource, str) else "<unnamed>"
+            for hit in external_schema_references(schema, f"{name}.schema"):
+                problems.append(f"{where}: {hit}")
+
+    if inspected == 0:
+        return Status.SKIP, "no catalogued item carries an extension schema"
+    if problems:
+        return Status.FAIL, (
+            f"{len(problems)} external schema reference(s) in {inspected} catalogued "
+            f"schema(s) — a validator resolving these fetches attacker-chosen URLs: "
+            + "; ".join(problems[:4])
+        )
+    return Status.PASS, f"{inspected} catalogued schema(s), all references same-document"
+
+
 def evaluate_discovery(ctx: DiscoveryContext | None) -> list[CheckResult]:
     """Run the complete discovery registry with safe cross-fetch policy and stable results."""
     results: list[CheckResult] = []

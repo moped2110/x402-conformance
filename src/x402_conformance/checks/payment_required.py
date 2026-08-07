@@ -690,3 +690,101 @@ def pr_022(s: ProbeSession) -> tuple[Status, str]:
         "first-wins and outright rejection are all in use. On a payment challenge "
         "that is a field whose value depends on which client reads it"
     )
+
+
+# --- builder-code (specs/extensions/builder_code.md) ------------------------------
+#
+# The extension was format-only when this suite last reviewed it: codes had to
+# match ^[a-z0-9_]{1,32}$ and that was the whole contract, which is why the
+# support matrix listed builder-code as passive-only. x402#3027 and #2994 gave it
+# real structure — per-party service-code reservations that cannot be crowded out,
+# and an explicit rule for what the client may echo — so the server-declared half
+# is now checkable from the challenge alone.
+
+#: specs/extensions/builder_code.md — all of `a`, `w` and each entry in `s`.
+_BUILDER_CODE_PATTERN = re.compile(r"^[a-z0-9_]{1,32}$")
+
+#: MAX_SERVER_SERVICE_CODES. The reservations are per party (client 5, server 5,
+#: facilitator 1, total 11) precisely so no party can crowd out another; a server
+#: over its own budget is what gets truncated downstream.
+_MAX_SERVER_SERVICE_CODES = 5
+
+
+def _builder_code_info(s: ProbeSession) -> dict[str, object] | None:
+    """Return the server-declared `builder-code` info object, if the challenge has one."""
+    if s.first.raw is None:
+        return None
+    extensions = s.first.raw.get("extensions")
+    if not isinstance(extensions, dict):
+        return None
+    entry = extensions.get("builder-code")
+    if not isinstance(entry, dict):
+        return None
+    info = entry.get("info")
+    return info if isinstance(info, dict) else None
+
+
+@register(
+    "RS-PR-023",
+    "declared builder-code app code is well-formed",
+    Severity.MINOR,
+    "extensions/builder_code.md §Builder Code Validation",
+)
+def pr_023(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-023: declared builder-code app code is well-formed."""
+    info = _builder_code_info(s)
+    if info is None:
+        return Status.SKIP, "no builder-code extension declared"
+    if "a" not in info:
+        # `a` is the application's own identifier; a builder-code block without it
+        # attributes nothing. Not fatal to payment, hence MINOR.
+        return Status.PASS, "builder-code declared without an app code"
+    app_code = info["a"]
+    if not isinstance(app_code, str) or not _BUILDER_CODE_PATTERN.match(app_code):
+        return Status.FAIL, (
+            f"builder-code app code {app_code!r} does not match ^[a-z0-9_]{{1,32}}$ — "
+            "the facilitator must reject invalid codes at construction time, so "
+            "attribution silently drops"
+        )
+    return Status.PASS, ""
+
+
+@register(
+    "RS-PR-024",
+    "declared builder-code service codes stay within the server reservation",
+    Severity.MINOR,
+    "extensions/builder_code.md §Builder Code Fields + x402#3027",
+)
+def pr_024(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-024: declared builder-code service codes stay within the server reservation."""
+    info = _builder_code_info(s)
+    if info is None:
+        return Status.SKIP, "no builder-code extension declared"
+    if "s" not in info:
+        return Status.PASS, "no server service codes declared"
+    declared = info["s"]
+    # The spec accepts a bare string or an array on either side; a scalar merges
+    # as a single-element array against the other party's array.
+    codes = [declared] if isinstance(declared, str) else declared
+    if not isinstance(codes, list):
+        return (
+            Status.FAIL,
+            f"builder-code `s` must be a string or an array, got {type(declared).__name__}",
+        )
+    problems = [
+        repr(c) for c in codes if not (isinstance(c, str) and _BUILDER_CODE_PATTERN.match(c))
+    ]
+    if problems:
+        return Status.FAIL, (
+            f"builder-code service code(s) {', '.join(problems[:4])} do not match "
+            "^[a-z0-9_]{1,32}$"
+        )
+    if len(codes) > _MAX_SERVER_SERVICE_CODES:
+        return Status.FAIL, (
+            f"{len(codes)} server service codes declared, over the "
+            f"MAX_SERVER_SERVICE_CODES reservation of {_MAX_SERVER_SERVICE_CODES}. "
+            "The per-party budgets exist so no participant can crowd out another; "
+            "entries past the reservation are rejected or truncated downstream, so "
+            "the attribution declared here is not the attribution that settles"
+        )
+    return Status.PASS, f"{len(codes)} server service code(s), within reservation"

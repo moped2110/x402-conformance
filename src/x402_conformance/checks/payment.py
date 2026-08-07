@@ -17,7 +17,7 @@ import concurrent.futures
 import re
 from typing import Any, cast
 
-from ..active import ActiveContext
+from ..active import ActiveContext, ActiveResponse
 from ..models import SettlementResponse
 from .base import CheckResult, Severity, Status
 
@@ -25,12 +25,78 @@ _CORE = "x402-specification-v2.md"
 
 #: Every check id this group can emit. Used by the caller's group-level safety net
 #: (run_payment_checks) to report ERROR for all of them if the linear pay flow crashes.
-PAY_CHECK_IDS = ["RS-PAY-001", "RS-PAY-002", "RS-PAY-003", "RS-PAY-004", "RS-SEC-001", "RS-SEC-002"]
+PAY_CHECK_IDS = [
+    "RS-PAY-001",
+    "RS-PAY-002",
+    "RS-PAY-003",
+    "RS-PAY-004",
+    "RS-SEC-001",
+    "RS-SEC-002",
+    "RS-HS-008",
+]
 
 
 def _result(cid: str, title: str, sev: Severity, status: Status, detail: str = "") -> CheckResult:
     """Construct a payment-flow CheckResult with the correct shared severity and reference."""
     return CheckResult(cid, title, sev, f"{_CORE} §6.1.3", status, detail)
+
+
+def _pay_severity(check_id: str) -> Severity:
+    """Severity for one payment-group check.
+
+    The group is CRITICAL by default because it decides whether money moved.
+    RS-PAY-004 is MAJOR (proof depth, not acceptance) and RS-HS-008 is MINOR —
+    a cacheable paid response is a real leak, but it is a header-hygiene finding
+    and must not gate a settlement verdict.
+    """
+    if check_id == "RS-PAY-004":
+        return Severity.MAJOR
+    if check_id == "RS-HS-008":
+        return Severity.MINOR
+    return Severity.CRITICAL
+
+
+def _evaluate_paid_cacheability(resp: ActiveResponse, title: str) -> CheckResult:
+    """Grade RS-HS-008: the paid 200 must not be storable by a shared cache."""
+    cid = "RS-HS-008"
+    if not resp.served_resource:
+        return _result(cid, title, Severity.MINOR, Status.SKIP, "no paid response to inspect")
+    cache_control = resp.headers.get("cache-control", "").lower()
+    if not cache_control:
+        # A 200 with no Cache-Control IS heuristically cacheable (RFC 9111 §4.2.2),
+        # unlike a 402. For a response the client just paid for that is a real gap,
+        # but it is advisory: the endpoint may front no shared cache at all.
+        return _result(
+            cid,
+            title,
+            Severity.MINOR,
+            Status.PASS,
+            "paid 200 carries no Cache-Control; explicit 'private' recommended "
+            "(a shared cache may store and reserve it to an unpaid client)",
+        )
+    if "no-store" in cache_control or "private" in cache_control:
+        return _result(cid, title, Severity.MINOR, Status.PASS, "")
+    if "public" in cache_control or _positive_max_age(cache_control):
+        return _result(
+            cid,
+            title,
+            Severity.MINOR,
+            Status.FAIL,
+            f"paid 200 is shared-cacheable (Cache-Control: {cache_control!r}) — a CDN "
+            "or proxy can serve the resource this client paid for to clients who did not",
+        )
+    return _result(cid, title, Severity.MINOR, Status.PASS, "")
+
+
+def _positive_max_age(cache_control: str) -> bool:
+    """Detect a positive max-age or s-maxage directive in Cache-Control."""
+    for part in cache_control.split(","):
+        part = part.strip()
+        if part.startswith("max-age=") or part.startswith("s-maxage="):
+            value = part.split("=", 1)[1].strip()
+            if value.isdigit() and int(value) > 0:
+                return True
+    return False
 
 
 #: ERC-20 balanceOf(address) selector.
@@ -167,13 +233,14 @@ def evaluate_payment(
         "RS-PAY-004": "Settlement transaction proves the expected on-chain transfer",
         "RS-SEC-001": "Replaying a settled payment is rejected (nonce reuse)",
         "RS-SEC-002": "Concurrent settle of one payment yields at most one success (race)",
+        "RS-HS-008": "Paid 200 response is not shared-cacheable",
     }
     if context is None:
         return [
             _result(
                 cid,
                 titles[cid],
-                sev_m if cid == "RS-PAY-004" else sev_c,
+                _pay_severity(cid),
                 Status.SKIP,
                 "no exact/eip3009 requirement / signer to pay",
             )
@@ -194,7 +261,7 @@ def evaluate_payment(
             _result(
                 cid,
                 titles[cid],
-                sev_m if cid == "RS-PAY-004" else sev_c,
+                _pay_severity(cid),
                 Status.ERROR,
                 detail,
             )
@@ -212,7 +279,7 @@ def evaluate_payment(
                 _result(
                     cid,
                     titles[cid],
-                    sev_m if cid == "RS-PAY-004" else sev_c,
+                    _pay_severity(cid),
                     Status.ERROR,
                     detail,
                 )
@@ -224,7 +291,7 @@ def evaluate_payment(
                 _result(
                     cid,
                     titles[cid],
-                    sev_m if cid == "RS-PAY-004" else sev_c,
+                    _pay_severity(cid),
                     Status.SKIP,
                     detail,
                 )
@@ -262,6 +329,13 @@ def evaluate_payment(
                 f"valid payment was not accepted ({detail})",
             )
         )
+
+    # RS-HS-008 — the *paid* response must not be shared-cacheable.
+    # RS-HS-007 covers the 402. This covers the 200 that carries the content the
+    # client just paid for: a shared cache storing it serves the paid resource to
+    # the next unpaid client. Upstream made `private` the default on the settled
+    # response in x402#2990 (TS/Python) alongside no-store on the 402.
+    results.append(_evaluate_paid_cacheability(resp, titles["RS-HS-008"]))
 
     # RS-PAY-002 — settlement response
     settlement: SettlementResponse | None = resp.settlement

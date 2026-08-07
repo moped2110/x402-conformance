@@ -319,3 +319,64 @@ def test_missing_settlement_payer_is_not_accepted() -> None:
     )
     assert by_id(results, "RS-PAY-003").status == Status.FAIL
     assert "identify payer" in by_id(results, "RS-PAY-003").detail
+
+
+# --- RS-HS-008 — the paid 200 must not be shared-cacheable (x402#2990) -------------
+
+
+def _settling_server_with_cache_control(value: str | None) -> httpx.MockTransport:
+    """A settling server whose *paid* 200 carries the given Cache-Control."""
+    inner = settling_server()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        resp = inner.handler(request)  # type: ignore[attr-defined]
+        if resp.status_code == 200 and value is not None:
+            resp.headers["Cache-Control"] = value
+        return resp
+
+    return httpx.MockTransport(handler)
+
+
+def test_paid_200_without_cache_control_is_advisory() -> None:
+    """A 200 is heuristically cacheable by default (RFC 9111 §4.2.2), so this is a
+    real gap — but the endpoint may front no shared cache, so it never gates."""
+    results = run_payment_checks(
+        TARGET, SIGNER, rpc_url=RPC, transport=_settling_server_with_cache_control(None)
+    )
+    result = by_id(results, "RS-HS-008")
+    assert result.status == Status.PASS
+    assert result.severity.value == "minor"
+    assert "private" in result.detail
+
+
+@pytest.mark.parametrize("value", ["private", "no-store", "private, max-age=60"])
+def test_paid_200_with_private_passes(value: str) -> None:
+    results = run_payment_checks(
+        TARGET, SIGNER, rpc_url=RPC, transport=_settling_server_with_cache_control(value)
+    )
+    assert by_id(results, "RS-HS-008").status == Status.PASS
+
+
+@pytest.mark.parametrize("value", ["public", "public, max-age=3600", "max-age=600", "s-maxage=60"])
+def test_paid_200_that_a_shared_cache_may_store_fails(value: str) -> None:
+    """The response the client just paid for must not be servable to one who didn't."""
+    results = run_payment_checks(
+        TARGET, SIGNER, rpc_url=RPC, transport=_settling_server_with_cache_control(value)
+    )
+    result = by_id(results, "RS-HS-008")
+    assert result.status == Status.FAIL
+    assert "shared-cacheable" in result.detail
+
+
+def test_rs_hs_008_skips_when_the_payment_was_rejected() -> None:
+    """No paid response means nothing to inspect — not a pass."""
+    fail = {
+        "success": False,
+        "errorReason": "insufficient_funds",
+        "transaction": "",
+        "network": REQ["network"],
+    }
+    results = run_payment_checks(
+        TARGET, SIGNER, rpc_url=RPC, transport=settling_server(settlement=fail, status=402)
+    )
+    assert by_id(results, "RS-HS-008").status == Status.SKIP

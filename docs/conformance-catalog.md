@@ -10,7 +10,7 @@
 
 ## Implementation status (v0.3.0)
 
-**Implemented & tested (70 checks):**
+**Implemented & tested (74 checks):**
 - RS-HS-001…007, RS-PR-001…022 — passive (`check`). RS-PR-008 now does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
 - RS-NEG-001/002/003/004/005/006/007/008/009/011/012/013/014/015 + RS-SEC-003 + RS-SEC-004 + RS-SEC-005 + RS-SEC-006 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
 - RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) — on-chain (`check --pay`)
@@ -44,6 +44,7 @@ proof.
 | RS-HS-005 | Legacy `X-*` headers absent in V2 responses (deprecated) | No `X-PAYMENT` etc.; flag if V1-only | HTTP §Header Summary | m | implemented |
 | RS-HS-006 | Response body usable alongside 402 (no protocol data required in body) | Protocol info complete via headers alone | HTTP §Response Body | m | implemented |
 | RS-HS-007 | 402 with payment details is not cacheable | `Cache-Control` is `no-store`/`private` (no `public`, no long `max-age`); else CDN/proxy could serve a stale paywall | RFC 9111 + PR1 (testcase-integration-analysis) | M | implemented |
+| RS-HS-008 | The **paid** 200 is not shared-cacheable | `Cache-Control` carries `private`/`no-store` (no `public`, no positive `max-age`/`s-maxage`); a shared cache storing the paid response serves it to clients who did not pay. Advisory: absent Cache-Control is flagged in the detail, never gated | RFC 9111 §4.2.2 + x402#2990 | m | implemented |
 
 ## 2. RS-PR — PaymentRequired schema content
 
@@ -71,6 +72,8 @@ proof.
 | RS-PR-020 | accepts entries carry no fields outside the v2 schema | Any key beyond {`scheme`,`network`,`amount`,`asset`,`payTo`,`maxTimeoutSeconds`,`extra`} (e.g. legacy `outputSchema`) — a conformant client ignores it, so payment-relevant data placed there is silently dropped. Skips on v1. MINOR (never gates) | CORE §5.1.2 | m | implemented |
 | RS-PR-021 | challenge is standard JSON (no `NaN`/`Infinity` literals) | RFC 8259 defines no such literals. Python's decoder accepts them, Go's rejects them — so the challenge is readable to some clients and not others, while looking fine in testing | RFC 8259 §6 + CORE §5.1.1 | M | implemented |
 | RS-PR-022 | challenge has no duplicate object keys | RFC 8259 permits repeats but leaves the meaning to the parser (last-wins, first-wins, reject are all in use). On a payment challenge that is a field whose value depends on who reads it | RFC 8259 §4 + CORE §5.1.1 | M | implemented |
+| RS-PR-023 | declared builder-code app code is well-formed | `extensions['builder-code'].info.a` matches `^[a-z0-9_]{1,32}$`; an invalid code is rejected at construction time, so attribution silently drops | extensions/builder_code.md §Builder Code Validation | m | implemented |
+| RS-PR-024 | declared builder-code service codes stay within the server reservation | `info.s` is a string or array of well-formed codes, at most `MAX_SERVER_SERVICE_CODES` (5). The per-party budgets (client 5 / server 5 / facilitator 1) exist so no participant crowds out another; entries past the reservation are truncated downstream | extensions/builder_code.md §Builder Code Fields + x402#3027 | m | implemented |
 
 ## 3. RS-PAY — Payment flow, positive path (testnet/mock only)
 
@@ -163,6 +166,7 @@ instance.)
 | DI-001 | `GET /discovery/resources` strictly validates top-level `x402Version`, each item's `resource`, `type`, `x402Version`, `accepts`, `lastUpdated`, optional `extensions`, every core `PaymentRequirements` field, and `pagination.{limit,offset,total}` including bounds | Pass | CORE §8.1, §8.3 | M | implemented |
 | DI-002 | Filters (`type`, `payTo`, `scheme`, `network`, `extensions`, `limit`, `offset`) and offset-pagination semantics honored | Pass | CORE §8.1 | m | implemented |
 | DI-003 | Listed `accepts` consistent with the resource's live 402; cross-fetches are capped, DNS-pinned, redirect-revalidated, public-address-only by default, and private destinations require an explicit exact-host/IP/CIDR allowlist | Match (staleness check); unsafe/unreachable resources are not fetched and remain inconclusive | CORE §8.3 | m | implemented |
+| DI-004 | Catalogued discovery schemas carry no external `$ref`/`$id` | Every `$ref`/`$id` in a catalogued extension `schema` is a same-document `#` fragment. A validator's default resolver dereferences other forms during compilation — before the instance is checked — and the schema is client-supplied, so cataloguing one turns the facilitator into an SSRF / local-file-read gadget. The check reads and reports; it never dereferences | extensions/bazaar.md + x402#3039 (CWE-918) | M | implemented |
 
 ## 8. Coverage boundary
 

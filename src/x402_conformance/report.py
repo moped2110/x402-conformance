@@ -334,6 +334,10 @@ _REMEDIATION: dict[str, str] = {
     "FA-VER-004": "Return isValid:false (200/4xx) on invalid input — don't let a balanceOf/parse exception bubble up to a 5xx.",
     "FA-SET-003": "Reject a double-settle of the same payment (nonce reuse).",
     "RS-SEC-009": "Never echo the protected resource on a rejection path — the 402 body must not leak paid content.",
+    "RS-HS-008": "Send `Cache-Control: private` (or `no-store`) on the paid 200 — a shared cache storing it serves the resource to clients who did not pay.",
+    "DI-004": "Reject a catalogued `schema` whose `$ref`/`$id` is not a same-document `#` fragment, and never resolve external ones: the resolver fetches them during compilation, before the instance is validated (x402#3039, CWE-918).",
+    "RS-PR-023": "Use `^[a-z0-9_]{1,32}$` for your builder-code app code — an invalid code is rejected downstream and your attribution is dropped.",
+    "RS-PR-024": "Declare at most MAX_SERVER_SERVICE_CODES (5) service codes. Past that, entries are truncated downstream, so what you declare is not what settles.",
     "DI-003": "Keep the discovery listing in sync with each resource's live 402 — the listed asset/payTo must match what the resource actually asks for.",
 }
 
