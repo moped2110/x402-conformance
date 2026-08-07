@@ -74,8 +74,13 @@ jobs:
           python -m pip install --no-deps --no-build-isolation -e .
       - name: Compare error registry and validate local wire/report schemas
         working-directory: suite
+        # One clone root drives both drift guards: the frozen legacy `ErrorReasons`
+        # enum and the generated per-mechanism registry. The enum alone is not
+        # enough — upstream stopped extending it, so a guard watching only that
+        # file stays green while the codes we accept fall behind the codes real
+        # facilitators return.
         env:
-          X402_SPEC_TS: ../upstream-x402/typescript/packages/legacy/x402/src/types/verify/x402Specs.ts
+          X402_UPSTREAM: ../upstream-x402
         run: >-
           python -m pytest -q
           tests/test_error_reason_drift.py

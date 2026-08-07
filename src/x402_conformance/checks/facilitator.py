@@ -32,6 +32,7 @@ import httpx
 from pydantic import ValidationError
 
 from .. import USER_AGENT
+from ..error_registry import MECHANISM_ERROR_CODES
 from ..models import SettlementResponse, SupportedResponse, VerifyResponse
 from ..probe import build_probe
 from ..safety import DEFAULT_SAFETY_POLICY
@@ -45,10 +46,17 @@ from .base import (
 
 _CORE = "x402-specification-v2.md"
 
-# Canonical error-reason vocabulary, vendored verbatim from the TS `ErrorReasons`
-# enum in typescript/packages/legacy/x402/src/types/verify/x402Specs.ts — the
-# machine-enforced source (reference SDK runs `z.enum(ErrorReasons)` on
-# SettleResponse.errorReason / VerifyResponse.invalidReason / x402Response.error).
+# The `ErrorReasons` Zod enum, vendored verbatim from
+# typescript/packages/legacy/x402/src/types/verify/x402Specs.ts.
+#
+# This was once the whole vocabulary: the reference SDK ran `z.enum(ErrorReasons)`
+# on SettleResponse.errorReason / VerifyResponse.invalidReason / x402Response.error,
+# so a code outside it could not appear on the wire. That is no longer true. The
+# file now sits under `legacy/` and upstream has stopped extending it; codes minted
+# since the package split are declared per mechanism and never reach the enum.
+# Those live in `MECHANISM_ERROR_CODES` (src/x402_conformance/error_registry.py),
+# and both halves are needed — see the note on KNOWN_ERROR_CODES below.
+#
 # Re-sync on every SPEC_BASELINE bump; tests/test_error_reason_drift.py compares
 # this set against a live x402Specs.ts when one is reachable (skips otherwise).
 SPEC_ERROR_REASONS = frozenset(
@@ -99,9 +107,11 @@ SPEC_ERROR_REASONS = frozenset(
     }
 )
 
-# Codes we recognise beyond the TS `ErrorReasons` Zod enum:
+# Codes we recognise beyond either upstream set.
 #  - asset_not_deployed_contract: proposed in x402#2554 (asset address is an EOA,
-#    no bytecode) — not yet in the enum.
+#    no bytecode). Upstream has since declared it in the EVM exact facilitator, so
+#    it also arrives via MECHANISM_ERROR_CODES; it stays listed here because our
+#    own RS-NEG EOA-asset probe expects it by name regardless of the vendored sets.
 # (..._authorization_value_mismatch used to live here while the TS enum lacked it;
 #  upstream has since adopted it, so it now sits in SPEC_ERROR_REASONS above.)
 _LOCAL_ERROR_CODES = frozenset(
@@ -110,8 +120,15 @@ _LOCAL_ERROR_CODES = frozenset(
     }
 )
 
-# CORE §9 / spec ErrorReasons registry — invalidReason / errorReason must come from here.
-KNOWN_ERROR_CODES = SPEC_ERROR_REASONS | _LOCAL_ERROR_CODES
+# The vocabulary FA-ERR-001 accepts: an invalidReason / errorReason outside it is a
+# FAIL. It is the *union* of both upstream halves deliberately. The legacy
+# `ErrorReasons` enum alone is no longer sufficient — upstream froze it at 41 codes
+# and current mechanisms declare their own (344 of them, MECHANISM_ERROR_CODES).
+# Gating on the enum alone would fail a facilitator returning, say,
+# `invalid_exact_evm_authorization_value` — a real code from the current EVM
+# package that the enum, which only has the older `..._payload_authorization_value`
+# spelling, has never contained.
+KNOWN_ERROR_CODES = SPEC_ERROR_REASONS | MECHANISM_ERROR_CODES | _LOCAL_ERROR_CODES
 
 _CAIP2 = __import__("re").compile(r"^[a-z0-9-]{3,8}:[-_a-zA-Z0-9]{1,32}$")
 
