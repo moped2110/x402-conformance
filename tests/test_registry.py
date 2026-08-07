@@ -184,3 +184,33 @@ def test_support_matrix_and_upstream_drift_pin_match() -> None:
     assert f"main@{reviewed}" in matrix
     for status in ("supported", "passive-only", "planned", "out of scope"):
         assert status in matrix
+
+
+def test_explain_catalog_covers_every_implemented_check() -> None:
+    """`explain` must list every check the tool can emit.
+
+    There are two enumerations of the check set: the registries (plus the
+    evaluators' empty-context SKIPs) that `_all_implemented_ids` walks, and
+    `report._explain_catalog`, which the registries feed but which needs a
+    hand-written entry for the registry-less groups (RS-PAY, RS-SEC settlement,
+    FA-SET, RS-HS-008). Adding a check to the first and forgetting the second
+    gives a check that runs and reports but that `explain <ID>` denies exists —
+    and the hosted catalog downstream serves the explain surface, so the gap
+    propagates. RS-HS-008 shipped that way; this closes the class rather than the
+    instance.
+    """
+    from x402_conformance.report import _explain_catalog
+
+    missing = sorted(_all_implemented_ids() - set(_explain_catalog()))
+    assert not missing, (
+        f"checks missing from the explain catalog: {missing} — add them to "
+        "report._ONCHAIN_CHECKS (registry checks are picked up automatically)"
+    )
+
+
+def test_explain_catalog_invents_nothing() -> None:
+    """The reverse direction: `explain` must not advertise a check that cannot run."""
+    from x402_conformance.report import _explain_catalog
+
+    phantom = sorted(set(_explain_catalog()) - _all_implemented_ids())
+    assert not phantom, f"explain lists checks the tool cannot emit: {phantom}"

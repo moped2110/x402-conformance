@@ -384,6 +384,12 @@ _ONCHAIN_CHECKS: list[tuple[str, str, Severity, str]] = [
         "CORE §10.1",
     ),
     (
+        "RS-HS-008",
+        "Paid 200 response is not shared-cacheable",
+        Severity.MINOR,
+        "RFC 9111 §4.2.2 + x402#2990",
+    ),
+    (
         "FA-SET-001",
         "/settle of a valid payment succeeds with a tx hash",
         Severity.MAJOR,
