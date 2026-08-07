@@ -60,7 +60,7 @@ funds.
 - **RS-PAY** + **RS-SEC-001** (positive settlement + replay) — `check --pay`: signs a valid funded payment, settles it ON-CHAIN, verifies the tx, and confirms a replay is rejected. Confirmed live against Anvil.
 - **FA-SET** (facilitator `/settle`) — `facilitator --settle`: valid settle, invalid settle, double-settle.
 
-Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **69 checks across the groups above; 590+ offline tests, mypy strict, CI green.**
+Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **70 checks across the groups above; 610+ offline tests, mypy strict, CI green.**
 
 **Solana / SVM — in progress.** The `exact` scheme on Solana works differently from EVM: the client submits a *partial-signed transaction* (an SPL/Token-2022 `TransferChecked` to the recipient's ATA, co-signed by the sponsor `feePayer` at settle time), and a verifier checks the *outcome*, not a signature. The foundations ship behind an opt-in **`[svm]`** extra — CAIP-2 `solana:*` handling, ATA derivation, a spec-faithful partial-signed transaction builder, and tamper primitives for the negative checks. A first runnable group ships: **FA-SVM** sends a valid partial-signed payload and six tampered ones to a facilitator's `/verify` (never `/settle`). The *settlement* path still needs a local validator and is **not shipped yet**. This is purely additive: without `[svm]`, the suite behaves exactly as before (no Solana dependency, no EVM path touched).
 

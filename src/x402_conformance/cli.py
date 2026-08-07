@@ -434,9 +434,11 @@ def check(
     resource_marker: str | None = typer.Option(
         None,
         "--resource-marker",
-        help="A unique string from the protected resource "
-        "body. With --active, a rejected response that still contains it is flagged "
-        "as a content leak (RS-SEC-009).",
+        help="A unique string from the protected resource body. Passively, it "
+        "narrows RS-SEC-012 so a re-encoded path only counts as a bypass when the "
+        "served body really contains the protected content. With --active, a "
+        "rejected response that still contains it is flagged as a content leak "
+        "(RS-SEC-009).",
     ),
     pay: bool = typer.Option(
         False,
@@ -578,21 +580,13 @@ def check(
         typer.echo(f"Run record: {path}")
 
     try:
-        results = run_checks(url, method=method, timeout=timeout)
+        results = run_checks(url, method=method, timeout=timeout, resource_marker=resource_marker)
     except httpx.HTTPError as exc:
         # A failed attempt is worth recording too — the audit trail wants to know we
         # tried to test this target at this time and it was unreachable.
         _write_record([], error=f"target unreachable: {exc}", ec=2)
         typer.secho(f"target unreachable: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc
-
-    if resource_marker and not active:
-        typer.secho(
-            "note: --resource-marker has no effect without --active (it guards "
-            "the active rejection path)",
-            fg=typer.colors.YELLOW,
-            err=True,
-        )
 
     if active or pay or timing:
         from .active import preflight_resource_network

@@ -15,6 +15,7 @@ from . import USER_AGENT
 # treat flaky infra identically (429/502/503/504 + a sane Retry-After).
 from .active import _MAX_RETRIES, _TRANSIENT_STATUS, _retry_delay
 from .checks import REGISTRY, CheckResult, Status
+from .checks.path_variants import PathVariant, build_variants
 from .jp402 import find_jp402
 from .probe import PAYMENT_REQUIRED_HEADER, Probe, ProbeSession, build_probe
 
@@ -88,15 +89,53 @@ def _maybe_fetch_openapi(
     return doc, None
 
 
+def _probe_path_variants(
+    client: httpx.Client,
+    url: str,
+    method: str,
+    first: Probe,
+    resource_marker: str | None,
+) -> tuple[list[tuple[PathVariant, int | None, bool]] | None, dict[str, bool] | None]:
+    """Request the target again under re-encoded paths, for RS-SEC-012.
+
+    Only runs when the canonical request actually produced a paywall — with no
+    402 there is nothing to bypass, and probing an open endpoint's path variants
+    would just be noise. Transport failures are recorded as "not served" rather
+    than raised: one unreachable variant must not sink the whole run.
+    """
+    if not _is_paywall(first):
+        return None, None
+    variants = build_variants(url)
+    if not variants:
+        return None, None
+    outcomes: list[tuple[PathVariant, int | None, bool]] = []
+    marker_seen: dict[str, bool] | None = {} if resource_marker else None
+    for variant in variants:
+        try:
+            resp = client.request(method, variant.url)
+        except httpx.HTTPError:
+            outcomes.append((variant, None, False))
+            continue
+        body = resp.text or ""
+        outcomes.append((variant, resp.status_code, bool(body.strip())))
+        if marker_seen is not None and resource_marker is not None:
+            marker_seen[variant.label] = resource_marker in body
+    return outcomes, marker_seen
+
+
 def run_checks(
     url: str,
     method: str = "GET",
     timeout: float = 10.0,
     transport: httpx.BaseTransport | None = None,
+    resource_marker: str | None = None,
 ) -> list[CheckResult]:
     """Probe ``url`` (two unpaid requests) and evaluate every registered check.
 
     ``transport`` is injectable for offline testing (httpx.MockTransport).
+    ``resource_marker`` is a distinctive string from the protected content; when
+    given, RS-SEC-012 only calls a re-encoded path a bypass if the marker is
+    actually in the served body.
     """
     headers = {"User-Agent": USER_AGENT}
     notes: list[str] = []
@@ -116,6 +155,9 @@ def run_checks(
         openapi, openapi_reason = _maybe_fetch_openapi(client, url, first)
         if openapi_reason is not None:
             notes.append(openapi_reason)
+        path_variants, variant_marker = _probe_path_variants(
+            client, url, effective, first, resource_marker
+        )
 
     session = ProbeSession(
         target_url=url,
@@ -124,6 +166,8 @@ def run_checks(
         second=second,
         openapi=openapi,
         notes=notes,
+        path_variants=path_variants,
+        path_variant_marker=variant_marker,
     )
 
     results: list[CheckResult] = []

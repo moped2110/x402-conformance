@@ -10,7 +10,7 @@
 
 ## Implementation status (v0.3.0)
 
-**Implemented & tested (69 checks):**
+**Implemented & tested (70 checks):**
 - RS-HS-001…007, RS-PR-001…022 — passive (`check`). RS-PR-008 now does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
 - RS-NEG-001/002/003/004/005/006/007/008/009/011/012/013/014/015 + RS-SEC-003 + RS-SEC-004 + RS-SEC-005 + RS-SEC-006 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
 - RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) — on-chain (`check --pay`)
@@ -117,6 +117,7 @@ These are the money tests: a server that delivers the resource despite an invali
 | RS-SEC-008 | Timing: response time for invalid sig vs. unknown payer comparable (info-leak smoke test) | No gross oracle | robustness | m | implemented |
 | RS-SEC-010 | **Cross-chain signature replay:** valid payload signed for network A replayed at an endpoint on network B (different chainId) | Rejected — EIP-712 domain binds chainId; the defense is the domain separator | CORE §10.1 + C0 | C | implemented |
 | RS-SEC-011 | Extreme/near-2²⁵⁶ amount values in requirements or payload | Tooling parses without overflow; endpoint responds cleanly (no crash) | robustness + N4/N13 | m | implemented |
+| RS-SEC-012 | **Paywall bypass by path re-encoding:** the protected URL re-requested with a line terminator in the wildcard tail (LF/CR/U+2028), a percent-encoded separator, dot-segments, or a percent-encoded unreserved character | Still gated (402/4xx) — never 2xx with content. A control probe against a nonexistent sibling path guards against a catch-all endpoint, which SKIPs instead of failing | CORE §10.1 + RFC 3986 §5.2.4/§6.2.2.2 + x402#3036/#3044/#3055 | C | implemented |
 
 ## 6. FA — Facilitator conformance (secondary target)
 

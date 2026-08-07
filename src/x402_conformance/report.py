@@ -327,6 +327,7 @@ _REMEDIATION: dict[str, str] = {
     "RS-SEC-006": "Validate one header deterministically — never let a legacy X-PAYMENT header bypass v2 validation, and don't 5xx on duplicate/contradictory payment headers.",
     "RS-SEC-010": "Bind to the EIP-712 chainId and reject cross-chain-replayed signatures.",
     "RS-SEC-011": "Handle an extreme (2²⁵⁶-1) amount cleanly — reject it, don't 5xx-crash.",
+    "RS-SEC-012": "Match the paywall on the same path your router does. Compile wildcard routes with dotAll/re.DOTALL so a line terminator in the tail cannot miss the route (x402#3036/#3055), and match on the escaped path rather than the decoded one (x402#3044). A missed route means the resource is served with no verification and no settlement.",
     "FA-SUP-001": "If you expose /supported, return `kinds[]`, `extensions[]`, `signers{}` (it's optional — omitting it is fine).",
     "FA-VER-002": "Your /verify must return `isValid:false` (with a CORE §9 reason) for an invalid payment.",
     "FA-VER-003": "Reject an asset that is an EOA (no bytecode) with `asset_not_deployed_contract`.",

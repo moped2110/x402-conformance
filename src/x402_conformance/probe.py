@@ -13,12 +13,16 @@ import binascii
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 import httpx
 from pydantic import ValidationError
 
 from .models import PaymentRequired
+
+if TYPE_CHECKING:
+    from .checks.path_variants import PathVariant
 
 PAYMENT_REQUIRED_HEADER = "payment-required"
 LEGACY_HEADERS = ("x-payment", "x-payment-required", "x-payment-response")
@@ -81,6 +85,12 @@ class ProbeSession:
     runner *only* when the live 402 advertises ``jp402`` (the JP-rail extension) —
     the discovery surface where the qualified-invoice metadata lives. ``None`` for
     every non-JP endpoint, so no extra request is made in the common case.
+
+    ``path_variants`` holds the RS-SEC-012 probes: the same resource requested
+    under re-encoded paths, fetched by the runner only when the target actually
+    answers with a paywall (there is nothing to bypass otherwise). Each entry is
+    ``(variant, status_code, has_body)`` with ``status_code`` ``None`` for a
+    transport failure. ``None`` means the stage did not run.
     """
 
     target_url: str
@@ -89,6 +99,9 @@ class ProbeSession:
     second: Probe | None = None
     openapi: dict[str, object] | None = None
     notes: list[str] = field(default_factory=list)
+    path_variants: list[tuple[PathVariant, int | None, bool]] | None = None
+    #: Per-variant "did the protected-content marker appear", when one was given.
+    path_variant_marker: dict[str, bool] | None = None
 
 
 # A PaymentRequired challenge travels base64-encoded in an HTTP response header, so
