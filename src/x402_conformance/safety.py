@@ -24,6 +24,11 @@ _ALLOWED_EVM_NETWORKS: dict[str, str] = {
     "eip155:31337": "Anvil/Hardhat local chain",
     "eip155:84532": "Base Sepolia",
     "eip155:11155111": "Ethereum Sepolia",
+    # Added upstream in x402#3025 with a default stablecoin. Testnet, so it
+    # fits the existing policy unchanged. Celo *mainnet* (42220, same PR) and
+    # Flare mainnet (14, x402#3031) are deliberately absent: the policy rejects
+    # mainnets before payload construction and there is no override.
+    "eip155:11142220": "Celo Sepolia",
 }
 
 _ALLOWED_SVM_NETWORKS: dict[str, str] = {

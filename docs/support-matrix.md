@@ -5,7 +5,8 @@ run is conformance for the rows marked **supported**, not a blanket certificate 
 every x402 transport, network, scheme, or transfer mechanism.
 
 **Tool spec baseline:** `x402-foundation/x402@d454eb9` (2026-06-08)
-**Latest upstream review:** `main@61349de` (2026-07-23), rechecked 2026-07-23
+**Latest upstream review:** `main@c7e0ac8` (2026-08-07), rechecked 2026-08-07
+**Review notes:** [`docs/upstream-review-2026-08.md`](upstream-review-2026-08.md)
 **Review sources:** [upstream commits](https://github.com/x402-foundation/x402/commits/main/),
 [V2 core specification](https://github.com/x402-foundation/x402/blob/main/specs/x402-specification-v2.md),
 [scheme specifications](https://github.com/x402-foundation/x402/tree/main/specs/schemes), and
@@ -27,8 +28,9 @@ Status meanings:
 | HTTP x402 V1 | passive-only | Recognized and reported as V1; exit 2 (`INCONCLUSIVE`) for a V2 assessment. |
 | x402 **over** MCP or A2A | out of scope | No transport adapter and no verdict: an endpoint that speaks x402 over MCP is not something this suite can assess. Not to be confused with *Interfaces* below — this row is about what gets tested, that section is about how the suite is driven. |
 | `jp402` / `x-jp402` metadata | passive-only | Optional structural and arithmetic validation; not tax, legal, or invoice-compliance advice. |
-| Bazaar discovery | supported | Strict response/pagination/filter checks. Cross-fetch is public-address-only by default with DNS pinning, redirect revalidation, caps, and explicit allowlists. |
-| Builder-code and other extension payloads | passive-only | Unknown extension data is preserved; semantic correctness of builder-code arrays is not yet assessed. |
+| Bazaar discovery | supported | Strict response/pagination/filter checks. Cross-fetch is public-address-only by default with DNS pinning, redirect revalidation, caps, and explicit allowlists. A catalogued extension `schema` is scanned for `$ref`/`$id` values that are not same-document fragments (DI-004, x402#3039); the suite reports them and never resolves one, so inspecting a hostile catalogue cannot itself become the SSRF. |
+| Builder-code | partially supported | The **server-declared** half is assessed: app-code format and the server staying within `MAX_SERVER_SERVICE_CODES` (RS-PR-023/024, x402#3027). The client and facilitator halves — echo rules for `a`, the combined-budget `extension_echo_mismatch` rejection, and the ERC-8021 CBOR calldata suffix — are **not** assessed: the first two need a payment the client controls, the third needs the settlement transaction. |
+| Other extension payloads | passive-only | Unknown extension data is preserved; semantic correctness is not assessed. |
 
 ## Interfaces (how the suite is driven)
 
@@ -57,7 +59,8 @@ operator's choice at start-up and is never a tool parameter.
 | `exact` / EIP-3009 | EVM mainnets or unknown chains | out of scope | The safety policy rejects the run before payload construction; there is no override. |
 | `exact` / Permit2 or EIP-2612 gas sponsoring | EVM | planned | No allowance, witness-recipient, deadline, or settlement semantics are claimed. |
 | `exact` / ERC-7710 | EVM | planned | No delegation, manager, gas-limit, or simulation semantics are claimed. |
-| `exact` | SVM (`solana`) | passive-only | CAIP-2 parsing, ATA derivation, a partial-transaction builder, and tamper primitives exist; no runnable conformance group or settlement verifier exists yet. |
+| `exact` | SVM (`solana`) | passive-only | CAIP-2 parsing, ATA derivation, a partial-transaction builder, and tamper primitives exist; no runnable conformance group or settlement verifier exists yet. Reviewed 2026-08-07 against the x402#2937 spec change: `extra.recentBlockhash` is a *construction hint* only, `extra.lastValidBlockHeight` is informational and may be ignored, and verification must **not** compare the transaction's blockhash with the hint. The FA-SVM tamper set contains no blockhash case, so nothing here would false-FAIL — checked rather than assumed. |
+| `exact` | Starknet (`starknet:SN_MAIN`, `starknet:SN_SEPOLIA`) | planned | Spec landed 2026-08 (x402#2849) and is detailed enough to implement against: SNIP-9 OutsideExecution, SNIP-12 typed-data hashing, SNIP-6 `is_valid_signature`, `Caller` bound to `extra.feePayer`, single-`transfer` calldata, and mandatory settlement simulation. Nothing is implemented; a clean run makes no Starknet claim. |
 | `exact` | XRPL, Near, Casper, Hedera, Aptos, AVM, Stellar, TVM, Keeta, and other families | passive-only | Shared V2 HTTP/wire checks only; no family-specific payload or on-chain proof. |
 | `upto` | any | planned | No ceiling, metered-amount, replay, or actual-transfer checks. |
 | `batch-settlement` | any | planned | No escrow, voucher, aggregation, or redemption checks. |
@@ -87,7 +90,9 @@ mistaken for a release defect or shipped coverage.
 | BACKLOG-006 grant-before-settle | planned; funded testnet-safe design required. |
 | BACKLOG-007 facilitator completeness | planned as `FA-VER-001` and `FA-VER-005`. |
 | BACKLOG-008 calibration breadth | planned; add Node/Hono and another public-testnet strategy without mainnet settlement. |
-| BACKLOG-009 networks/builder-code | passive-only pending mechanism-specific implementations; names alone never count as support. |
+| BACKLOG-009 networks/builder-code | Server-declared builder-code now ships (RS-PR-023/024). The client/facilitator halves and every unimplemented network stay passive-only pending mechanism-specific work; names alone never count as support. |
+| BACKLOG-014 Starknet `exact` | planned; needs a Starknet signer, SNIP-12 typed-data reconstruction, and the same fail-closed testnet policy before any active check. |
+| BACKLOG-015 active Bazaar `$ref` rejection | planned; DI-004 grades a catalogue passively. Posting a hostile registration to prove the facilitator *rejects* it needs a write surface, which is outside this black-box boundary. |
 | BACKLOG-010 German guide/website integration | deferred to the product/documentation repositories; report and diff formats are ready for consumption. |
 | BACKLOG-011 responsible disclosure | operational task; revalidate current versions and follow each target's policy before contact. Never scan third parties without authorization. |
 | BACKLOG-012 real jp402 fixture | planned; current synthetic and captured fixtures remain structural-only. |
@@ -100,3 +105,13 @@ moves beyond `.github/upstream-reviewed-commit`. The same job compares the live
 upstream error-reason registry and runs the strict wire/report-schema tests. A
 pin update therefore requires reviewing this matrix and the affected checks; it
 must never be a blind commit-hash bump.
+
+The error-registry comparison has **two** halves since 2026-08, and the reason is
+worth recording. It originally watched only the `ErrorReasons` Zod enum, which was
+then the single machine-enforced vocabulary. Upstream's package split froze that
+enum under `legacy/` and moved new codes into the per-mechanism packages — so the
+guard stayed green for months while the codes we accepted fell 300 behind the
+codes conformant facilitators return, and FA-ERR-001 would have failed them. The
+job now also regenerates `src/x402_conformance/error_registry.py` via
+`tools/sync_error_registry.py` and diffs it. A guard pointed at a file upstream
+has stopped changing reports success, not safety.
