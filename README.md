@@ -212,6 +212,12 @@ The reproducible dependency workflow and complete local release gate are in
 
 No mainnet funds are ever used. Payment-flow tests run against Base Sepolia or mocks only.
 
+## Contributing
+
+Gates, the checklist for adding a check, and the boundary of what this project accepts
+are in [`CONTRIBUTING.md`](CONTRIBUTING.md). Vulnerabilities go to
+[`SECURITY.md`](SECURITY.md), not to a public issue.
+
 ## License
 
 Apache-2.0
