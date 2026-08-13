@@ -10,7 +10,7 @@
 
 ## Implementation status (v0.3.0)
 
-**Implemented & tested (74 checks):**
+**Implemented & tested (76 checks):**
 - RS-HS-001…007, RS-PR-001…022 — passive (`check`). RS-PR-008 now does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
 - RS-NEG-001/002/003/004/005/006/007/008/009/011/012/013/014/015 + RS-SEC-003 + RS-SEC-004 + RS-SEC-005 + RS-SEC-006 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
 - RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) — on-chain (`check --pay`)
@@ -74,6 +74,8 @@ proof.
 | RS-PR-022 | challenge has no duplicate object keys | RFC 8259 permits repeats but leaves the meaning to the parser (last-wins, first-wins, reject are all in use). On a payment challenge that is a field whose value depends on who reads it | RFC 8259 §4 + CORE §5.1.1 | M | implemented |
 | RS-PR-023 | declared builder-code app code is well-formed | `extensions['builder-code'].info.a` matches `^[a-z0-9_]{1,32}$`; an invalid code is rejected at construction time, so attribution silently drops | extensions/builder_code.md §Builder Code Validation | m | implemented |
 | RS-PR-024 | declared builder-code service codes stay within the server reservation | `info.s` is a string or array of well-formed codes, at most `MAX_SERVER_SERVICE_CODES` (5). The per-party budgets (client 5 / server 5 / facilitator 1) exist so no participant crowds out another; entries past the reservation are truncated downstream | extensions/builder_code.md §Builder Code Fields + x402#3027 | m | implemented |
+| RS-PR-025 | declared `paymentFlow` is one the protocol defines | `extra.paymentFlow`, when present, is `authorization`, `upfront` or `escrow`. §6.1 says a client MUST NOT construct a payment for a flow it does not recognize and SHOULD skip the entry, so an invented value makes the entry unpayable by every conformant client | CORE §6.1 | M | implemented |
+| RS-PR-026 | a flow that commits funds before the resource runs says so | An entry whose `extra` carries escrow/capture machinery (`withdrawDelay`, `receiverAuthorizer`, `autoCapture`) also declares `paymentFlow`. **Advisory, never gates:** CORE §6.1 says the field MUST be present for a non-`authorization` flow, while `scheme_upto_svm.md` says omit it to default to `escrow`. Failing an endpoint for choosing one half of an upstream contradiction is not a verdict this suite is entitled to | CORE §6.1 vs scheme_upto_svm.md | m | implemented |
 
 ## 3. RS-PAY — Payment flow, positive path (testnet/mock only)
 

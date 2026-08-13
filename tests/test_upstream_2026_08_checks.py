@@ -149,3 +149,127 @@ def test_builder_code_without_app_code_is_not_a_failure(valid_payload: dict[str,
     by_id = _run(_challenge_with_builder_code(valid_payload, {"s": ["sdk_one"]}))
     assert by_id["RS-PR-023"].status is Status.PASS
     assert by_id["RS-PR-024"].status is Status.PASS
+
+
+# ==========================================================================
+# Second upstream window: c7e0ac8..f62a9fac
+# ==========================================================================
+#
+#   * CORE §6.1 payment flow models made `assetTransferMethod` and `paymentFlow`
+#     protocol-reserved, and named `auth-capture` as a fourth scheme. Both turned
+#     previously-correct checks into wrong verdicts.
+#   * RS-PR-025/026 grade the new flow field.
+
+
+def _entry(**over: Any) -> dict[str, Any]:
+    base = {
+        "scheme": "exact",
+        "network": "eip155:84532",
+        "amount": "10000",
+        "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        "payTo": "0x209693Bc6afc0C5328bA36FaF03C514EF312287C",
+        "maxTimeoutSeconds": 60,
+        "extra": {"name": "USDC", "version": "2"},
+    }
+    base.update(over)
+    return base
+
+
+def _run_accepts(payload: dict[str, Any], accepts: list[dict[str, Any]]) -> dict[str, Any]:
+    out = copy.deepcopy(payload)
+    out["accepts"] = accepts
+    return _run(out)
+
+
+# --- the wrong verdicts CORE §6.1 created ---------------------------------
+
+
+def test_upto_may_carry_assetTransferMethod(valid_payload: dict[str, Any]) -> None:
+    """The regression this window's fix is about.
+
+    §6.1 makes `assetTransferMethod` protocol-reserved and names `upto` when
+    explaining why — "distinguishing an SVM upto `escrow` default from an EVM upto
+    `authorization` default". RS-PR-019 used to FAIL exactly this.
+    """
+    entry = _entry(scheme="upto", extra={"assetTransferMethod": "permit2"})
+    assert _run_accepts(valid_payload, [entry])["RS-PR-019"].status is Status.PASS
+
+
+def test_exact_may_carry_paymentFlow(valid_payload: dict[str, Any]) -> None:
+    """The other reserved key, on the other scheme."""
+    entry = _entry(extra={"name": "USDC", "version": "2", "paymentFlow": "authorization"})
+    assert _run_accepts(valid_payload, [entry])["RS-PR-019"].status is Status.PASS
+
+
+def test_genuine_scheme_extra_mismatch_still_fails(valid_payload: dict[str, Any]) -> None:
+    """Relaxing the reserved keys must not blunt the check itself."""
+    entry = _entry(extra={"withdrawDelay": 600, "receiverAuthorizer": "0xabc"})
+    assert _run_accepts(valid_payload, [entry])["RS-PR-019"].status is Status.FAIL
+
+
+def test_upto_carrying_exact_only_keys_fails(valid_payload: dict[str, Any]) -> None:
+    """The upto branch now grades the real exact vocabulary, not one reserved key."""
+    entry = _entry(scheme="upto", extra={"name": "USDC", "version": "2"})
+    assert _run_accepts(valid_payload, [entry])["RS-PR-019"].status is Status.FAIL
+
+
+def test_auth_capture_is_a_payable_scheme(valid_payload: dict[str, Any]) -> None:
+    """`auth-capture` has a spec directory and a wire identifier; CORE §6 now names
+    it alongside the other three. RS-PR-017 used to call it unpayable."""
+    entry = _entry(scheme="auth-capture", extra={"autoCapture": False, "paymentFlow": "escrow"})
+    assert _run_accepts(valid_payload, [entry])["RS-PR-017"].status is Status.PASS
+
+
+def test_invented_scheme_still_fails(valid_payload: dict[str, Any]) -> None:
+    assert _run_accepts(valid_payload, [_entry(scheme="totally-made-up")])["RS-PR-017"].status is (
+        Status.FAIL
+    )
+
+
+# --- RS-PR-025 / RS-PR-026 -------------------------------------------------
+
+
+def test_no_payment_flow_declared_skips(valid_payload: dict[str, Any]) -> None:
+    by_id = _run_accepts(valid_payload, [_entry()])
+    assert by_id["RS-PR-025"].status is Status.SKIP
+    assert by_id["RS-PR-026"].status is Status.SKIP
+
+
+@pytest.mark.parametrize("flow", ["authorization", "upfront", "escrow"])
+def test_defined_flows_pass(valid_payload: dict[str, Any], flow: str) -> None:
+    entry = _entry(extra={"name": "USDC", "version": "2", "paymentFlow": flow})
+    assert _run_accepts(valid_payload, [entry])["RS-PR-025"].status is Status.PASS
+
+
+@pytest.mark.parametrize("flow", ["Authorization", "deferred", "", 3, None])
+def test_undefined_flow_fails(valid_payload: dict[str, Any], flow: Any) -> None:
+    """An invented value makes the entry unpayable: §6.1 says a client MUST NOT
+    construct a payment for a flow it does not recognize."""
+    entry = _entry(extra={"name": "USDC", "version": "2", "paymentFlow": flow})
+    result = _run_accepts(valid_payload, [entry])["RS-PR-025"]
+    assert result.status is Status.FAIL
+    assert result.severity.value == "major"
+
+
+def test_escrow_entry_declaring_its_flow_passes_cleanly(valid_payload: dict[str, Any]) -> None:
+    entry = _entry(
+        scheme="upto",
+        extra={"withdrawDelay": 600, "receiverAuthorizer": "0xabc", "paymentFlow": "escrow"},
+    )
+    result = _run_accepts(valid_payload, [entry])["RS-PR-026"]
+    assert result.status is Status.PASS
+    assert "advisory" not in result.detail
+
+
+def test_escrow_entry_without_a_flow_is_advisory_not_a_failure(
+    valid_payload: dict[str, Any],
+) -> None:
+    """Upstream contradicts itself here: CORE §6.1 says paymentFlow MUST be present
+    for a non-authorization flow, scheme_upto_svm.md says omit it to default to
+    `escrow`. Failing an endpoint for picking one half of that is not a verdict we
+    are entitled to, so it reports and never gates."""
+    entry = _entry(scheme="upto", extra={"withdrawDelay": 600, "receiverAuthorizer": "0xabc"})
+    result = _run_accepts(valid_payload, [entry])["RS-PR-026"]
+    assert result.status is Status.PASS
+    assert "advisory" in result.detail
+    assert result.severity.value == "minor"

@@ -338,6 +338,8 @@ _REMEDIATION: dict[str, str] = {
     "DI-004": "Reject a catalogued `schema` whose `$ref`/`$id` is not a same-document `#` fragment, and never resolve external ones: the resolver fetches them during compilation, before the instance is validated (x402#3039, CWE-918).",
     "RS-PR-023": "Use `^[a-z0-9_]{1,32}$` for your builder-code app code — an invalid code is rejected downstream and your attribution is dropped.",
     "RS-PR-024": "Declare at most MAX_SERVER_SERVICE_CODES (5) service codes. Past that, entries are truncated downstream, so what you declare is not what settles.",
+    "RS-PR-025": "Use one of the paymentFlow values CORE §6.1 defines — authorization, upfront or escrow. A conformant client skips an entry whose flow it does not recognize, so an invented value makes the entry unpayable.",
+    "RS-PR-026": "Declare `extra.paymentFlow` when your flow commits funds before the resource runs. Undeclared, the entry reads as post-handler settlement and a client cannot see the commitment coming.",
     "DI-003": "Keep the discovery listing in sync with each resource's live 402 — the listed asset/payTo must match what the resource actually asks for.",
 }
 

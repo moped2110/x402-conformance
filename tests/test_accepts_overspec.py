@@ -107,15 +107,23 @@ def test_exact_with_upto_extra_warns_without_gating(valid_payload: dict) -> None
     assert exit_code(results) == 0  # MINOR does not gate
 
 
-def test_upto_with_asset_transfer_method_warns(valid_payload: dict) -> None:
-    """`upto` has no assetTransferMethod discriminator; carrying it is a mismatch."""
+def test_upto_with_asset_transfer_method_is_allowed(valid_payload: dict) -> None:
+    """This asserted a FAIL until CORE §6.1 landed (x402#3053/#3088/#3115).
+
+    `assetTransferMethod` was read as an `exact`-only discriminator, so an `upto`
+    entry carrying it was graded a scheme/extra mismatch. §6.1 makes it a
+    protocol-reserved key that every mechanism uses to declare its payment flows,
+    and names `upto` while explaining why. The old expectation would now fail a
+    conformant endpoint, so it is inverted rather than deleted — this is the case
+    the fix is about.
+    """
     valid_payload["accepts"][0].update(
         scheme="upto",
         network="solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
         payTo="9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin",
         extra={"assetTransferMethod": "eip3009"},
     )
-    assert by_id(_run(valid_payload), "RS-PR-019").status == Status.FAIL
+    assert by_id(_run(valid_payload), "RS-PR-019").status == Status.PASS
 
 
 def test_extra_vs_scheme_skips_on_v1() -> None:

@@ -34,15 +34,26 @@ _REQUIRED_ACCEPT_FIELDS = ("scheme", "network", "amount", "asset", "payTo", "max
 # `description`, and `mimeType` are top-level ResourceInfo, not per-entry.
 _KNOWN_ACCEPT_FIELDS = frozenset({*_REQUIRED_ACCEPT_FIELDS, "extra"})
 
-# Payment schemes the protocol names (CORE Document Scope + §6). A `scheme`
-# value outside this set is unpayable by any conformant client.
-_KNOWN_SCHEMES = frozenset({"exact", "upto", "batch-settlement"})
+# Payment schemes the protocol names (CORE §6). `auth-capture` has had a spec
+# directory for a while but was only named in the core list in 2026-08; it is a
+# real wire scheme (`"scheme": "auth-capture"`, specs/schemes/auth-capture/) and
+# leaving it out made RS-PR-017 call a conformant endpoint unpayable.
+_KNOWN_SCHEMES = frozenset({"exact", "upto", "batch-settlement", "auth-capture"})
+
+#: Keys the *protocol* reserves inside `PaymentRequirements.extra` (CORE §6.1).
+#: These are not scheme-private: a mechanism declares its supported payment flows
+#: per `assetTransferMethod`, and the spec names `upto` explicitly when explaining
+#: why — "distinguishing an SVM upto `escrow` default from an EVM upto
+#: `authorization` default". So they are legal on any scheme and must never be
+#: graded as a foreign key.
+_RESERVED_EXTRA_KEYS = frozenset({"assetTransferMethod", "paymentFlow"})
 
 # Scheme-specific `extra` vocabularies, from the scheme specs. `exact` on EVM
 # (scheme_exact_evm.md) uses the EIP-712 domain fields; `upto` on SVM
 # (scheme_upto_svm.md) uses the payment-channel fields. A key from one scheme
-# appearing on an entry declaring the other is a scheme/extra mismatch.
-_EXACT_EXTRA_KEYS = frozenset({"assetTransferMethod", "name", "version"})
+# appearing on an entry declaring the other is a scheme/extra mismatch — but the
+# reserved keys above belong to neither vocabulary and are excluded from both.
+_EXACT_EXTRA_KEYS = frozenset({"name", "version"})
 _UPTO_EXTRA_KEYS = frozenset(
     {
         "feePayer",
@@ -54,6 +65,23 @@ _UPTO_EXTRA_KEYS = frozenset(
         "validAfter",
     }
 )
+
+#: The payment flow models defined in CORE §6.1. `authorization` verifies before
+#: the resource runs and settles after; `upfront` and `escrow` commit funds
+#: *before* it runs.
+_PAYMENT_FLOWS = frozenset({"authorization", "upfront", "escrow"})
+
+#: Flows that bind the payer's money before the resource executes. The spec
+#: requires these to be declared explicitly so a client can see the commitment
+#: coming without knowing the mechanism.
+_PRE_HANDLER_FLOWS = frozenset({"upfront", "escrow"})
+
+#: `extra` fields that only exist because a mechanism holds or escrows funds
+#: before the resource runs: the SVM `upto` channel controls
+#: (scheme_upto_svm.md) and the `auth-capture` capture switch
+#: (scheme_auth_capture.md). Their presence is the observable hint that this
+#: entry is not plain post-handler settlement.
+_ESCROW_EXTRA_SIGNALS = frozenset({"withdrawDelay", "receiverAuthorizer", "autoCapture"})
 
 
 def _hkey(v: object) -> object:
@@ -604,7 +632,9 @@ def pr_019(s: ProbeSession) -> tuple[Status, str]:
         raw_extra = e.get("extra")
         if not isinstance(raw_extra, dict):
             continue
-        keys = set(raw_extra)
+        # The protocol-reserved keys belong to no scheme's vocabulary, so they can
+        # never be a mismatch in either direction (CORE §6.1).
+        keys = set(raw_extra) - _RESERVED_EXTRA_KEYS
         scheme = e.get("scheme")
         if scheme == "exact":
             leaked = sorted(keys & _UPTO_EXTRA_KEYS)
@@ -613,11 +643,13 @@ def pr_019(s: ProbeSession) -> tuple[Status, str]:
                     f"accepts[{i}] scheme=exact carries upto-only extra field(s): "
                     + ", ".join(leaked)
                 )
-        elif scheme == "upto" and "assetTransferMethod" in keys:
-            # scheme_upto_svm.md §3: upto has no assetTransferMethod discriminator.
-            problems.append(
-                f"accepts[{i}] scheme=upto carries exact-only extra.assetTransferMethod"
-            )
+        elif scheme == "upto":
+            leaked = sorted(keys & _EXACT_EXTRA_KEYS)
+            if leaked:
+                problems.append(
+                    f"accepts[{i}] scheme=upto carries exact-only extra field(s): "
+                    + ", ".join(leaked)
+                )
     if problems:
         return Status.FAIL, "; ".join(problems) + " — extra does not match the declared scheme"
     return Status.PASS, ""
@@ -788,3 +820,111 @@ def pr_024(s: ProbeSession) -> tuple[Status, str]:
             "the attribution declared here is not the attribution that settles"
         )
     return Status.PASS, f"{len(codes)} server service code(s), within reservation"
+
+
+# --- payment flow models (CORE §6.1, x402#3053/#3088/#3115) ------------------------
+#
+# Schemes differ not only in how a payment is formed but in *when* settlement
+# happens relative to the resource running. §6.1 names three orderings and makes
+# `extra.paymentFlow` a protocol-reserved key so a client can tell them apart
+# without knowing the mechanism:
+#
+#   authorization  verify -> resource -> settle -> respond   (funds move after)
+#   upfront        settle -> resource -> respond             (funds committed first)
+#   escrow         settle -> resource -> settle -> respond   (deposit, then charge)
+#
+# The difference is the payer's money. Under `authorization` a client that never
+# gets its resource has authorized nothing that moved; under the other two the
+# commitment already happened. That is what these checks are about.
+
+
+@register(
+    "RS-PR-025",
+    "declared paymentFlow is one the protocol defines",
+    Severity.MAJOR,
+    f"{_CORE} §6.1",
+)
+def pr_025(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-025: declared paymentFlow is one the protocol defines."""
+    if _x402_version(s) == 1:
+        return Status.SKIP, _V1_SKIP
+    accepts = _accepts_raw(s)
+    if not accepts:
+        return Status.SKIP, "no accepts entries to inspect"
+    declared = 0
+    problems = []
+    for i, e in enumerate(accepts):
+        raw_extra = e.get("extra")
+        if not isinstance(raw_extra, dict) or "paymentFlow" not in raw_extra:
+            continue
+        declared += 1
+        flow = raw_extra["paymentFlow"]
+        if not isinstance(flow, str) or flow not in _PAYMENT_FLOWS:
+            problems.append(f"accepts[{i}].extra.paymentFlow={flow!r}")
+    if declared == 0:
+        return Status.SKIP, "no entry declares extra.paymentFlow"
+    if problems:
+        return Status.FAIL, (
+            "; ".join(problems) + " — not one of "
+            f"{', '.join(sorted(_PAYMENT_FLOWS))}. §6.1 says a client MUST NOT construct "
+            "a payment for a paymentFlow it does not recognize and SHOULD skip the entry, "
+            "so an invented value makes this entry unpayable by every conformant client"
+        )
+    return Status.PASS, f"{declared} entry/entries declare a defined paymentFlow"
+
+
+@register(
+    "RS-PR-026",
+    "a flow that commits funds before the resource runs says so",
+    Severity.MINOR,
+    f"{_CORE} §6.1 vs scheme_upto_svm.md §PaymentRequirements",
+)
+def pr_026(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-026: a flow that commits funds before the resource runs says so.
+
+    Advisory, and deliberately so — upstream currently says both things. CORE §6.1:
+    "When the resolved payment flow is not `authorization`, `PaymentRequired`
+    `accepts[].extra.paymentFlow` MUST be present so clients can reason about
+    pre-handler fund commitment without scheme-specific knowledge."
+    `scheme_upto_svm.md` §PaymentRequirements, on the same field: "Only supported
+    value is `escrow`; omit to use that default."
+
+    An endpoint following the scheme binding literally omits the field and is
+    correct by that document while violating the core one. Gating on it would
+    fail an implementation for picking the wrong half of a contradiction, so this
+    reports and never gates. Revisit when upstream reconciles the two.
+    """
+    if _x402_version(s) == 1:
+        return Status.SKIP, _V1_SKIP
+    accepts = _accepts_raw(s)
+    if not accepts:
+        return Status.SKIP, "no accepts entries to inspect"
+    candidates = 0
+    problems = []
+    for i, e in enumerate(accepts):
+        raw_extra = e.get("extra")
+        if not isinstance(raw_extra, dict):
+            continue
+        # Only entries whose extra actually carries escrow/upfront machinery are
+        # graded. Inferring the resolved flow for an arbitrary mechanism needs
+        # knowledge this suite does not have, and guessing would turn a silent
+        # omission into a false accusation.
+        signals = sorted(set(raw_extra) & _ESCROW_EXTRA_SIGNALS)
+        if not signals:
+            continue
+        candidates += 1
+        if "paymentFlow" not in raw_extra:
+            problems.append(f"accepts[{i}].extra has {', '.join(signals)} but no paymentFlow")
+    if candidates == 0:
+        return Status.SKIP, "no entry carries pre-handler settlement fields"
+    if problems:
+        return Status.PASS, (
+            "advisory: "
+            + "; ".join(problems)
+            + " — CORE §6.1 wants paymentFlow present whenever the resolved flow is not "
+            "`authorization`, so a client can see its funds are committed before the "
+            "resource runs. scheme_upto_svm.md permits omitting it and defaulting to "
+            "`escrow`, so this is not graded; declaring it explicitly costs nothing and "
+            "removes the ambiguity"
+        )
+    return Status.PASS, f"{candidates} pre-handler entry/entries declare their flow"
