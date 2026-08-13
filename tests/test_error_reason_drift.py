@@ -91,6 +91,68 @@ def _find_upstream_root() -> Path | None:
     return None
 
 
+def _reviewed_pin() -> str | None:
+    """Read the upstream commit this repository claims to have reviewed."""
+    pin = Path(__file__).resolve().parents[1] / ".github" / "upstream-reviewed-commit"
+    if not pin.is_file():
+        return None
+    text = pin.read_text(encoding="utf-8").strip()
+    return text or None
+
+
+def _clone_head(root: Path) -> str | None:
+    """Resolve a clone's checked-out commit without shelling out to git."""
+    head = root / ".git" / "HEAD"
+    if not head.is_file():
+        return None
+    text = head.read_text(encoding="utf-8").strip()
+    if not text.startswith("ref:"):
+        return text or None
+    ref = text.split(":", 1)[1].strip()
+    loose = root / ".git" / ref
+    if loose.is_file():
+        return loose.read_text(encoding="utf-8").strip() or None
+    packed = root / ".git" / "packed-refs"
+    if packed.is_file():
+        for line in packed.read_text(encoding="utf-8").splitlines():
+            parts = line.split()
+            if len(parts) == 2 and parts[1] == ref:
+                return parts[0]
+    return None
+
+
+def _clone_is_at_reviewed_pin(root: Path) -> str | None:
+    """Return a skip reason when the clone is not the tree we reviewed.
+
+    The live diffs only mean "we drifted" when they compare against the pin this
+    repository reviewed. Against any other tree they still go red, but the remedy
+    differs and the failure text cannot tell the cases apart:
+
+      * an **older** clone lacks codes we correctly vendored — the fix is
+        `git fetch`, not regenerating anything;
+      * a **newer** clone has codes we have not reviewed yet — the fix is an
+        upstream review window, and regenerating would vendor unreviewed codes
+        while making the guard green, which is worse than the red we started with.
+
+    Both previously said "rerun sync_error_registry", which is wrong in both. A
+    gate that goes red without a defect gets ignored after the third time, so this
+    skips with the reason instead.
+    """
+    pin = _reviewed_pin()
+    if pin is None:
+        return None
+    head = _clone_head(root)
+    if head is None:
+        return f"cannot read the clone's HEAD at {root}; expected the reviewed pin {pin}"
+    if not head.startswith(pin) and not pin.startswith(head):
+        return (
+            f"clone at {root} is checked out at {head[:12]}, not the reviewed pin {pin}. "
+            "Check out the pin to compare, or open an upstream review window if the "
+            "clone is ahead — do not regenerate against an unreviewed tree."
+        )
+    return None
+
+
 def _parse_error_reasons(text: str) -> set[str]:
     block = re.search(r"ErrorReasons\s*=\s*\[(.*?)\]\s*as\s+const", text, re.S)
     assert block, "could not locate the `ErrorReasons` array in x402Specs.ts"
@@ -144,6 +206,9 @@ def test_known_error_codes_match_spec_enum():
             "x402Specs.ts not found; set X402_SPEC_TS or check out the x402 clone "
             "beside this repo to enable the live drift guard"
         )
+    root = _find_upstream_root()
+    if root is not None and (reason := _clone_is_at_reviewed_pin(root)) is not None:
+        pytest.skip(reason)
     live = _parse_error_reasons(path.read_text(encoding="utf-8"))
     missing = live - SPEC_ERROR_REASONS  # spec added codes we don't vendor yet
     extra = SPEC_ERROR_REASONS - live  # codes we vendor that the spec dropped
@@ -165,6 +230,8 @@ def test_mechanism_registry_matches_upstream():
             "no x402 clone found; set X402_UPSTREAM (or X402_SPEC_TS) to enable "
             "the mechanism-registry drift guard"
         )
+    if (reason := _clone_is_at_reviewed_pin(root)) is not None:
+        pytest.skip(reason)
     generated = render(extract(root))
     committed = (
         Path(__file__).resolve().parents[1] / "src" / "x402_conformance" / "error_registry.py"

@@ -33,10 +33,29 @@ def _required(network: str = "eip155:84532") -> dict:
 
 
 @pytest.mark.parametrize(
-    "network", ["eip155:1337", "eip155:31337", "eip155:84532", "eip155:11155111"]
+    "network",
+    ["eip155:1337", "eip155:31337", "eip155:84532", "eip155:11155111", "eip155:11142220"],
 )
 def test_explicit_evm_testnet_and_local_allowlist(network: str) -> None:
     assert DEFAULT_SAFETY_POLICY.require_safe_network(network) == network
+
+
+def test_evm_allowlist_membership_is_pinned() -> None:
+    """The allowlist is the payment-safety boundary, so its contents are asserted.
+
+    Parametrised positive and negative cases cover the entries someone thought to
+    write down; they say nothing about an entry nobody thought about. Celo Sepolia
+    was added to the allowlist without appearing in any test, which is how a
+    mainnet gets added the same way later. Changing this set is now a two-file
+    change, deliberately.
+    """
+    assert set(safety._ALLOWED_EVM_NETWORKS) == {
+        "eip155:1337",
+        "eip155:31337",
+        "eip155:84532",
+        "eip155:11155111",
+        "eip155:11142220",
+    }
 
 
 @pytest.mark.parametrize(
@@ -46,6 +65,11 @@ def test_explicit_evm_testnet_and_local_allowlist(network: str) -> None:
         "eip155:8453",
         "eip155:137",
         "eip155:999999",
+        # Shipped upstream alongside the testnets we do allow (x402#3025/#3031) and
+        # deliberately excluded. Naming them here turns "we did not add it" into
+        # "adding it breaks a test".
+        "eip155:42220",  # Celo mainnet
+        "eip155:14",  # Flare mainnet
         "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
         "cosmos:cosmoshub-4",
         "base-sepolia",
