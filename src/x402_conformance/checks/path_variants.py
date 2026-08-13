@@ -6,8 +6,8 @@ request can miss the paywall and still reach the handler — the resource is ser
 with no payment verification and no settlement. The money leaks and the endpoint
 looks healthy.
 
-This is not hypothetical. Upstream fixed the same class three times in three
-weeks, in three languages:
+This is not hypothetical. Upstream has fixed this class repeatedly, across
+every language it ships:
 
   * x402#3036 (TypeScript) — the wildcard route regex expanded ``*`` to ``.*?``
     without ``dotAll``, so a path whose wildcard tail held a line terminator did
@@ -18,6 +18,14 @@ weeks, in three languages:
     payment verification or settlement."
   * x402#3044 (Go) — middleware matched the *decoded* path while routing happened
     on the escaped one, so percent-encoded separators slipped past.
+  * x402#3116 (TypeScript) — ``normalizePath`` folded every ``\\`` to ``/`` after
+    decoding, so a backslash split the middleware's view of the path while the
+    router still dispatched to the protected handler.
+
+Two more landed while this check was being written — x402#3073 (ts/py path
+normalization) and x402#3100 (Go wildcards compiled with ``(?s)``) — which is
+five fixes of one class across four languages in five weeks. The class is not
+settling down.
 
 So the check sends the protected URL again under encodings that a correct server
 must still treat as paywalled, and looks for a 2xx.
@@ -33,8 +41,16 @@ with that reason rather than inventing a critical finding.
 Variant selection is deliberately narrow. Trailing slashes, letter case and
 ``;params`` can legitimately address a different resource, so a 2xx there proves
 nothing; they are excluded. What remains is either RFC 3986-equivalent to the
-protected path (percent-encoded unreserved characters, dot-segments) or a
-concrete upstream-demonstrated bypass (line terminators, encoded separators).
+protected path (percent-encoded unreserved characters, encoded dot-segments) or a
+concrete upstream-demonstrated bypass (line terminators, encoded separators,
+backslashes).
+
+Every variant must also *survive the client*. Dot segments were originally sent
+literally and RFC 3986 §5.2.4 requires the client to remove them, so those two
+probes were re-sending the canonical path and could never fail — coverage on
+paper only. They are percent-encoded now, which both survives and probes the
+sharper question of whether the server decodes before it normalises.
+``test_no_variant_is_inert_on_the_wire`` holds the whole set to that rule.
 """
 
 from __future__ import annotations
@@ -51,7 +67,7 @@ if TYPE_CHECKING:
 _CORE = "x402-specification-v2.md"
 PATH_VARIANT_CHECK_ID = "RS-SEC-012"
 _TITLE = "Paywall cannot be bypassed by re-encoding the request path"
-_SPEC_REF = f"{_CORE} §10.1 + x402#3036/#3044/#3055"
+_SPEC_REF = f"{_CORE} §10.1 + x402#3036/#3044/#3055/#3073/#3100/#3116"
 
 #: Label used for the catch-all control probe. Not a bypass candidate.
 CONTROL_LABEL = "control (nonexistent sibling)"
@@ -120,6 +136,34 @@ def build_variants(target_url: str) -> list[PathVariant]:
         ),
     ]
 
+    # Backslash (x402#3116). `normalizePath` rewrote every "\" to "/" *after*
+    # decoding, so a backslash split the middleware's view of the path while the
+    # framework router still dispatched to the protected handler: the `:param`
+    # regex `[^/]+` missed, route lookup returned nothing, and "the paywall failed
+    # open onto the paid handler with nothing settled".
+    #
+    # Two forms again, and for a different reason than the terminators — here it
+    # is the adapters, which differ in how much they decode before the middleware
+    # sees the path. Upstream reproduced both:
+    #     Express  /api/report/a\b     -> 200   (req.path is the escaped path)
+    #     Hono     /api/report/a%5Cb   -> 200   (c.req.path is already decoded)
+    variants.append(
+        PathVariant(
+            "raw backslash",
+            _rebuild(split, _in_wildcard_tail(path, "\\")),
+            "x402#3116: a raw backslash reached the '\\' -> '/' rewrite and split the "
+            "middleware's view of the path while the router still dispatched it",
+        )
+    )
+    variants.append(
+        PathVariant(
+            "encoded backslash",
+            _rebuild(split, _in_wildcard_tail(path, "%5C")),
+            "x402#3116 on an adapter that decodes before the middleware sees the path, "
+            "so %5C arrives as the same backslash",
+        )
+    )
+
     # Encoded separator: only meaningful when there is a separator to encode.
     if "/" in path.strip("/"):
         head, _, tail = path.strip("/").rpartition("/")
@@ -132,20 +176,31 @@ def build_variants(target_url: str) -> list[PathVariant]:
             )
         )
 
-    # Dot-segments: RFC 3986 §5.2.4 removes these, so the result is the *same*
-    # resource. A server that serves it unpaid has a normalisation gap.
+    # Dot-segments, percent-encoded. The *literal* forms ("/./x", "/a/../x") are
+    # useless as a probe: RFC 3986 §5.2.4 requires the client to remove them, and
+    # every HTTP client does — httpx included — so the request that leaves is
+    # already the canonical path and the server never sees anything unusual. An
+    # earlier version of this check sent them anyway and therefore tested nothing.
+    #
+    # Encoded, they survive the client intact and land on the one thing worth
+    # probing: whether the server decodes before it normalises. If it does, "%2E%2E"
+    # becomes ".." after the paywall has matched on the un-normalised string — the
+    # same decode-then-match ordering as the backslash and separator bugs above.
+    head, _, tail = path.rpartition("/")
     variants.append(
         PathVariant(
-            "current-directory segment",
-            _rebuild(split, path.rsplit("/", 1)[0] + "/./" + path.rsplit("/", 1)[1]),
-            "RFC 3986 §5.2.4 removes '/./', so this is the same resource",
+            "encoded current-directory segment",
+            _rebuild(split, f"{head}/%2E/{tail}"),
+            "decoded, '%2E' is '.', which RFC 3986 §5.2.4 removes — the same resource, "
+            "if the server normalises after decoding",
         )
     )
     variants.append(
         PathVariant(
-            "parent-directory segment",
-            _rebuild(split, path.rsplit("/", 1)[0] + "/x/../" + path.rsplit("/", 1)[1]),
-            "RFC 3986 §5.2.4 resolves '/x/..', so this is the same resource",
+            "encoded parent-directory segment",
+            _rebuild(split, f"{head}/x/%2E%2E/{tail}"),
+            "decoded, '%2E%2E' is '..', which RFC 3986 §5.2.4 resolves away — the same "
+            "resource, if the server normalises after decoding",
         )
     )
 

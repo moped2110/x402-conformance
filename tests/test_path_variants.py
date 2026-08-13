@@ -44,8 +44,10 @@ def test_variants_cover_the_upstream_bug_classes() -> None:
     assert "unicode line separator" in labels
     assert "encoded separator" in labels  # x402#3044 (Go)
     # RFC 3986 same-resource forms
-    assert "current-directory segment" in labels
-    assert "parent-directory segment" in labels
+    assert "encoded current-directory segment" in labels
+    assert "encoded parent-directory segment" in labels
+    assert "raw backslash" in labels  # x402#3116
+    assert "encoded backslash" in labels
     assert "percent-encoded unreserved character" in labels
     # and always the control
     assert CONTROL_LABEL in labels
@@ -63,6 +65,33 @@ def test_both_terminator_placements_are_probed() -> None:
     embedded = by_label["embedded line feed"]
     assert not embedded.endswith("%0A")
     assert "%0A" in embedded
+
+
+def test_no_variant_is_inert_on_the_wire() -> None:
+    """Every variant must actually differ from the canonical request.
+
+    This is the guard that was missing. The literal dot-segment forms ("/./x",
+    "/a/../x") were probed for a week and tested nothing: RFC 3986 requires the
+    *client* to remove dot segments, so httpx canonicalised them back to the
+    protected path before the request left. A probe identical to the baseline
+    always sees the baseline's 402 and always passes, which reads as coverage and
+    is not.
+    """
+    for target in ("https://api.example.com/premium-data", "https://api.example.com/a/b/c"):
+        canonical = httpx.URL(target).raw_path
+        for v in build_variants(target):
+            assert httpx.URL(v.url).raw_path != canonical, (
+                f"{v.label} sends the canonical path — the client normalised it away, "
+                "so this variant probes nothing"
+            )
+
+
+def test_backslash_variants_are_probed_in_both_forms() -> None:
+    """x402#3116 was reachable raw on Express and encoded on Hono, because the
+    adapters differ in how much they decode before the middleware sees the path."""
+    by_label = {v.label: httpx.URL(v.url).raw_path for v in build_variants(TARGET_URL)}
+    assert b"\\" in by_label["raw backslash"]
+    assert b"%5C" in by_label["encoded backslash"]
 
 
 def test_variants_preserve_query_and_host() -> None:
@@ -85,7 +114,7 @@ def test_ambiguous_forms_are_excluded() -> None:
     so a 2xx there proves nothing and must not be gated on."""
     variants = build_variants(TARGET_URL)
     labels = {v.label for v in variants}
-    assert not {label for label in labels if "slash" in label or "case" in label}
+    assert not {label for label in labels if "trailing slash" in label or "case" in label}
     assert all(";" not in v.url for v in variants)
     # no variant is just the path with a slash appended
     assert not any(v.url.rstrip("/") != v.url for v in variants)
@@ -122,7 +151,7 @@ def test_all_gated_passes() -> None:
 def test_served_variant_fails_and_names_it() -> None:
     outcomes = [
         (_v("embedded line feed"), 200, True),
-        (_v("parent-directory segment"), 402, True),
+        (_v("encoded parent-directory segment"), 402, True),
         (_v(CONTROL_LABEL), 404, False),
     ]
     status, detail = classify_variants(outcomes)
@@ -154,14 +183,18 @@ def test_empty_body_2xx_is_not_a_bypass() -> None:
 def test_marker_required_when_supplied() -> None:
     outcomes = [
         (_v("embedded line feed"), 200, True),
-        (_v("parent-directory segment"), 200, True),
+        (_v("encoded parent-directory segment"), 200, True),
         (_v(CONTROL_LABEL), 404, False),
     ]
-    marker = {"embedded line feed": False, "parent-directory segment": True, CONTROL_LABEL: False}
+    marker = {
+        "embedded line feed": False,
+        "encoded parent-directory segment": True,
+        CONTROL_LABEL: False,
+    }
     status, detail = classify_variants(outcomes, marker_seen=marker)
     assert status is Status.FAIL
     # only the variant that actually leaked the protected content is reported
-    assert "parent-directory segment" in detail
+    assert "encoded parent-directory segment" in detail
     assert "embedded line feed" not in detail
 
 
@@ -277,3 +310,65 @@ def test_rejecting_variants_pass(valid_payload: dict[str, Any], code: int) -> No
 
     results = run_checks(TARGET_URL, transport=httpx.MockTransport(handler))
     assert _sec_012(results).status is Status.PASS
+
+
+# --- x402#3116: the "\" -> "/" rewrite in normalizePath ---------------------------
+
+
+def _backslash_transport(payload: dict[str, Any], *, fixed: bool) -> httpx.MockTransport:
+    """A server carrying upstream's pre-fix normalizePath.
+
+    The bug: normalizePath rewrote every "\\" to "/" *after* decoding, so a
+    backslash in a segment split the middleware's view of the path. The route's
+    `:param` regex `[^/]+` then missed, lookup returned nothing, and the request
+    fell through to the handler unpaid — while the framework router, which never
+    did that rewrite, still dispatched it to the protected handler.
+
+    ``fixed=True`` is a correct server: it resolves dot segments and matches on
+    the same normalised form the router dispatches on, and it does not fold the
+    backslash. Both halves are needed — an earlier version of this fixture fixed
+    only the backslash and still decoded-then-matched, so the dot-segment variants
+    rightly failed it. That was the fixture being wrong, not the check.
+    """
+    header = encode_header(payload)
+    # Route "/premium-data/:id" — one param segment, exactly the shape that broke.
+    route = re.compile(r"^/premium-data/[^/]+$")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import posixpath
+        from urllib.parse import unquote
+
+        decoded = unquote(request.url.path)
+        if fixed:
+            # One canonical form for both the gate and the dispatch.
+            canonical = posixpath.normpath(decoded)
+            seen_by_middleware = dispatched = canonical
+        else:
+            seen_by_middleware = decoded.replace("\\", "/")  # the x402#3116 rewrite
+            dispatched = decoded
+        if route.match(seen_by_middleware):
+            return httpx.Response(402, headers={"PAYMENT-REQUIRED": header}, json={})
+        # Middleware saw no protected route. The router still dispatches on the
+        # real path, so the paid handler runs.
+        if dispatched.startswith("/premium-data/"):
+            return httpx.Response(200, text=PROTECTED_BODY)
+        return httpx.Response(404, text="not found")
+
+    return httpx.MockTransport(handler)
+
+
+_PARAM_TARGET = "https://api.example.com/premium-data/42"
+
+
+def test_backslash_bypass_is_detected(valid_payload: dict[str, Any]) -> None:
+    """The regression that justifies the backslash variants existing."""
+    results = run_checks(_PARAM_TARGET, transport=_backslash_transport(valid_payload, fixed=False))
+    result = _sec_012(results)
+    assert result.status is Status.FAIL, result.detail
+    assert "backslash" in result.detail
+
+
+def test_backslash_fixed_server_passes(valid_payload: dict[str, Any]) -> None:
+    """With the fix — escape rather than fold — every variant stays gated."""
+    results = run_checks(_PARAM_TARGET, transport=_backslash_transport(valid_payload, fixed=True))
+    assert _sec_012(results).status is Status.PASS, _sec_012(results).detail
