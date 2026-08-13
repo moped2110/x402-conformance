@@ -89,6 +89,8 @@ _CATALOG = Path(__file__).resolve().parents[1] / "docs" / "conformance-catalog.m
 _README = Path(__file__).resolve().parents[1] / "README.md"
 _SUPPORT_MATRIX = Path(__file__).resolve().parents[1] / "docs" / "support-matrix.md"
 _UPSTREAM_PIN = Path(__file__).resolve().parents[1] / ".github" / "upstream-reviewed-commit"
+_REVIEW_HANDOFF = Path(__file__).resolve().parents[1] / "docs" / "REVIEW-HANDOFF.md"
+_PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
 
 
 def _all_implemented_ids() -> set[str]:
@@ -174,6 +176,30 @@ def test_readme_check_count_matches_code() -> None:
     actual = len(_all_implemented_ids())
     assert stated == actual, (
         f"README says {stated} checks, code emits {actual} — update the README headline"
+    )
+
+
+def test_review_handoff_states_the_shipped_check_count_and_version() -> None:
+    """The handoff guide is what an independent reviewer reads first.
+
+    It sat at "63 implemented checks" and version 0.3.0 for two releases, while the
+    catalog and README were pinned to the code and stayed correct. The difference
+    was not care; it was that nothing checked this file. A document that describes
+    the product to an evaluator is a worse place to be wrong than the catalog,
+    because its reader has no way to notice.
+    """
+    handoff = _REVIEW_HANDOFF.read_text(encoding="utf-8")
+    actual = len(_all_implemented_ids())
+    count = re.search(r"\*\*(\d+) implemented checks\*\*", handoff)
+    assert count, "REVIEW-HANDOFF.md is missing its '**N implemented checks**' marker"
+    assert int(count.group(1)) == actual, (
+        f"REVIEW-HANDOFF.md says {count.group(1)} checks, code emits {actual}"
+    )
+    version = _PYPROJECT.read_text(encoding="utf-8")
+    declared = re.search(r'^version = "([^"]+)"', version, re.M)
+    assert declared, "pyproject.toml has no version"
+    assert f"`x402-conformance` {declared.group(1)}" in handoff, (
+        f"REVIEW-HANDOFF.md does not name the shipped version {declared.group(1)}"
     )
 
 

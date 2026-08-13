@@ -1,10 +1,11 @@
 # Technical review handoff
 
 This guide is the shortest reliable route through an independent review of
-`x402-conformance` 0.3.0. It describes the shipped code, not the aspirational
+`x402-conformance` 0.5.0. It describes the shipped code, not the aspirational
 catalog. The authoritative protocol baseline is `x402-foundation/x402@d454eb9`;
 the latest upstream comparison and every support claim are recorded in
-[`support-matrix.md`](support-matrix.md).
+[`support-matrix.md`](support-matrix.md), which also states the review cadence
+this document's numbers depend on.
 
 ## Mission and non-goals
 
@@ -22,9 +23,12 @@ from the verdict.
 
 - Mainnet and unknown payment networks fail closed before payload construction;
   there is no runtime override.
-- Signing is restricted to local chains 1337/31337, Base Sepolia 84532, and
-  Ethereum Sepolia 11155111. SVM foundations allow only devnet/testnet and do
-  not expose a runnable settlement group.
+- Signing is restricted to local chains 1337/31337, Base Sepolia 84532,
+  Ethereum Sepolia 11155111, and Celo Sepolia 11142220. Celo and Flare *mainnet*
+  are deliberately absent although upstream shipped default assets for them; the
+  allowlist's exact membership is asserted by a test, so widening it cannot happen
+  quietly. SVM foundations allow only devnet/testnet and do not expose a runnable
+  settlement group.
 - Positive resource or facilitator settlement requires an explicitly supplied,
   funded testnet key and an RPC whose `eth_chainId` exactly matches the
   advertised CAIP-2 network.
@@ -46,24 +50,29 @@ callers.
 ## Pinned support and check inventory
 
 The canonical status inventory is
-[`conformance-catalog.md`](conformance-catalog.md). The shipped catalog contains
-63 implemented checks:
+[`conformance-catalog.md`](conformance-catalog.md), and it is the number to trust:
+a test compares the count stated there against what the code actually emits, so
+this table can go stale but the catalog cannot. The shipped catalog contains
+**76 implemented checks**:
 
 | Group | Invocation | Coverage |
 |---|---|---|
-| `RS-HS-001..007` | `check` | HTTP 402 handshake and caching |
-| `RS-PR-001..016` | `check` | strict PaymentRequired content, identity, JP metadata |
-| `RS-NEG-*`, `RS-SEC-*` | `check --active` | signed semantic negatives, robustness, leak protection |
+| `RS-HS-001..008` | `check` | HTTP 402 handshake and caching |
+| `RS-PR-001..026` | `check` | strict PaymentRequired content, identity, JSON text hygiene, accepts overspecification, declared builder-code and payment-flow fields |
+| `RS-NEG-*`, `RS-SEC-*` | `check --active` | signed semantic negatives, robustness, leak protection, paywall-bypass probing (`RS-SEC-012`) |
 | `RS-PAY-001..004`, `RS-SEC-001/002` | `check --pay` | positive settlement, exact Transfer proof, replay/race |
 | `FA-SUP-*`, `FA-VER-*`, `FA-ERR-001` | `facilitator` | supported and verify behavior |
 | `FA-SET-001..003` | `facilitator --settle` | testnet settle, invalid settle, double settle |
-| `DI-001..003` | `discovery` | strict Bazaar schema, filters, safe live cross-check |
+| `DI-001..004` | `discovery` | strict Bazaar schema, filters, safe live cross-check, external `$ref`/`$id` in catalogued schemas |
 
 `RS-SEC-009` is enforced on every active rejection path rather than as a
-standalone registry function. Planned but unshipped rows are `RS-NEG-010`,
-`FA-VER-001`, and `FA-VER-005`. Permit2, ERC-7710, runnable SVM, `upto`, and
-batch settlement are also explicitly non-shipped. Unknown names never imply
-coverage.
+standalone registry function. Permit2, ERC-7710, runnable SVM, and batch
+settlement are explicitly non-shipped. Unknown names never imply coverage.
+
+`RS-PR-026` is deliberately advisory and never gates: CORE §6.1 requires
+`paymentFlow` for a non-`authorization` flow while `scheme_upto_svm.md` says to
+omit it and default to `escrow`. Failing an endpoint for picking one half of an
+upstream contradiction is not a verdict this suite is entitled to reach.
 
 ## Architecture and data flow
 
@@ -113,6 +122,10 @@ signature or adversarial trust anchor.
 | `checks/payment.py` | positive settlement, exact receipt/log proof, replay and race. |
 | `checks/facilitator.py` | strict `/supported`, `/verify`, and opt-in `/settle`. |
 | `checks/discovery.py` | schema/filter checks and SSRF-resistant cross-fetching. |
+| `checks/path_variants.py` | `RS-SEC-012`: paywall bypass via request-path encoding, with a control probe that SKIPs on catch-all endpoints instead of inventing a critical finding. |
+| `checks/svm_facilitator.py` | SVM-shaped facilitator checks; no runnable settlement group. |
+| `error_registry.py` | generated vocabulary of per-mechanism wire error codes. **Do not edit by hand** — regenerate with `tools/sync_error_registry.py`. |
+| `mcp_server.py` | the suite driven over MCP. Refuses non-public targets on shared transports; errors are generic at that boundary. |
 | `safety.py` | immutable network allowlists and exact RPC-chain validation. |
 | `report.py`, `redaction.py`, `run_record.py` | shared assessment, output formats, sanitization, integrity-checked records. |
 | `diff.py`, `scan.py` | strict report comparison and redacted batch aggregation. |
@@ -120,6 +133,7 @@ signature or adversarial trust anchor.
 | `tools/calibration_target.py` | independent SDK-backed calibration target and injected bug modes. |
 | `tools/onchain_facilitator.py`, `tools/onchain_smoke.py` | local-chain settlement oracle and end-to-end proof. |
 | `tools/check_function_docs.py` | AST gate for every sync/async function, method, and nested function in `src/` and executable `tools/`. |
+| `tools/sync_error_registry.py` | regenerates `error_registry.py` from an upstream clone; `--check` fails when the committed module is stale. |
 
 ## Report and run-record contracts
 
