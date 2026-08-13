@@ -49,6 +49,23 @@ _PATTERNS: dict[str, re.Pattern[str]] = {
     ".py": re.compile(r'\b(ERR_\w+)\s*=\s*"([a-z0-9_]+)"'),
 }
 
+# What this deliberately does NOT collect
+# ---------------------------------------
+# Upstream also has reasons that look exactly like wire codes and are not:
+# `unsupported_payment_flow`, `unsupported_asset_transfer_method`,
+# `missing_scheme`, `missing_facilitator`. Those are `RouteValidationError`
+# values, raised when a resource server *starts up* with a route it cannot serve
+# (go/http/server.go, packages/core/src/http/x402HTTPResourceServer.ts). They are
+# never carried on a VerifyResponse or SettleResponse.
+#
+# They are missed by the patterns below because they are inline string literals
+# and union members rather than exported constants — which is luck, not design,
+# so this note is the design. FA-ERR-001 fails a facilitator whose invalidReason
+# is outside KNOWN_ERROR_CODES; widening that set with codes that can never
+# legitimately reach a client makes the check accept things it should catch. If a
+# future pattern starts matching them, exclude them explicitly rather than
+# letting them in.
+
 #: Path fragments that never hold a shipped declaration. Tests in particular
 #: assert on *invalid* codes, which must not enter the accepted vocabulary.
 _EXCLUDED = (

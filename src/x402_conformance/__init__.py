@@ -10,7 +10,7 @@ except PackageNotFoundError:  # running from a source tree without an installed 
     __version__ = "0.0.0+source"
 
 #: Spec snapshot all checks are written against. Update deliberately, never silently.
-SPEC_BASELINE = "x402 Protocol v2 — x402-foundation/x402 @ d454eb9 (2026-06-08); upstream reviewed through c7e0ac8 (2026-08-07)"
+SPEC_BASELINE = "x402 Protocol v2 — x402-foundation/x402 @ d454eb9 (2026-06-08); upstream reviewed through f62a9fa (2026-08-13)"
 
 #: Sent on every outbound request so a scanned endpoint's logs can identify the tool
 #: (and its real repo). One constant, one version — never hand-typed per call site.

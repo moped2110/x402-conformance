@@ -5,6 +5,58 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-08-13
+
+Upstream review `c7e0ac8..f62a9fac` (19 commits). Full notes in
+[`docs/upstream-review-2026-08.md`](docs/upstream-review-2026-08.md).
+
+### Fixed
+- **Two checks were failing conformant endpoints after upstream rewrote CORE §6.**
+  The payment-flow work (x402#3053/#3088/#3115) made `extra.assetTransferMethod`
+  and `extra.paymentFlow` protocol-reserved keys that every mechanism uses —
+  RS-PR-019 had been treating the first as `exact`-only and failing any `upto`
+  entry carrying it, which is the exact case §6.1 uses as its worked example. And
+  RS-PR-017 called `auth-capture` an invented scheme; it has a spec directory, an
+  EVM binding and a wire identifier, and §6 now names it. That one had been wrong
+  since before the previous review.
+- **Two RS-SEC-012 variants had never left the client.** The dot-segment probes
+  were sent literally, and RFC 3986 §5.2.4 makes the *client* remove dot segments
+  — so httpx canonicalised them back to the protected path and they saw the
+  baseline's 402 every time. Coverage on paper, nothing on the wire. They are
+  percent-encoded now, which survives and probes the sharper question (does the
+  server decode before it normalises), and
+  `test_no_variant_is_inert_on_the_wire` holds every variant to that rule.
+
+### Added
+- **RS-SEC-012 backslash variants (x402#3116).** `normalizePath` folded every
+  `\` to `/` after decoding, so a backslash split the middleware's view of the
+  path while the router still dispatched to the protected handler. Probed raw and
+  as `%5C`, because adapters decode different amounts before the middleware runs
+  (Express vs Hono). With x402#3073 and #3100 this class now has five upstream
+  fixes across four languages in five weeks.
+- **RS-PR-025 (MAJOR)** — `extra.paymentFlow` must be one of `authorization`,
+  `upfront`, `escrow`. §6.1 says a client MUST NOT construct a payment for a flow
+  it does not recognize, so an invented value makes the entry unpayable.
+- **RS-PR-026 (MINOR, advisory)** — an entry carrying escrow machinery should
+  declare its flow. It never gates, and deliberately: CORE §6.1 requires the
+  field for a non-`authorization` flow while `scheme_upto_svm.md` says omit it
+  and default to `escrow`. Failing an endpoint for picking one half of an
+  upstream contradiction is not a verdict this suite is entitled to.
+
+### Changed
+- Catalog and README counts 74 → 76.
+- Support matrix: payment-flow models recorded as partially supported (the
+  declaration is graded, the ordering is not); Canton `exact` and `auth-capture`
+  added as `planned`; the `upto` row now says SVM defaults to `escrow`.
+- `tools/sync_error_registry.py` records why the route-validation reasons
+  (`unsupported_payment_flow` and friends) are **not** collected: they are
+  start-up configuration errors, never wire codes, and admitting them would make
+  FA-ERR-001 accept values that must never reach a client.
+- Upstream reviewed pin `c7e0ac8` → `f62a9fa`.
+
+### Verified, no change needed
+- The error registry is unchanged at 344 codes across all 19 commits.
+
 ## [0.4.0] — 2026-08-07
 
 Upstream review `61349de..c7e0ac8` (37 commits). Full notes in

@@ -168,3 +168,128 @@ construction and has no override, so listing the other two would be misleading.
 - **Starknet checks.** Needs a Starknet signer and SNIP-12 typed-data
   reconstruction. BACKLOG-014.
 - **Celo/Flare mainnet signing.** Excluded by the safety policy, by design.
+
+---
+
+# Upstream review — 2026-08-13 (`c7e0ac8..f62a9fac`)
+
+Second window, six days and 19 commits later. The drift job was green when this
+started, so nothing was overdue; the review is what turned it up.
+
+## Summary
+
+| # | Finding | Severity for us | Outcome |
+|---|---|---|---|
+| 1 | CORE §6.1 rewrite makes two of our checks fail conformant endpoints | **Wrong verdict shipped** | Fixed |
+| 2 | `auth-capture` was never in our scheme set | **Wrong verdict shipped** | Fixed |
+| 3 | Backslash bypass (x402#3116) not covered by RS-SEC-012 | Missing critical coverage | Two variants |
+| 4 | Two RS-SEC-012 variants never left the client | **Silent non-coverage** | Fixed + guard |
+| 5 | `paymentFlow` is a new gradeable field | New coverage | RS-PR-025/026 |
+| 6 | Upstream contradicts itself on when `paymentFlow` is required | Cannot grade | Advisory + recorded |
+| 7 | Canton `exact`, SVM `upto` escrow | Scope statement | Matrix rows |
+| 8 | Error registry unchanged; config reasons are not wire codes | Verified, no action | Boundary documented |
+
+## 1–2. The §6.1 rewrite produced two wrong verdicts
+
+`specs/x402-specification-v2.md` §6 was rewritten around **payment flow models**:
+`authorization` (verify → resource → settle), `upfront` (settle → resource), and
+`escrow` (settle → resource → settle). Two consequences landed on us.
+
+**`assetTransferMethod` is no longer scheme-private.** §6.1:
+
+> `extra.assetTransferMethod` and `extra.paymentFlow` are protocol-reserved keys
+> in `PaymentRequirements.extra`: clients and servers MUST interpret them as
+> defined here rather than as opaque scheme-private fields.
+
+RS-PR-019 treated it as an `exact`-only discriminator and failed any `upto` entry
+carrying it. The spec now names `upto` in the very sentence explaining the key's
+purpose. Both reserved keys are excluded from every scheme vocabulary; the `upto`
+branch grades the real `exact` vocabulary instead, so the check keeps its teeth.
+
+**`auth-capture` is the fourth named scheme.** RS-PR-017 called it unpayable.
+It has `specs/schemes/auth-capture/`, an EVM binding, and `"scheme":
+"auth-capture"` on the wire. §6 now lists it explicitly. This one had been wrong
+since before the previous review — the directory already existed at `c7e0ac8`;
+only the core spec's prose caught up.
+
+Both are the same class as the FA-ERR-001 finding in the first window, from the
+other direction: there our guard had gone stale, here the spec moved under a
+check that was correct when written.
+
+## 3–4. RS-SEC-012, one week old, was both incomplete and partly inert
+
+**x402#3116** is a bypass the variant set missed. `normalizePath` folded every
+`\` to `/` after decoding, so a backslash split the middleware's view of the path
+while the router still dispatched to the protected handler — "the paywall failed
+open onto the paid handler with nothing settled". Reachable in two forms, because
+adapters decode different amounts before the middleware runs: raw on Express,
+`%5C` on Hono. Both are now probed.
+
+**The worse half was ours.** The dot-segment variants were sent literally
+(`/./x`, `/a/../x`). RFC 3986 §5.2.4 requires the *client* to remove dot
+segments, and httpx does — so those two probes had been re-sending the canonical
+protected path since the day they were written. They saw the baseline's 402 every
+time and passed every time: two of nine variants were coverage on paper and
+nothing on the wire.
+
+Percent-encoded, they survive the client and ask the sharper question anyway —
+whether the server decodes before it normalises, the same ordering mistake as the
+backslash and separator bugs. `test_no_variant_is_inert_on_the_wire` now holds
+the whole set to that rule, so the next variant that cannot leave the client
+fails the build instead of looking like a passing check.
+
+x402#3073 (ts/py path normalization) and x402#3100 (Go wildcards with `(?s)`) add
+no variant but confirm the class in a third and fourth implementation. Five fixes
+across four languages in five weeks; this is not settling down.
+
+## 5–6. Payment-flow checks, and a contradiction we will not adjudicate
+
+**RS-PR-025** (MAJOR) grades `extra.paymentFlow` against the defined set. §6.1
+says a client MUST NOT construct a payment for a flow it does not recognize and
+SHOULD skip the entry, so an invented value is not cosmetic — it makes the entry
+unpayable by every conformant client.
+
+**RS-PR-026** is advisory and stays advisory, because upstream currently says
+both things:
+
+- CORE §6.1: "When the resolved payment flow is not `authorization`,
+  `PaymentRequired` `accepts[].extra.paymentFlow` MUST be present so clients can
+  reason about pre-handler fund commitment without scheme-specific knowledge."
+- `scheme_upto_svm.md`, on the same field: "Only supported value is `escrow`;
+  omit to use that default."
+
+An SVM `upto` endpoint that omits the field is correct by its scheme binding and
+in violation of the core spec. Failing it would be punishing an implementer for
+choosing one half of an upstream contradiction, so the check reports and never
+gates. Worth raising upstream; until then the disagreement is recorded rather
+than resolved by us.
+
+## 7–8. Scope and the registry boundary
+
+**Canton `exact`** (x402#2634) gets a `planned` matrix row and BACKLOG-016.
+**SVM `upto`** (x402#3094/#3135) defaults to the `escrow` flow and settles twice
+around the resource; the matrix now says the declaration is graded and the
+ordering is not (BACKLOG-017).
+
+**The error registry is unchanged at 344 codes** across all 19 commits —
+`sync_error_registry --check` is clean against `f62a9fac`.
+
+One near-miss worth recording. The new `unsupported_payment_flow` and
+`unsupported_asset_transfer_method` look exactly like wire codes. They are
+`RouteValidationError` values raised when a resource server starts with a route it
+cannot serve, and they never appear on a `VerifyResponse` or `SettleResponse`.
+The generator misses them only because they are inline literals rather than
+exported constants — luck, not design. Adding them would make FA-ERR-001 accept
+codes that must never reach a client, so the boundary is now written into
+`tools/sync_error_registry.py` where the next person to widen a pattern will read
+it.
+
+## Deliberately not done
+
+- **Payment-flow ordering.** Proving an `upfront` settle really preceded the
+  handler, or that `escrow` settled on both sides, needs funded settlement and an
+  observable resource execution. BACKLOG-017.
+- **Canton checks.** Spec-only upstream. BACKLOG-016.
+- **`auth-capture` semantics.** Recognised as payable so we stop failing it;
+  authorize/capture/void/refund/reclaim is a scheme implementation, not a matrix
+  row.

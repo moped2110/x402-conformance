@@ -5,7 +5,7 @@ run is conformance for the rows marked **supported**, not a blanket certificate 
 every x402 transport, network, scheme, or transfer mechanism.
 
 **Tool spec baseline:** `x402-foundation/x402@d454eb9` (2026-06-08)
-**Latest upstream review:** `main@c7e0ac8` (2026-08-07), rechecked 2026-08-07
+**Latest upstream review:** `main@f62a9fa` (2026-08-13), rechecked 2026-08-13
 **Review notes:** [`docs/upstream-review-2026-08.md`](upstream-review-2026-08.md)
 **Review sources:** [upstream commits](https://github.com/x402-foundation/x402/commits/main/),
 [V2 core specification](https://github.com/x402-foundation/x402/blob/main/specs/x402-specification-v2.md),
@@ -25,6 +25,7 @@ Status meanings:
 | Area | Status | Assessed behavior / boundary |
 |---|---|---|
 | HTTP x402 V2 | supported | 402 signaling, strict `PaymentRequired`, resource identity, headers, robustness, reports, facilitator, and Bazaar discovery checks. The challenge is also assessed as JSON *text*: literals RFC 8259 does not define and duplicate object keys are findings, because both make a challenge mean different things to different parsers. The selected HTTP method is never changed implicitly. |
+| Payment flow models (CORE §6.1) | partially supported | `extra.paymentFlow` is graded against the defined set (RS-PR-025), and an escrow-shaped entry that does not declare its flow is flagged advisorily (RS-PR-026). What is **not** assessed is whether the endpoint actually runs the ordering it declares — proving that `upfront` settled before the handler ran, or that `escrow` settled twice, needs funded settlement on both sides of the resource. `extra.assetTransferMethod` and `extra.paymentFlow` are treated as protocol-reserved on every scheme, never as scheme-private keys. |
 | HTTP x402 V1 | passive-only | Recognized and reported as V1; exit 2 (`INCONCLUSIVE`) for a V2 assessment. |
 | x402 **over** MCP or A2A | out of scope | No transport adapter and no verdict: an endpoint that speaks x402 over MCP is not something this suite can assess. Not to be confused with *Interfaces* below — this row is about what gets tested, that section is about how the suite is driven. |
 | `jp402` / `x-jp402` metadata | passive-only | Optional structural and arithmetic validation; not tax, legal, or invoice-compliance advice. |
@@ -61,8 +62,10 @@ operator's choice at start-up and is never a tool parameter.
 | `exact` / ERC-7710 | EVM | planned | No delegation, manager, gas-limit, or simulation semantics are claimed. |
 | `exact` | SVM (`solana`) | passive-only | CAIP-2 parsing, ATA derivation, a partial-transaction builder, and tamper primitives exist; no runnable conformance group or settlement verifier exists yet. Reviewed 2026-08-07 against the x402#2937 spec change: `extra.recentBlockhash` is a *construction hint* only, `extra.lastValidBlockHeight` is informational and may be ignored, and verification must **not** compare the transaction's blockhash with the hint. The FA-SVM tamper set contains no blockhash case, so nothing here would false-FAIL — checked rather than assumed. |
 | `exact` | Starknet (`starknet:SN_MAIN`, `starknet:SN_SEPOLIA`) | planned | Spec landed 2026-08 (x402#2849) and is detailed enough to implement against: SNIP-9 OutsideExecution, SNIP-12 typed-data hashing, SNIP-6 `is_valid_signature`, `Caller` bound to `extra.feePayer`, single-`transfer` calldata, and mandatory settlement simulation. Nothing is implemented; a clean run makes no Starknet claim. |
+| `exact` | Canton | planned | Spec landed 2026-08 (x402#2634). Nothing implemented; a clean run makes no Canton claim. |
 | `exact` | XRPL, Near, Casper, Hedera, Aptos, AVM, Stellar, TVM, Keeta, and other families | passive-only | Shared V2 HTTP/wire checks only; no family-specific payload or on-chain proof. |
-| `upto` | any | planned | No ceiling, metered-amount, replay, or actual-transfer checks. |
+| `upto` | any | planned | No ceiling, metered-amount, replay, or actual-transfer checks. The *flow declaration* is graded (RS-PR-025/026) and `assetTransferMethod` is accepted on `upto` entries, but that is the challenge only. SVM `upto` defaults to the `escrow` flow (x402#3094/#3135) and settles twice around the resource; none of that ordering is verified. |
+| `auth-capture` | any | planned | Recognised as a protocol-named scheme (RS-PR-017) so an endpoint offering it is not called unpayable, and its `extra.autoCapture` counts as a pre-handler signal for RS-PR-026. No authorize/capture/void/refund/reclaim semantics are assessed. |
 | `batch-settlement` | any | planned | No escrow, voucher, aggregation, or redemption checks. |
 
 ## Facilitator completeness
@@ -92,6 +95,8 @@ mistaken for a release defect or shipped coverage.
 | BACKLOG-008 calibration breadth | planned; add Node/Hono and another public-testnet strategy without mainnet settlement. |
 | BACKLOG-009 networks/builder-code | Server-declared builder-code now ships (RS-PR-023/024). The client/facilitator halves and every unimplemented network stay passive-only pending mechanism-specific work; names alone never count as support. |
 | BACKLOG-014 Starknet `exact` | planned; needs a Starknet signer, SNIP-12 typed-data reconstruction, and the same fail-closed testnet policy before any active check. |
+| BACKLOG-016 Canton `exact` | planned; spec-only upstream, no signer or ledger binding here. |
+| BACKLOG-017 payment-flow ordering | planned; RS-PR-025/026 grade the declaration. Proving an `upfront` settle really preceded the handler, or that `escrow` settled on both sides, needs funded settlement and a resource whose execution we can observe. |
 | BACKLOG-015 active Bazaar `$ref` rejection | planned; DI-004 grades a catalogue passively. Posting a hostile registration to prove the facilitator *rejects* it needs a write surface, which is outside this black-box boundary. |
 | BACKLOG-010 German guide/website integration | deferred to the product/documentation repositories; report and diff formats are ready for consumption. |
 | BACKLOG-011 responsible disclosure | operational task; revalidate current versions and follow each target's policy before contact. Never scan third parties without authorization. |
@@ -115,3 +120,12 @@ codes conformant facilitators return, and FA-ERR-001 would have failed them. The
 job now also regenerates `src/x402_conformance/error_registry.py` via
 `tools/sync_error_registry.py` and diffs it. A guard pointed at a file upstream
 has stopped changing reports success, not safety.
+
+The registry deliberately stops at the wire. Upstream's route-validation reasons
+(`unsupported_payment_flow`, `unsupported_asset_transfer_method`,
+`missing_scheme`, `missing_facilitator`) look like error codes and are not: they
+are `RouteValidationError` values raised when a resource server starts with a
+misconfigured route, and they never appear in a `VerifyResponse` or
+`SettleResponse`. Adding them would make FA-ERR-001 accept codes that must never
+reach a client, so the generator does not collect them and this note exists so
+nobody adds them by hand.
