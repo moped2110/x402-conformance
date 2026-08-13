@@ -12,6 +12,19 @@ every x402 transport, network, scheme, or transfer mechanism.
 [scheme specifications](https://github.com/x402-foundation/x402/tree/main/specs/schemes), and
 [Bazaar extension](https://github.com/x402-foundation/x402/blob/main/specs/extensions/bazaar.md).
 
+**Review cadence: at most two weeks.** This is a commitment about the matrix, not a
+chore. Between 2026-07-23 and 2026-08-13 the pin sat unreviewed for three weeks and
+accumulated **two false positives** — RS-PR-019 and RS-PR-017 began failing conformant
+endpoints after upstream rewrote CORE §6, and one of those checks was three weeks old
+at the time. FA-ERR-001 was rejecting valid facilitator error codes over the same
+window. Neither was findable by any test we own; only by reading upstream.
+
+That asymmetry is the reason for the interval. A missing check costs us a sale. A check
+that fails a conformant endpoint costs the customer an afternoon and costs us the claim
+this document makes. Upstream shipped five fixes of one bug class in five weeks, so the
+matrix goes stale faster than a monthly rhythm can track. The supply-chain workflow
+already reports pin drift on a schedule; this row says what that report obliges.
+
 Status meanings:
 
 - **supported** — the relevant behavior has runnable checks and contributes to the verdict.
