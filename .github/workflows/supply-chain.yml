@@ -53,15 +53,47 @@ jobs:
           repository: x402-foundation/x402
           ref: main
           path: upstream-x402
-      - name: Alert when upstream moved beyond the reviewed matrix
+          # Full history: the cadence check counts commits since the reviewed pin and
+          # diffs specs/ against it. A shallow clone has neither.
+          fetch-depth: 0
+      - name: Alert when the reviewed matrix is past its cadence
+        # Deliberately NOT "fail whenever upstream moved". Upstream moves most days, so
+        # that version was red on almost every scheduled run — and a job that is always
+        # red is a job nobody reads, which is worse than no job. This fails on the thing
+        # the support matrix actually commits to: a review at most two weeks old. Drift
+        # inside the window is reported and passes.
         run: |
+          set -o pipefail
           reviewed="$(tr -d '\n\r' < suite/.github/upstream-reviewed-commit)"
           current="$(git -C upstream-x402 rev-parse --short=7 HEAD)"
-          test "$current" = "$reviewed" || {
-            echo "x402 upstream moved: reviewed=$reviewed current=$current"
-            echo "Review specs and update docs/support-matrix.md before changing the pin."
+          if [ "$current" = "$reviewed" ]; then
+            echo "x402 upstream is at the reviewed pin ($reviewed)."
+            exit 0
+          fi
+
+          review_line="$(grep -m1 'Latest upstream review' suite/docs/support-matrix.md)"
+          review_date="$(printf '%s' "$review_line" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)"
+          if [ -z "$review_date" ]; then
+            echo "Could not read the review date from docs/support-matrix.md."
+            echo "That line is the cadence's source of truth; fix it before trusting this job."
             exit 1
-          }
+          fi
+          age=$(( ( $(date -u +%s) - $(date -u -d "$review_date" +%s) ) / 86400 ))
+          behind="$(git -C upstream-x402 rev-list --count "$reviewed"..HEAD)"
+          spec_changes="$(git -C upstream-x402 diff --name-only "$reviewed"..HEAD -- specs/ | wc -l)"
+
+          echo "reviewed=$reviewed ($review_date, ${age}d ago) current=$current"
+          echo "commits since the pin: $behind, of which touch specs/: $spec_changes"
+
+          if [ "$age" -le 14 ]; then
+            echo "Within the two-week cadence — no action required yet."
+            exit 0
+          fi
+          echo "::error::Upstream review is ${age} days old; the support matrix commits to at most 14."
+          echo "Read the commits, update docs/support-matrix.md, then move the pin."
+          echo "Spec changes are the priority: in August 2026 a CORE §6 rewrite turned two of"
+          echo "our own checks into false positives that failed conformant endpoints."
+          exit 1
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
         with:
           python-version: "3.12"
