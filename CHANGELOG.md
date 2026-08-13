@@ -53,6 +53,17 @@ Upstream review `c7e0ac8..f62a9fac` (19 commits). Full notes in
   start-up configuration errors, never wire codes, and admitting them would make
   FA-ERR-001 accept values that must never reach a client.
 - Upstream reviewed pin `c7e0ac8` → `f62a9fa`.
+- **The payment-safety allowlist's membership is pinned by a test**, and Celo and
+  Flare mainnet are named as rejected. Celo Sepolia had been added to the
+  allowlist without appearing in any test; parametrised cases cover the entries
+  someone thought to write down and say nothing about one nobody thought about.
+  Widening the set is a two-file change now.
+- **The registry drift guard skips instead of failing when the local x402 clone is
+  not at the reviewed pin.** It failed against a month-old clone advising
+  `sync_error_registry`, which would have fixed nothing; the same text appears
+  when a clone is *ahead*, where regenerating is actively wrong — it would vendor
+  unreviewed codes and turn the guard green. CI is unaffected: its "upstream moved
+  beyond the reviewed matrix" step already fails before these tests run.
 
 ### Verified, no change needed
 - The error registry is unchanged at 344 codes across all 19 commits.
