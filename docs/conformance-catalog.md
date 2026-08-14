@@ -8,7 +8,7 @@
 
 **Status:** this catalog is the full *planned* set with spec traceability; some IDs are aspirational. See "Implementation status" below for what actually ships. Severity: **C**ritical (security/funds at risk), **M**ajor (spec violation, interop broken), **m**inor (robustness/quality).
 
-## Implementation status (v0.3.0)
+## Implementation status (v0.6.0)
 
 **Implemented & tested (76 checks):**
 - RS-HS-001…007, RS-PR-001…022 — passive (`check`). RS-PR-008 now does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
@@ -16,6 +16,10 @@
 - RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) — on-chain (`check --pay`)
 - FA-SUP-001/002, FA-VER-002/003/004, FA-ERR-001 — `facilitator`; FA-SET-001/002/003 — `facilitator --settle`
 - DI-001/002/003 — `discovery`
+
+Additionally, six separately registered PQC checks ship behind the explicit
+`check --profile pqc` selector. They are not part of the 76-check default/group
+count because selecting the profile replaces, rather than extends, the default run.
 
 RS-SEC-009 (content-leak on the rejection path) is enforced inside every active check; `check --active --resource-marker <s>` additionally flags a rejected body that still contains the protected content.
 
@@ -124,7 +128,29 @@ These are the money tests: a server that delivers the resource despite an invali
 | RS-SEC-011 | Extreme/near-2²⁵⁶ amount values in requirements or payload | Tooling parses without overflow; endpoint responds cleanly (no crash) | robustness + N4/N13 | m | implemented |
 | RS-SEC-012 | **Paywall bypass by path re-encoding:** the protected URL re-requested with a line terminator in the wildcard tail (LF/CR/U+2028), a percent-encoded separator, dot-segments, or a percent-encoded unreserved character | Still gated (402/4xx) — never 2xx with content. A control probe against a nonexistent sibling path guards against a catch-all endpoint, which SKIPs instead of failing | CORE §10.1 + RFC 3986 §5.2.4/§6.2.2.2 + x402#3036/#3044/#3055 | C | implemented |
 
-## 6. FA — Facilitator conformance (secondary target)
+## 6. PQC — Hybrid receipt conformance (opt-in)
+
+This profile uses the additive PSV receipt-v2 contract. A resource advertises
+`extensions.pqc` with `version: 2`, the fixed `algorithms` list, a hybrid `receipt`,
+`verifyUrl`, and a public `keys` mapping addressed by `kid`. The runner sends only two
+invalid receipts to that verifier: one with a tampered ML-DSA signature and one with
+`sig_v2` stripped. It never constructs or settles a payment.
+
+| ID | Test | Expected | Spec ref | Sev | Status |
+|----|------|----------|----------|-----|--------|
+| PQC-001 | PQC capability in the 402 response | Closed, schema-valid v2 advertisement | PSV PQC-Belegformat v2 | M | implemented |
+| PQC-002 | Hybrid `sig_v2` structure | Both registered algorithms and plausible key IDs; ML-DSA-65 signature exactly 3309 bytes | PSV PQC-Belegformat v2 | M | implemented |
+| PQC-003 | Positive hybrid verification | ECDSA-P256-SHA256 **and** ML-DSA-65 valid | PSV PQC-Belegformat v2 | C | implemented |
+| PQC-004 | Tampered ML-DSA signature | SUT verifier rejects it | PSV PQC-Belegformat v2 | C | implemented |
+| PQC-005 | Stripped `sig_v2` downgrade | Reject, or accept only with explicit `degraded: true` | PSV PQC-Belegformat v2 | C | implemented |
+| PQC-006 | Algorithm metadata cross-signing | Changing metadata invalidates both signatures | PSV PQC-Belegformat v2 | C | implemented |
+
+The profile checks receipt-signature conformance, not total security and not settlement
+truth. Chain signatures remain ECDSA/secp256k1. TLS harvest-now-decrypt-later protection
+is separate from receipt signatures. A green result does not certify “quantum-safe
+payments”.
+
+## 7. FA — Facilitator conformance (secondary target)
 
 | ID | Test | Expected | Spec ref | Sev | Status |
 |----|------|----------|----------|-----|--------|

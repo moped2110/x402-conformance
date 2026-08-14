@@ -50,17 +50,22 @@ funds.
 
 ## Status
 
-**v0.3.0** — working tool. CI (pytest + mypy on Python 3.11–3.13) in `.github/workflows/ci.yml`; full release notes in [`CHANGELOG.md`](CHANGELOG.md). Implemented check groups:
+**v0.6.0** — working tool. CI (pytest + mypy on Python 3.11–3.13) in `.github/workflows/ci.yml`; full release notes in [`CHANGELOG.md`](CHANGELOG.md). Implemented check groups:
 
 - **RS-HS** (handshake) and **RS-PR** (PaymentRequired schema) — passive, no payment.
 - **RS-NEG** + **RS-SEC-010** (negative / security) — `--active`: signs deliberately-invalid payments and verifies the endpoint rejects them. Throwaway signer, no funds, no chain needed.
 - **FA** (facilitator `/supported`, `/verify`) — the `facilitator` command.
 - **DI** (discovery / Bazaar) — the `discovery` command.
+- **PQC** (hybrid receipt conformance) — explicit opt-in with `check --profile pqc`.
 
 - **RS-PAY** + **RS-SEC-001** (positive settlement + replay) — `check --pay`: signs a valid funded payment, settles it ON-CHAIN, verifies the tx, and confirms a replay is rejected. Confirmed live against Anvil.
 - **FA-SET** (facilitator `/settle`) — `facilitator --settle`: valid settle, invalid settle, double-settle.
 
-Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **76 checks across the groups above; 610+ offline tests, mypy strict, CI green.**
+Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **76 checks across the groups above; 620+ offline tests, mypy strict, CI green.** Six separately registered PQC checks are available only through the replacing `--profile pqc` selector and are therefore not included in that default/group count.
+
+The PQC profile checks receipt-signature conformance and downgrade behavior. It does
+not certify quantum-safe payments: chain signatures remain ECDSA/secp256k1, and TLS
+harvest-now-decrypt-later protection is a separate transport concern.
 
 **Solana / SVM — in progress.** The `exact` scheme on Solana works differently from EVM: the client submits a *partial-signed transaction* (an SPL/Token-2022 `TransferChecked` to the recipient's ATA, co-signed by the sponsor `feePayer` at settle time), and a verifier checks the *outcome*, not a signature. The foundations ship behind an opt-in **`[svm]`** extra — CAIP-2 `solana:*` handling, ATA derivation, a spec-faithful partial-signed transaction builder, and tamper primitives for the negative checks. A first runnable group ships: **FA-SVM** sends a valid partial-signed payload and six tampered ones to a facilitator's `/verify` (never `/settle`). The *settlement* path still needs a local validator and is **not shipped yet**. This is purely additive: without `[svm]`, the suite behaves exactly as before (no Solana dependency, no EVM path touched).
 
@@ -70,7 +75,7 @@ Since v0.2.0 (see [`CHANGELOG.md`](CHANGELOG.md)): six new passive checks on the
 
 ```bash
 pip install -e ".[dev]"     # includes eth-account for active checks
-# optional extras: [onchain] for --pay settlement (web3), [svm] for the Solana/SVM foundations (solders)
+# optional extras: [onchain] for --pay, [svm] for Solana, [pqc] for --profile pqc
 ```
 
 ## Usage
@@ -81,6 +86,9 @@ x402-conformance check https://api.example.com/premium-data
 
 # Also run active negative checks (sends invalid payments; throwaway signer)
 x402-conformance check https://api.example.com/premium-data --active
+
+# Opt-in hybrid receipt checks (PQC-001..006; default is off)
+x402-conformance check https://api.example.com/premium-data --profile pqc
 
 # Positive settlement: both a funded testnet key and matching RPC are mandatory
 x402-conformance check https://api.example.com/premium-data --pay \

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "x402-conformance"
-version = "0.5.0"
+version = "0.6.0"
 description = "Black-box conformance and robustness test suite for x402 payment endpoints"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -51,6 +51,12 @@ mcp = [
 svm = [
     "solders>=0.21",
     "solana>=0.34",
+]
+# Hybrid receipt verification is opt-in and needs OpenSSL-backed ML-DSA support.
+# cryptography is already used by the mcp/dev surfaces; this extra keeps the base
+# passive install unchanged while making `--profile pqc` explicit and usable.
+pqc = [
+    "cryptography>=50.0.0",
 ]
 dev = [
     "pytest>=8.0",

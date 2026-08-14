@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import time
 from typing import Any
@@ -129,6 +130,7 @@ def run_checks(
     timeout: float = 10.0,
     transport: httpx.BaseTransport | None = None,
     resource_marker: str | None = None,
+    profile: str | None = None,
 ) -> list[CheckResult]:
     """Probe ``url`` (two unpaid requests) and evaluate every registered check.
 
@@ -158,6 +160,10 @@ def run_checks(
         path_variants, variant_marker = _probe_path_variants(
             client, url, effective, first, resource_marker
         )
+        pqc_tamper_response: dict[str, object] | None = None
+        pqc_downgrade_response: dict[str, object] | None = None
+        if profile == "pqc":
+            pqc_tamper_response, pqc_downgrade_response = _probe_pqc_verifier(client, first)
 
     session = ProbeSession(
         target_url=url,
@@ -168,10 +174,18 @@ def run_checks(
         notes=notes,
         path_variants=path_variants,
         path_variant_marker=variant_marker,
+        pqc_tamper_response=pqc_tamper_response,
+        pqc_downgrade_response=pqc_downgrade_response,
     )
 
     results: list[CheckResult] = []
-    for check in REGISTRY:
+    if profile == "pqc":
+        from .checks.pqc import PQC_REGISTRY
+
+        selected_checks = PQC_REGISTRY
+    else:
+        selected_checks = REGISTRY
+    for check in selected_checks:
         try:
             # A check returns (status, detail) or (status, detail, reason_code); the
             # star capture normalises both without the runner caring which it used.
@@ -190,3 +204,40 @@ def run_checks(
             )
         )
     return results
+
+
+def _probe_pqc_verifier(
+    client: httpx.Client, first: Probe
+) -> tuple[dict[str, object] | None, dict[str, object] | None]:
+    """Send the two safe, invalid-receipt probes required by the PQC profile."""
+    raw = first.raw
+    extensions = raw.get("extensions") if isinstance(raw, dict) else None
+    capability = extensions.get("pqc") if isinstance(extensions, dict) else None
+    if not isinstance(capability, dict):
+        return None, None
+    receipt = capability.get("receipt")
+    verify_url = capability.get("verifyUrl")
+    if not isinstance(receipt, dict) or not isinstance(verify_url, str):
+        return None, None
+
+    tampered = copy.deepcopy(receipt)
+    sig_v2 = tampered.get("sig_v2")
+    if not isinstance(sig_v2, dict):
+        return None, None
+    pqc = sig_v2.get("pqc")
+    if not isinstance(pqc, dict) or not isinstance(pqc.get("signature"), str):
+        return None, None
+    signature = str(pqc["signature"])
+    pqc["signature"] = ("A" if not signature.startswith("A") else "B") + signature[1:]
+    stripped = copy.deepcopy(receipt)
+    stripped.pop("sig_v2", None)
+
+    def post(value: dict[str, object]) -> dict[str, object] | None:
+        try:
+            response = client.post(verify_url, json=value, follow_redirects=False)
+            decoded = response.json()
+        except (httpx.HTTPError, ValueError, UnicodeDecodeError):
+            return None
+        return decoded if isinstance(decoded, dict) else None
+
+    return post(tampered), post(stripped)

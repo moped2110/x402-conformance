@@ -1,6 +1,6 @@
 """Check modules. Importing this package populates the registry."""
 
-from . import handshake, path_variants, payment_required  # noqa: F401
+from . import handshake, path_variants, payment_required, pqc  # noqa: F401
 from .base import REGISTRY, Check, CheckResult, Severity, Status, register
 
 __all__ = ["REGISTRY", "Check", "CheckResult", "Severity", "Status", "register"]
