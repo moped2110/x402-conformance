@@ -1,7 +1,7 @@
 # Technical review handoff
 
 This guide is the shortest reliable route through an independent review of
-`x402-conformance` 0.5.0. It describes the shipped code, not the aspirational
+`x402-conformance` 0.6.0. It describes the shipped code, not the aspirational
 catalog. The authoritative protocol baseline is `x402-foundation/x402@d454eb9`;
 the latest upstream comparison and every support claim are recorded in
 [`support-matrix.md`](support-matrix.md), which also states the review cadence
@@ -61,6 +61,7 @@ this table can go stale but the catalog cannot. The shipped catalog contains
 | `RS-PR-001..026` | `check` | strict PaymentRequired content, identity, JSON text hygiene, accepts overspecification, declared builder-code and payment-flow fields |
 | `RS-NEG-*`, `RS-SEC-*` | `check --active` | signed semantic negatives, robustness, leak protection, paywall-bypass probing (`RS-SEC-012`) |
 | `RS-PAY-001..004`, `RS-SEC-001/002` | `check --pay` | positive settlement, exact Transfer proof, replay/race |
+| `PQC-001..006` | `check --profile pqc` | opt-in hybrid receipt structure, verification, downgrade and cross-signing |
 | `FA-SUP-*`, `FA-VER-*`, `FA-ERR-001` | `facilitator` | supported and verify behavior |
 | `FA-SET-001..003` | `facilitator --settle` | testnet settle, invalid settle, double settle |
 | `DI-001..004` | `discovery` | strict Bazaar schema, filters, safe live cross-check, external `$ref`/`$id` in catalogued schemas |

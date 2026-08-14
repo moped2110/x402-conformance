@@ -8,11 +8,9 @@ import json
 from typing import Any
 
 import httpx
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec, mldsa
-
 from conftest import TARGET_URL, VALID_PAYMENT_REQUIRED, encode_header
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec, mldsa
 
 VERIFY_URL = "https://api.example.com/test-only/pqc/verify"
 
@@ -25,19 +23,27 @@ def _payload(receipt: dict[str, Any]) -> bytes:
     unsigned = copy.deepcopy(receipt)
     unsigned["sig_v2"]["classical"]["signature"] = ""
     unsigned["sig_v2"]["pqc"]["signature"] = ""
-    return b"PSV-RECEIPT-V2\x00" + json.dumps(
-        unsigned, ensure_ascii=False, separators=(",", ":"), sort_keys=True
-    ).encode()
+    return (
+        b"PSV-RECEIPT-V2\x00"
+        + json.dumps(unsigned, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
+    )
 
 
 class PQCFixtureSUT:
     """Ephemeral hybrid receipt issuer/verifier; never suitable for production."""
 
-    def __init__(self, *, ignore_pqc: bool = False, allow_downgrade: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        ignore_pqc: bool = False,
+        allow_downgrade: bool = False,
+        silent_downgrade: bool = False,
+    ) -> None:
         self.classical = ec.generate_private_key(ec.SECP256R1())
         self.pqc = mldsa.MLDSA65PrivateKey.generate()
         self.ignore_pqc = ignore_pqc
         self.allow_downgrade = allow_downgrade
+        self.silent_downgrade = silent_downgrade
         self.receipt = self._issue()
         self.capability = self._build_challenge()
 
@@ -94,13 +100,11 @@ class PQCFixtureSUT:
                 receipt = json.loads(request.content)
                 sig_v2 = receipt.get("sig_v2")
                 if sig_v2 is None:
-                    accepted = self.allow_downgrade
+                    accepted = self.allow_downgrade or self.silent_downgrade
                     degraded = self.allow_downgrade
                 else:
                     payload = _payload(receipt)
-                    classical = base64.urlsafe_b64decode(
-                        sig_v2["classical"]["signature"] + "=="
-                    )
+                    classical = base64.urlsafe_b64decode(sig_v2["classical"]["signature"] + "==")
                     pqc_sig = base64.urlsafe_b64decode(sig_v2["pqc"]["signature"] + "==")
                     try:
                         self.classical.public_key().verify(

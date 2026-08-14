@@ -123,3 +123,13 @@ class SafetyPolicy:
 
 
 DEFAULT_SAFETY_POLICY = SafetyPolicy()
+
+
+def require_pqc_test_key_network(key_id: str, network: object) -> None:
+    """Keep explicitly marked fixture PQC keys on reviewed test/local networks."""
+    if "TEST-ONLY" not in key_id:
+        return
+    try:
+        DEFAULT_SAFETY_POLICY.require_safe_network(network)
+    except SafetyViolation as exc:
+        raise SafetyViolation("PQC test key is forbidden outside testnet/local networks") from exc

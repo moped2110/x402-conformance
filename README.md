@@ -57,6 +57,7 @@ funds.
 - **RS-SEC-012** (paywall bypass by re-encoding the request path) — passive, critical: re-requests the protected URL under encodings a correct server must still gate, with a control probe so catch-all endpoints SKIP.
 - **FA** (facilitator `/supported`, `/verify`) — the `facilitator` command.
 - **DI** (discovery / Bazaar) — the `discovery` command.
+- **PQC** (hybrid receipt conformance) — explicit opt-in with `check --profile pqc`.
 
 - **RS-PAY** + **RS-SEC-001** (positive settlement + replay) — `check --pay`: signs a valid funded payment, settles it ON-CHAIN, verifies the tx, and confirms a replay is rejected. Confirmed live against Anvil.
 - **FA-SET** (facilitator `/settle`) — `facilitator --settle`: valid settle, invalid settle, double-settle.
@@ -73,7 +74,7 @@ In v0.3.0: six new passive checks on the challenge — four on `accepts` overspe
 
 ```bash
 pip install -e ".[dev]"     # includes eth-account for active checks
-# optional extras: [onchain] for --pay settlement (web3), [svm] for the Solana/SVM foundations (solders)
+# optional extras: [onchain] for --pay, [svm] for Solana, [pqc] for --profile pqc
 ```
 
 ## Usage
@@ -84,6 +85,9 @@ x402-conformance check https://api.example.com/premium-data
 
 # Also run active negative checks (sends invalid payments; throwaway signer)
 x402-conformance check https://api.example.com/premium-data --active
+
+# Opt-in hybrid receipt checks (PQC-001..006; default is off)
+x402-conformance check https://api.example.com/premium-data --profile pqc
 
 # Positive settlement: both a funded testnet key and matching RPC are mandatory
 x402-conformance check https://api.example.com/premium-data --pay \

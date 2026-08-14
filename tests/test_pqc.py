@@ -4,18 +4,17 @@ from __future__ import annotations
 
 import copy
 
+from conftest import TARGET_URL
+from pqc_fixture_sut import PQCFixtureSUT
 from typer.testing import CliRunner
 
-from pqc_fixture_sut import PQCFixtureSUT
-from x402_conformance.checks.base import Status
+from x402_conformance.checks.base import CheckResult, Status
 from x402_conformance.cli import app
 from x402_conformance.pqc_runner import run_pqc_checks
 
-from conftest import TARGET_URL, valid_transport
 
-
-def _by_id(results: list[object], check_id: str) -> object:
-    return next(result for result in results if getattr(result, "check_id") == check_id)
+def _by_id(results: list[CheckResult], check_id: str) -> CheckResult:
+    return next(result for result in results if result.check_id == check_id)
 
 
 def test_fixture_sut_passes_all_six_pqc_checks() -> None:
@@ -64,10 +63,10 @@ def test_pqc_005_accepts_explicit_degraded_downgrade() -> None:
 
 
 def test_pqc_005_rejects_silent_downgrade() -> None:
-    sut = PQCFixtureSUT(allow_downgrade=True)
-    original_transport = sut.transport()
-    results = run_pqc_checks(TARGET_URL, transport=original_transport)
-    assert "degraded" in _by_id(results, "PQC-005").detail
+    sut = PQCFixtureSUT(silent_downgrade=True)
+    results = run_pqc_checks(TARGET_URL, transport=sut.transport())
+    assert _by_id(results, "PQC-005").status == Status.FAIL
+    assert "silently" in _by_id(results, "PQC-005").detail
 
 
 def test_pqc_006_detects_unsigned_algorithm_metadata() -> None:
@@ -79,7 +78,7 @@ def test_pqc_006_detects_unsigned_algorithm_metadata() -> None:
     assert _by_id(results, "PQC-006").status == Status.FAIL
 
 
-def test_cli_profile_pqc_is_explicit(monkeypatch: object) -> None:
+def test_cli_profile_pqc_is_explicit() -> None:
     runner = CliRunner()
     result = runner.invoke(app, ["check", TARGET_URL, "--profile", "unknown", "--no-log"])
     assert result.exit_code == 2

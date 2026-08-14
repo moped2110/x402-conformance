@@ -102,6 +102,8 @@ class ProbeSession:
     path_variants: list[tuple[PathVariant, int | None, bool]] | None = None
     #: Per-variant "did the protected-content marker appear", when one was given.
     path_variant_marker: dict[str, bool] | None = None
+    pqc_tamper_response: dict[str, object] | None = None
+    pqc_downgrade_response: dict[str, object] | None = None
 
 
 # A PaymentRequired challenge travels base64-encoded in an HTTP response header, so

@@ -108,6 +108,7 @@ _CHECK_CONFIG_KEYS = frozenset(
         "pay",
         "rpc_url",
         "timing",
+        "profile",
         "concurrency",
         "progress",
         "fix",
@@ -152,7 +153,7 @@ def _validate_check_config(cfg: dict[str, object]) -> dict[str, object]:
         value = cfg["concurrency"]
         if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 64:
             _config_error("concurrency must be an integer from 1 to 64")
-    for name in ("resource_marker", "rpc_url", "log_dir"):
+    for name in ("resource_marker", "rpc_url", "log_dir", "profile"):
         if name in cfg and not isinstance(cfg[name], str):
             _config_error(f"{name} must be a string")
     return cfg
@@ -461,6 +462,11 @@ def check(
         "leaks which validation failed. Advisory (MINOR), never gates the verdict; "
         "sends only invalid payments, no funds. Uses a throwaway signer.",
     ),
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        help="Opt-in check profile. Currently supported: pqc (PQC-001..006).",
+    ),
     json_out: Path | None = typer.Option(None, "--json", help="Write JSON report to file"),
     md_out: Path | None = typer.Option(None, "--markdown", help="Write Markdown report to file"),
     sarif_out: Path | None = typer.Option(
@@ -514,6 +520,10 @@ def check(
     pay = bool(_config_default(ctx, cfg, "pay", pay))
     rpc_url = cast("str | None", _config_default(ctx, cfg, "rpc_url", rpc_url))
     timing = bool(_config_default(ctx, cfg, "timing", timing))
+    profile = cast("str | None", _config_default(ctx, cfg, "profile", profile))
+    if profile not in (None, "pqc"):
+        typer.secho("invalid --profile; supported profile: pqc", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
     concurrency = int(cast(int, _config_default(ctx, cfg, "concurrency", concurrency)))
     progress = bool(_config_default(ctx, cfg, "progress", progress))
     fix = bool(_config_default(ctx, cfg, "fix", fix))
@@ -561,6 +571,7 @@ def check(
                 "active": active,
                 "pay": pay,
                 "timing": timing,
+                "profile": profile,
                 "concurrency": concurrency,
                 "resource_marker": resource_marker,
                 "rpc_url": rpc_url,
@@ -580,7 +591,13 @@ def check(
         typer.echo(f"Run record: {path}")
 
     try:
-        results = run_checks(url, method=method, timeout=timeout, resource_marker=resource_marker)
+        results = run_checks(
+            url,
+            method=method,
+            timeout=timeout,
+            resource_marker=resource_marker,
+            profile=profile,
+        )
     except httpx.HTTPError as exc:
         # A failed attempt is worth recording too — the audit trail wants to know we
         # tried to test this target at this time and it was unreachable.
