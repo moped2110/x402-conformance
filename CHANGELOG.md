@@ -5,6 +5,21 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **`test_verify_rejects_an_invalid_signature_before_simulation` no longer fails 1 run in
+  256.** It "broke" the signature by overwriting r's first byte with `0x00`, which changed
+  nothing whenever r already started with `00`, so the valid signature was submitted as the
+  invalid one. It now flips every bit of that byte, which always changes the signature, and
+  asserts that it did.
+
+### Documented
+- **The catalog's implementation status names v0.6.0 and lists what ships.** The heading
+  still said v0.3.0, and the list omitted RS-PR-023…026, RS-SEC-012, DI-004, RS-HS-008 and
+  RS-SEC-008 while the count beside it (76) was already right. The FA-SVM group is noted as
+  outside the catalog, like the PQC profile. `tests/test_catalog_status.py` now compares the
+  list with the shipped catalog and the heading with the package version, so a new check or
+  a release that does not update the section fails CI.
+
 ## [0.6.0] — 2026-10-06
 
 ### Added
