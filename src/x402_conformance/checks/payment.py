@@ -259,7 +259,7 @@ def _verify_tx_onchain(
     try:
         from web3 import Web3
     except Exception:
-        return Status.SKIP, "web3 not installed (pip install x402-conformance[onchain])"
+        return Status.SKIP, 'web3 not installed (install the [onchain] extra; see README "Install")'
     try:
         w3 = Web3(Web3.HTTPProvider(rpc_url))
         receipt = w3.eth.get_transaction_receipt(cast(Any, tx_hash))

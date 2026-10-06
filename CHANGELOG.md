@@ -5,6 +5,8 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-10-06
+
 The 2026-10 upstream review (`f62a9fa..cb0ec5b`, see
 [`docs/upstream-review-2026-10.md`](docs/upstream-review-2026-10.md)). All eight review
 decisions are confirmed. 76 → 81 checks; `reportVersion` 1.4.
@@ -71,6 +73,14 @@ decisions are confirmed. 76 → 81 checks; `reportVersion` 1.4.
   outside the catalog, like the PQC profile. `tests/test_catalog_status.py` now compares the
   list with the shipped catalog and the heading with the package version, so a new check or
   a release that does not update the section fails CI.
+- **Install instructions no longer point at PyPI.** x402-conformance is not published there,
+  so `pip install "x402-conformance[mcp]"` failed. README's Install and MCP sections now
+  install a tagged release from GitHub
+  (`pip install "x402-conformance[evm] @ git+https://github.com/moped2110/x402-conformance@v0.7.0"`),
+  and the missing-extra hints (`[evm]`, `[onchain]`, `[svm]`) point at README "Install"
+  instead of a bare `pip install x402-conformance[...]`.
+- **Check count re-confirmed at 81 everywhere it is stated** (README, catalog,
+  REVIEW-HANDOFF, `x402-conformance explain`).
 
 ## [0.6.0] — 2026-10-06
 
