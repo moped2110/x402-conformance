@@ -113,7 +113,15 @@ def _probe_path_variants(
     marker_seen: dict[str, bool] | None = {} if resource_marker else None
     for variant in variants:
         try:
-            resp = client.request(method, variant.url)
+            if variant.absolute_form:
+                # httpcore writes the `target` extension into the request line
+                # verbatim, over HTTP and HTTPS alike (x402#3577).
+                request = client.build_request(
+                    method, variant.url, extensions={"target": variant.wire_target}
+                )
+                resp = client.send(request)
+            else:
+                resp = client.request(method, variant.url)
         except httpx.HTTPError:
             outcomes.append((variant, None, False))
             continue

@@ -54,7 +54,7 @@ funds.
 
 - **RS-HS** (handshake) and **RS-PR** (PaymentRequired schema) — passive, no payment.
 - **RS-NEG** + **RS-SEC-010** (negative / security) — `--active`: signs deliberately-invalid payments and verifies the endpoint rejects them. Throwaway signer, no funds, no chain needed.
-- **RS-SEC-012** (paywall bypass by re-encoding the request path) — passive, critical: re-requests the protected URL under encodings a correct server must still gate, with a control probe so catch-all endpoints SKIP.
+- **RS-SEC-012** (paywall bypass by re-encoding the request path) — passive, critical: re-requests the protected URL under encodings (and as an absolute-form request target, x402#3577) a correct server must still gate, with a control probe so catch-all endpoints SKIP.
 - **FA** (facilitator `/supported`, `/verify`) — the `facilitator` command.
 - **DI** (discovery / Bazaar) — the `discovery` command.
 
