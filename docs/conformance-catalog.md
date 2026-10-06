@@ -17,9 +17,10 @@
 - FA-SUP-001/002, FA-VER-002/003/004, FA-ERR-001 — `facilitator`; FA-SET-001/002/003 — `facilitator --settle`
 - DI-001/002/003 — `discovery`
 
-Additionally, six separately registered PQC checks (unreleased; on `main` after v0.5.0)
-run only behind the explicit `check --profile pqc` selector and need the `[pqc]` extra. They are not part of the 76-check default/group
-count because selecting the profile replaces, rather than extends, the default run.
+Additionally, six separately registered PQC checks (since v0.6.0) run only behind the
+explicit `check --profile pqc` selector and need the `[pqc]` extra. They are not part of
+the 76-check default/group count because selecting the profile replaces, rather than
+extends, the default run.
 
 RS-SEC-009 (content-leak on the rejection path) is enforced inside every active check; `check --active --resource-marker <s>` additionally flags a rejected body that still contains the protected content.
 

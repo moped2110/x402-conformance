@@ -5,6 +5,8 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-10-06
+
 ### Added
 - Opt-in `check --profile pqc` category with `PQC-001..006`: capability/schema,
   hybrid receipt structure, ECDSA-P256 plus ML-DSA-65 AND-verification, tampered
