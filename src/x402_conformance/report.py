@@ -332,6 +332,7 @@ _REMEDIATION: dict[str, str] = {
     "RS-NEG-013": "Validate the price against YOUR requirements, not the client-supplied `accepted` amount.",
     "RS-NEG-014": "Verify the asset is your expected token contract, not any address the client supplies.",
     "RS-NEG-015": "Reject an asset with no contract code (an EOA): settling against it is a silent no-op — pre-flight `eth_getCode`.",
+    "RS-NEG-016": "Before forwarding a v2 payment, reject it with `extension_echo_mismatch` when the echoed builder-code `a` differs from the `info.a` you declared (or you declared none) — the facilitator no longer checks it.",
     "RS-SEC-003": "Bind each payment to the requested resource — reject a payment whose claimed `resource` differs from the one being served.",
     "RS-SEC-006": "Validate one header deterministically — never let a legacy X-PAYMENT header bypass v2 validation, and don't 5xx on duplicate/contradictory payment headers.",
     "RS-SEC-010": "Bind to the EIP-712 chainId and reject cross-chain-replayed signatures.",

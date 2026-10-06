@@ -10,9 +10,9 @@
 
 ## Implementation status (v0.6.0)
 
-**Implemented & tested (80 checks):**
+**Implemented & tested (81 checks):**
 - RS-HS-001…007, RS-PR-001…027, RS-SEC-012 — passive (`check`). RS-PR-008 does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
-- RS-NEG-001/002/003/004/005/006/007/008/009/011/012/013/014/015 + RS-SEC-003 + RS-SEC-004 + RS-SEC-005 + RS-SEC-006 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
+- RS-NEG-001/002/003/004/005/006/007/008/009/011/012/013/014/015/016 + RS-SEC-003 + RS-SEC-004 + RS-SEC-005 + RS-SEC-006 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
 - RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) + RS-HS-008 (paid 200 not shared-cacheable) + RS-HS-009 (EXTENSION-RESPONSES never forwarded to the buyer) — on-chain (`check --pay`)
 - RS-SEC-008 (timing oracle) — opt-in advisory probe (`check --timing`), see below
 - FA-SUP-001/002, FA-VER-002/003/004, FA-ERR-001, FA-EXT-001 — `facilitator`; FA-SET-001/002/003/004 — `facilitator --settle`
@@ -24,7 +24,7 @@ or a release that does not update this section fails CI.
 
 Additionally, six separately registered PQC checks (since v0.6.0) run only behind the
 explicit `check --profile pqc` selector and need the `[pqc]` extra. They are not part of
-the 80-check default/group count because selecting the profile replaces, rather than
+the 81-check default/group count because selecting the profile replaces, rather than
 extends, the default run. The FA-SVM live `/verify` group is likewise outside the catalog:
 it needs a live SVM facilitator and the `[svm]` extra and is invoked explicitly
 (`python -m x402_conformance.checks.svm_facilitator`).
@@ -121,6 +121,7 @@ These are the money tests: a server that delivers the resource despite an invali
 | RS-NEG-013 | Tampered `accepted.amount` (lower than server's offer, signature consistent with tampered value) | 402 — server must validate against ITS requirements, not client-supplied ones | CORE §6.1.2 step 5 | C | implemented |
 | RS-NEG-014 | Payment with a well-formed but **wrong asset contract** (lookalike token) | 402 — server validates the contract address against its requirement, not the token symbol | CORE §6.1.2 step 4 + N10 | C | implemented |
 | RS-NEG-015 | Payment whose **asset is an EOA** (no contract code) | 402 — calling transferWithAuthorization on an EOA never reverts, so settlement is a silent no-op; server must reject (`asset_not_deployed_contract`) before settling | CORE §6.1.2 step 4 + x402#2554 | C | implemented |
+| RS-NEG-016 | Payment whose **builder-code echo** carries a different app code `a` than the server declared (only when `builder-code` is declared) | 402/400 with `extension_echo_mismatch`, before verification/settlement. Rejected for another reason (e.g. the facilitator's `insufficient_funds` for the unfunded probe signer) means the echo was not checked: FAIL. Served, settled, or a reasonless PAYMENT-RESPONSE: FAIL. A reasonless 402 passes with a note | extensions/builder_code.md + x402#3302/#3313 | M | implemented |
 
 ## 5. RS-SEC — Security & robustness
 
