@@ -42,7 +42,7 @@ funds.
 
 ---
 
-**Spec baseline:** x402 Protocol v2, `x402-foundation/x402` @ `d454eb9` (2026-06-08); upstream changes reviewed through `f62a9fa` (2026-08-13) — see [`docs/upstream-review-2026-08.md`](docs/upstream-review-2026-08.md).
+**Spec baseline:** x402 Protocol v2, `x402-foundation/x402` @ `d454eb9` (2026-06-08); upstream changes reviewed through `cb0ec5b` (2026-10-06) — see [`docs/upstream-review-2026-10.md`](docs/upstream-review-2026-10.md) (previous: [`2026-08`](docs/upstream-review-2026-08.md)).
 **Test catalog:** see [`docs/conformance-catalog.md`](docs/conformance-catalog.md) — every check carries an ID, severity, and spec reference.
 **Support boundary:** [`docs/support-matrix.md`](docs/support-matrix.md) — exact supported, passive-only, planned, and out-of-scope mechanisms.
 **Architecture:** [`docs/architecture.md`](docs/architecture.md) (how it works, with diagrams). Dated development logs (calibration, on-chain bring-up, report/robustness work) are archived under [`docs/history/`](docs/history/).
@@ -59,7 +59,7 @@ funds.
 - **DI** (discovery / Bazaar) — the `discovery` command.
 
 - **RS-PAY** + **RS-SEC-001** (positive settlement + replay) — `check --pay`: signs a valid funded payment, settles it ON-CHAIN, verifies the tx, and confirms a replay is rejected. Confirmed live against Anvil.
-- **FA-SET** (facilitator `/settle`) — `facilitator --settle`: valid settle, invalid settle, double-settle.
+- **FA-SET** (facilitator `/settle`) — `facilitator --settle`: valid settle, invalid settle, double-settle, and `settlement_pending` handling (a still-pending settle is inconclusive, never a FAIL).
 
 Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **81 checks across the groups above; 700+ offline tests, mypy strict.**
 
@@ -67,7 +67,9 @@ Calibrated against a verify-capable reference target (`tools/calibration_target.
 
 **Solana / SVM — in progress.** The `exact` scheme on Solana works differently from EVM: the client submits a *partial-signed transaction* (an SPL/Token-2022 `TransferChecked` to the recipient's ATA, co-signed by the sponsor `feePayer` at settle time), and a verifier checks the *outcome*, not a signature. The foundations ship behind an opt-in **`[svm]`** extra — CAIP-2 `solana:*` handling, ATA derivation, a spec-faithful partial-signed transaction builder, and tamper primitives for the negative checks. A first runnable group ships: **FA-SVM** sends a valid partial-signed payload and six tampered ones to a facilitator's `/verify` (never `/settle`). The *settlement* path still needs a local validator and is **not shipped yet**. This is purely additive: without `[svm]`, the suite behaves exactly as before (no Solana dependency, no EVM path touched).
 
-Since v0.3.0 (see [`CHANGELOG.md`](CHANGELOG.md)): two reviews of upstream x402 (`61349de..f62a9fa`) produced RS-SEC-012, DI-004 (external `$ref`/`$id` in Bazaar schemas), RS-PR-023…026 (builder-code, payment-flow declarations) and RS-HS-008 (paid 200 not shared-cacheable); FA-ERR-001 now accepts the 344 error codes upstream's mechanism packages actually return, from a generated registry; two checks that failed conformant endpoints after the CORE §6.1 rewrite were fixed; and the support matrix commits to a two-week upstream review cadence.
+Since v0.3.0 (see [`CHANGELOG.md`](CHANGELOG.md)): two reviews of upstream x402 (`61349de..f62a9fa`) produced RS-SEC-012, DI-004 (external `$ref`/`$id` in Bazaar schemas), RS-PR-023…026 (builder-code, payment-flow declarations) and RS-HS-008 (paid 200 not shared-cacheable); FA-ERR-001 accepts the error codes upstream's mechanism packages actually return, from a generated registry; two checks that failed conformant endpoints after the CORE §6.1 rewrite were fixed; and the support matrix commits to a two-week upstream review cadence.
+
+**Unreleased — the 2026-10 upstream review (`f62a9fa..cb0ec5b`):** DI-001/002 accept the ISO 8601 `lastUpdated` every current Bazaar sends (they failed all of them); `settlement_pending` is handled as the non-terminal outcome CORE §9 defines (new FA-SET-004, report 1.4); RS-PR-019 grades `extra` per (scheme, network family) instead of failing conformant SVM, Hedera, Starknet and EVM-upto entries; RS-SEC-012 probes the Fastify absolute-form bypass (x402#3577, fix unreleased); the error registry is regenerated (493 codes, client/server-role files excluded, 17 retired codes accepted until 2027-04-06); and four new checks: RS-PR-027 (paymentFlow per binding), RS-HS-009 and FA-EXT-001 (EXTENSION-RESPONSES), RS-NEG-016 (builder-code echo).
 
 In v0.3.0: six new passive checks on the challenge — four on `accepts` overspecification, two grading the challenge as JSON *text* (literals RFC 8259 does not define, duplicate keys) — the FA-SVM live `/verify` group, an MCP server for the passive surface, a machine-readable `inconclusiveReason` (report 1.3), and the Algorand CAIP-2 alignment that landed upstream as x402#2931.
 
