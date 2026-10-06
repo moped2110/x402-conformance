@@ -32,7 +32,7 @@ SIGNER = EvmSigner.from_key("0x" + "44" * 32)
 
 #: The checks that interrogate /verify. None of them may grade a missing endpoint.
 VERIFY_CHECKS = ("FA-VER-002", "FA-VER-003", "FA-VER-004", "FA-ERR-001")
-SETTLE_CHECKS = ("FA-SET-001", "FA-SET-002", "FA-SET-003")
+SETTLE_CHECKS = ("FA-SET-001", "FA-SET-002", "FA-SET-003", "FA-SET-004")
 
 
 @pytest.fixture(autouse=True)

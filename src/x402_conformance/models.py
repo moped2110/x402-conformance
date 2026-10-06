@@ -94,16 +94,31 @@ class SettlementResponse(WireModel):
 
     @model_validator(mode="after")
     def validate_transaction(self) -> SettlementResponse:
-        """A successful settlement must carry a chain-valid transaction id."""
+        """A successful settlement must carry a chain-valid transaction id.
+
+        A failed one may carry one too. CORE §5.3.2 says ``transaction`` is empty
+        "if no transaction was broadcast", and a broadcast can fail: either it was
+        never confirmed (``settlement_pending``, which MUST carry the hash,
+        x402#3083) or it reverted. This model used to reject every failed response
+        with a hash, so a spec-conformant pending answer read as malformed.
+
+        Whether a particular failure may carry a hash is a *semantic* rule and lives
+        in the checks that mean it: a rejected invalid payment must not have been
+        broadcast (RS-NEG, FA-SET-002), and a pending one must name its broadcast
+        (FA-SET-004, RS-PAY-002).
+        """
 
         if self.success:
             if not self.transaction:
                 raise ValueError("successful settlement requires a transaction")
             if self.network.startswith("eip155:") and not _EVM_TX_HASH.fullmatch(self.transaction):
                 raise ValueError("EVM settlement transaction must be a 32-byte 0x hash")
-        elif self.transaction:
-            raise ValueError("failed settlement must not carry a transaction")
         return self
+
+    @property
+    def is_pending(self) -> bool:
+        """True for the non-terminal ``settlement_pending`` outcome (CORE §9)."""
+        return not self.success and self.error_reason == "settlement_pending"
 
 
 class VerifyResponse(WireModel):

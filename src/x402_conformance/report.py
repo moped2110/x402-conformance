@@ -15,6 +15,7 @@ from .checks.base import (
     ENDPOINT_ABSENT,
     INCONCLUSIVE_NO_CHECKS_APPLICABLE,
     INCONCLUSIVE_NOT_X402_V2,
+    SETTLEMENT_PENDING,
 )
 from .redaction import sanitize_text, sanitize_url, url_fingerprint
 
@@ -27,8 +28,10 @@ _BAD = (Status.FAIL, Status.ERROR)
 #: `inconclusiveReason` (the machine-readable reason an exit-2 verdict is inconclusive)
 #: and the `endpoint_absent` per-check reason_code. The schema sets
 #: additionalProperties=false, so a new field is a contract change, not a free addition —
-#: minor bump, same major, consumers pinning major 1 keep working.
-REPORT_VERSION = "1.3"
+#: minor bump, same major, consumers pinning major 1 keep working. 1.4 adds the
+#: `settlement_pending` value to both enums (x402#3083: a broadcast-but-unconfirmed
+#: settlement is non-terminal, so the run is inconclusive, not failed).
+REPORT_VERSION = "1.4"
 
 #: SARIF 2.1.0 — the OASIS static-analysis interchange format GitHub code scanning
 #: and bug-bounty platforms ingest. Lets a scan's findings land in a Security tab.
@@ -70,6 +73,10 @@ def assessment_exit_code(results: list[CheckResult]) -> int:
         # We declined to judge a point that would otherwise gate. Certifying
         # conformance on that basis would assert more than we checked.
         return 2
+    if any(result.reason_code == SETTLEMENT_PENDING for result in results):
+        # The settlement may still confirm or may never land; either answer would
+        # be a guess. Same reasoning as above: no verdict on unjudged evidence.
+        return 2
     version = next((r for r in results if r.check_id == "RS-PR-001"), None)
     if version is not None and version.status is not Status.PASS:
         return 2
@@ -80,13 +87,15 @@ def _inconclusive_reason_from_results(results: list[CheckResult]) -> str:
     """Name why a result set reads as inconclusive, most specific cause first.
 
     Priority: a wrong/absent endpoint (nothing of the tested kind was there) outranks
-    a deferred judgement, which outranks "nothing applied", which outranks a failed
-    version check. Callers only use this when the verdict is already exit 2.
+    a deferred judgement, which outranks a pending settlement, which outranks
+    "nothing applied", which outranks a failed version check. Callers only use this when the verdict is already exit 2.
     """
     if any(r.reason_code == ENDPOINT_ABSENT for r in results):
         return ENDPOINT_ABSENT
     if any(r.reason_code == DEFERRED_PENDING_UPSTREAM for r in results):
         return DEFERRED_PENDING_UPSTREAM
+    if any(r.reason_code == SETTLEMENT_PENDING for r in results):
+        return SETTLEMENT_PENDING
     if not results or all(r.status is Status.SKIP for r in results):
         return INCONCLUSIVE_NO_CHECKS_APPLICABLE
     return INCONCLUSIVE_NOT_X402_V2
@@ -332,7 +341,8 @@ _REMEDIATION: dict[str, str] = {
     "FA-VER-002": "Your /verify must return `isValid:false` (with a CORE §9 reason) for an invalid payment.",
     "FA-VER-003": "Reject an asset that is an EOA (no bytecode) with `asset_not_deployed_contract`.",
     "FA-VER-004": "Return isValid:false (200/4xx) on invalid input — don't let a balanceOf/parse exception bubble up to a 5xx.",
-    "FA-SET-003": "Reject a double-settle of the same payment (nonce reuse).",
+    "FA-SET-003": "Reject a double-settle of the same payment (nonce reuse). After a `settlement_pending` answer, a retry may report the same transaction as settled, never a different one.",
+    "FA-SET-004": "When you answer `settlement_pending`, put the broadcast transaction hash in `transaction` (and keep `network`): the caller reconciles against it instead of paying twice.",
     "RS-SEC-009": "Never echo the protected resource on a rejection path — the 402 body must not leak paid content.",
     "RS-HS-008": "Send `Cache-Control: private` (or `no-store`) on the paid 200 — a shared cache storing it serves the resource to clients who did not pay.",
     "DI-004": "Reject a catalogued `schema` whose `$ref`/`$id` is not a same-document `#` fragment, and never resolve external ones: the resolver fetches them during compilation, before the instance is validated (x402#3039, CWE-918).",
@@ -408,6 +418,12 @@ _ONCHAIN_CHECKS: list[tuple[str, str, Severity, str]] = [
         "Double-settle of the same payment is rejected (nonce reuse)",
         Severity.CRITICAL,
         "CORE §10.1",
+    ),
+    (
+        "FA-SET-004",
+        "A settlement_pending response carries the broadcast transaction",
+        Severity.MINOR,
+        "CORE §5.3.2, §9 settlement_pending",
     ),
     (
         "RS-SEC-008",

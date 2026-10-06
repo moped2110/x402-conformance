@@ -221,7 +221,7 @@ def test_settle_group_skipped_without_flag() -> None:
     results = run_facilitator_checks(
         FAC, resource_url=RES, signer=SIGNER, transport=make_facilitator()
     )
-    for cid in ("FA-SET-001", "FA-SET-002", "FA-SET-003"):
+    for cid in ("FA-SET-001", "FA-SET-002", "FA-SET-003", "FA-SET-004"):
         assert by_id(results, cid).status == Status.SKIP
 
 

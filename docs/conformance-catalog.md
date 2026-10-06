@@ -10,12 +10,12 @@
 
 ## Implementation status (v0.6.0)
 
-**Implemented & tested (76 checks):**
+**Implemented & tested (77 checks):**
 - RS-HS-001…007, RS-PR-001…026, RS-SEC-012 — passive (`check`). RS-PR-008 does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
 - RS-NEG-001/002/003/004/005/006/007/008/009/011/012/013/014/015 + RS-SEC-003 + RS-SEC-004 + RS-SEC-005 + RS-SEC-006 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
 - RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) + RS-HS-008 (paid 200 not shared-cacheable) — on-chain (`check --pay`)
 - RS-SEC-008 (timing oracle) — opt-in advisory probe (`check --timing`), see below
-- FA-SUP-001/002, FA-VER-002/003/004, FA-ERR-001 — `facilitator`; FA-SET-001/002/003 — `facilitator --settle`
+- FA-SUP-001/002, FA-VER-002/003/004, FA-ERR-001 — `facilitator`; FA-SET-001/002/003/004 — `facilitator --settle`
 - DI-001/002/003/004 — `discovery`
 
 `tests/test_catalog_status.py` keeps this list equal to the shipped catalog
@@ -24,7 +24,7 @@ or a release that does not update this section fails CI.
 
 Additionally, six separately registered PQC checks (since v0.6.0) run only behind the
 explicit `check --profile pqc` selector and need the `[pqc]` extra. They are not part of
-the 76-check default/group count because selecting the profile replaces, rather than
+the 77-check default/group count because selecting the profile replaces, rather than
 extends, the default run. The FA-SVM live `/verify` group is likewise outside the catalog:
 it needs a live SVM facilitator and the `[svm]` extra and is invoked explicitly
 (`python -m x402_conformance.checks.svm_facilitator`).
@@ -170,7 +170,8 @@ instance.)
 | FA-VER-004 | `/verify` handles invalid client input (EOA asset) with a clean 4xx/200, not a 5xx | No server error on malformed input — a `balanceOf`/parse exception must surface as `isValid:false`, not HTTP 500 | CORE §7.1 (robustness) | m | implemented |
 | FA-SET-001 | `POST /settle` with valid payload | `{success:true, transaction, network}`; tx on-chain | CORE §7.2 | M | implemented |
 | FA-SET-002 | `/settle` with invalid payload | `{success:false, errorReason, transaction:""}` | CORE §7.2 | M | implemented |
-| FA-SET-003 | Double-settle same payload | Second call fails (nonce protection) | CORE §10.1 | C | implemented |
+| FA-SET-003 | Double-settle same payload | Second call fails (nonce protection); after a `settlement_pending` first answer, a repeat reporting the same hash is reconciliation and passes | CORE §10.1 | C | implemented |
+| FA-SET-004 | A `settlement_pending` answer carries the broadcast | `transaction` non-empty whenever `errorReason` is `settlement_pending`; a still-pending retry is inconclusive (`settlement_pending`), a new hash on the retry fails FA-SET-003 | CORE §5.3.2, §9 | m | implemented |
 | FA-ERR-001 | Error codes match the standard registry (§9 list) | Exact string match | CORE §9 | m | implemented |
 
 ## 7. DI — Discovery/Bazaar (Phase 2)

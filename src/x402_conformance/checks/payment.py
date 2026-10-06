@@ -19,7 +19,7 @@ from typing import Any, cast
 
 from ..active import ActiveContext, ActiveResponse
 from ..models import SettlementResponse
-from .base import CheckResult, Severity, Status
+from .base import SETTLEMENT_PENDING, CheckResult, Severity, Status
 
 _CORE = "x402-specification-v2.md"
 
@@ -36,9 +36,16 @@ PAY_CHECK_IDS = [
 ]
 
 
-def _result(cid: str, title: str, sev: Severity, status: Status, detail: str = "") -> CheckResult:
+def _result(
+    cid: str,
+    title: str,
+    sev: Severity,
+    status: Status,
+    detail: str = "",
+    reason_code: str | None = None,
+) -> CheckResult:
     """Construct a payment-flow CheckResult with the correct shared severity and reference."""
-    return CheckResult(cid, title, sev, f"{_CORE} §6.1.3", status, detail)
+    return CheckResult(cid, title, sev, f"{_CORE} §6.1.3", status, detail, reason_code=reason_code)
 
 
 def _pay_severity(check_id: str) -> Severity:
@@ -309,11 +316,31 @@ def evaluate_payment(
     resp = context.send(payload)
     results: list[CheckResult] = []
 
+    # A server that got `settlement_pending` back (CORE §9, x402#3083) after its one
+    # retry (x402#3214) has a broadcast it could not confirm. The payment may still
+    # land; it is neither accepted nor refused yet.
+    pending = (
+        resp.settlement if resp.settlement is not None and resp.settlement.is_pending else None
+    )
+
     # RS-PAY-001 — resource delivered
     if resp.served_resource:
         results.append(
             _result(
                 "RS-PAY-001", titles["RS-PAY-001"], sev_c, Status.PASS, f"status {resp.status_code}"
+            )
+        )
+    elif pending is not None:
+        results.append(
+            _result(
+                "RS-PAY-001",
+                titles["RS-PAY-001"],
+                sev_c,
+                Status.SKIP,
+                f"status {resp.status_code}: settlement_pending for transaction "
+                f"{pending.transaction!r} — the payment may still confirm; reconcile it on "
+                "chain before retrying, or the retry can pay twice",
+                SETTLEMENT_PENDING,
             )
         )
     else:
@@ -351,6 +378,29 @@ def evaluate_payment(
                 sev_c,
                 Status.FAIL,
                 "no PAYMENT-RESPONSE header on a successful payment",
+            )
+        )
+    elif settlement.is_pending and not settlement.transaction:
+        results.append(
+            _result(
+                "RS-PAY-002",
+                titles["RS-PAY-002"],
+                sev_c,
+                Status.FAIL,
+                "settlement_pending with an empty transaction — CORE §5.3.2 requires the "
+                "broadcast hash, without which the client cannot reconcile",
+            )
+        )
+    elif settlement.is_pending:
+        results.append(
+            _result(
+                "RS-PAY-002",
+                titles["RS-PAY-002"],
+                sev_c,
+                Status.SKIP,
+                f"well-formed settlement_pending for transaction {settlement.transaction!r}; "
+                "the settlement outcome is not known yet",
+                SETTLEMENT_PENDING,
             )
         )
     elif not settlement.success:

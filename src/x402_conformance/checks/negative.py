@@ -91,6 +91,17 @@ def _assert_rejected(
         )
     if resp.settled_ok:
         return Status.FAIL, "endpoint reported successful settlement for an invalid payment"
+    if resp.settlement is not None and resp.settlement.transaction:
+        # The settlement model admits a failed answer with a hash, because a pending
+        # or reverted broadcast is legal in general (CORE §5.3.2). Here it is not: an
+        # invalid payment must be refused at verification, so a broadcast hash on the
+        # rejection — pending or otherwise — means it went to the chain.
+        state = "pending" if resp.settlement.is_pending else "failed"
+        return Status.FAIL, (
+            f"rejection carries a broadcast transaction ({state}, "
+            f"{resp.settlement.transaction!r}) — the invalid payment reached the chain "
+            "instead of being refused at verification"
+        )
     if resp.marker_leaked:
         return Status.FAIL, (
             f"status {resp.status_code} but the response body contained the resource "

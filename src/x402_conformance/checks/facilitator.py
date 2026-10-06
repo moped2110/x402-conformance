@@ -14,6 +14,7 @@ What runs without a chain (this session):
 With explicit testnet/local settlement consent, a matching RPC, and a funded payer:
 - FA-SET-001/002 and FA-SET-003 exercise valid, invalid, and duplicate settlement.
 - FA-SET-001 reuses the exact on-chain Transfer verifier.
+- FA-SET-004 grades every ``settlement_pending`` answer for the broadcast hash.
 
 FA-VER-001 (valid payload → isValid:true with balance semantics) and the
 state-change proof FA-VER-005 remain explicitly planned in the support matrix.
@@ -38,6 +39,7 @@ from ..probe import build_probe
 from ..safety import DEFAULT_SAFETY_POLICY
 from .base import (
     ENDPOINT_ABSENT,
+    SETTLEMENT_PENDING,
     CheckResult,
     Severity,
     Status,
@@ -498,7 +500,17 @@ def _settle(
 
 
 def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
-    """FA-SET: direct /settle tests. Moves REAL funds; runs only when allow_settle."""
+    """FA-SET: direct /settle tests. Moves REAL funds; runs only when allow_settle.
+
+    ``settlement_pending`` (CORE §5.3.2/§9, x402#3083) is handled as the protocol
+    defines it: a broadcast the facilitator could not confirm, non-terminal, carrying
+    the broadcast hash. The resource server's answer to it is one retry with the
+    identical payload (x402#3214), against which the facilitator reconciles instead
+    of re-broadcasting. This group does the same: it retries once, and grades the
+    retry as reconciliation (same hash) or a second broadcast (different hash).
+    A pending outcome that is still pending after the retry is reported as
+    ``settlement_pending``: not a pass, not a failure, and the run is inconclusive.
+    """
     ids = {
         "FA-SET-001": (
             "/settle of a valid payment succeeds with a tx hash",
@@ -514,6 +526,11 @@ def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
             "Double-settle of the same payment is rejected (nonce reuse)",
             Severity.CRITICAL,
             f"{_CORE} §10.1",
+        ),
+        "FA-SET-004": (
+            "A settlement_pending response carries the broadcast transaction",
+            Severity.MINOR,
+            f"{_CORE} §5.3.2, §9 settlement_pending",
         ),
     }
 
@@ -531,39 +548,72 @@ def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
     if ctx.requirements is None or ctx.signer is None:
         return [mk(c, Status.SKIP, "no --resource requirements / signer") for c in ids]
 
-    results: list[CheckResult] = []
+    by_id: dict[str, CheckResult] = {}
+    #: Every parsed /settle answer, for FA-SET-004.
+    answers: list[SettlementResponse] = []
 
     # FA-SET-001 — valid settle (a real on-chain settlement)
     good = _build_payload(ctx, ctx.requirements)
     r1, r1_error, r1_status = _settle(ctx, good, ctx.requirements)
-    # No /settle endpoint: skip the whole group rather than grade three checks
+    # No /settle endpoint: skip the whole group rather than grade four checks
     # against something that does not exist — and stop sending payloads at it.
     if r1_status in _ENDPOINT_ABSENT:
         reason = r1_error or _absence_reason("/settle", r1_status or 404)
         return [mk(check_id, Status.SKIP, reason, ENDPOINT_ABSENT) for check_id in ids]
+    if r1 is not None:
+        answers.append(r1)
+
+    # A pending first answer gets the protocol's one retry, with the same payload.
+    first_pending: SettlementResponse | None = None
+    if r1 is not None and r1.is_pending:
+        first_pending = r1
+        retry, retry_error, _retry_status = _settle(ctx, good, ctx.requirements)
+        if retry is not None:
+            answers.append(retry)
+        if retry is None:
+            by_id["FA-SET-003"] = mk(
+                "FA-SET-003",
+                Status.FAIL,
+                retry_error or "retry after settlement_pending did not return a valid response",
+            )
+        elif first_pending.transaction and retry.transaction not in ("", first_pending.transaction):
+            # Reconciliation means looking up the stored broadcast. A different hash
+            # means the facilitator broadcast the same authorization again.
+            by_id["FA-SET-003"] = mk(
+                "FA-SET-003",
+                Status.FAIL,
+                f"retry after settlement_pending reported a different transaction "
+                f"({retry.transaction!r} vs {first_pending.transaction!r}) — the facilitator "
+                "re-broadcast instead of reconciling (double-settle risk)",
+            )
+        r1 = retry
+
     if r1 is None:
-        results.append(
-            mk("FA-SET-001", Status.FAIL, r1_error or "/settle did not return a valid response")
+        by_id["FA-SET-001"] = mk(
+            "FA-SET-001", Status.FAIL, r1_error or "/settle did not return a valid response"
+        )
+    elif r1.is_pending:
+        by_id["FA-SET-001"] = mk(
+            "FA-SET-001",
+            Status.SKIP,
+            f"settlement_pending (transaction {r1.transaction!r}), still pending after one "
+            "retry — the broadcast may yet confirm; reconcile on chain before judging",
+            SETTLEMENT_PENDING,
         )
     elif not r1.success:
-        results.append(
-            mk(
-                "FA-SET-001",
-                Status.FAIL,
-                f"valid /settle failed: {r1.error_reason!r}",
-            )
+        prefix = "after settlement_pending, " if first_pending is not None else ""
+        by_id["FA-SET-001"] = mk(
+            "FA-SET-001", Status.FAIL, f"{prefix}valid /settle failed: {r1.error_reason!r}"
         )
     elif r1.network != ctx.requirements.get("network"):
-        results.append(
-            mk("FA-SET-001", Status.FAIL, "settlement network does not match requirement")
+        by_id["FA-SET-001"] = mk(
+            "FA-SET-001", Status.FAIL, "settlement network does not match requirement"
         )
     elif not ctx.rpc_url:
-        results.append(
-            mk(
-                "FA-SET-001",
-                Status.SKIP,
-                "settlement response received but no RPC proof is available",
-            )
+        by_id["FA-SET-001"] = mk(
+            "FA-SET-001",
+            Status.SKIP,
+            "settlement response received but no RPC proof is available",
         )
     else:
         from .payment import _verify_tx_onchain
@@ -576,57 +626,107 @@ def evaluate_settle(ctx: FacilitatorContext) -> list[CheckResult]:
             pay_to=str(ctx.requirements["payTo"]),
             amount=int(ctx.requirements["amount"]),
         )
-        results.append(mk("FA-SET-001", proof_status, proof_detail))
+        by_id["FA-SET-001"] = mk("FA-SET-001", proof_status, proof_detail)
 
     # FA-SET-003 — double-settle the SAME payment must be rejected
-    if r1 and r1.success:
+    if "FA-SET-003" in by_id:
+        pass  # already decided by the pending retry
+    elif r1 is not None and r1.success:
         r3, r3_error, _r3_status = _settle(ctx, good, ctx.requirements)
+        if r3 is not None:
+            answers.append(r3)
+        reconciled = first_pending is not None and bool(first_pending.transaction)
         if r3 is None:
-            results.append(
-                mk(
-                    "FA-SET-003",
-                    Status.FAIL,
-                    r3_error or "second /settle did not return a valid response",
-                )
+            by_id["FA-SET-003"] = mk(
+                "FA-SET-003",
+                Status.FAIL,
+                r3_error or "second /settle did not return a valid response",
+            )
+        elif r3.success and reconciled and r3.transaction == r1.transaction:
+            # After a pending first answer, answering the same payment with the same
+            # broadcast is the reconciliation x402#3214 asks for: nothing moved twice.
+            by_id["FA-SET-003"] = mk(
+                "FA-SET-003",
+                Status.PASS,
+                f"repeat /settle after settlement_pending reconciled to the same transaction "
+                f"{r3.transaction!r} (idempotent, no second broadcast)",
             )
         elif r3.success:
-            results.append(
-                mk(
-                    "FA-SET-003",
-                    Status.FAIL,
-                    "second settle of the same payment succeeded — nonce reuse not prevented",
-                )
+            by_id["FA-SET-003"] = mk(
+                "FA-SET-003",
+                Status.FAIL,
+                "second settle of the same payment succeeded — nonce reuse not prevented",
             )
         else:
-            results.append(
-                mk(
-                    "FA-SET-003",
-                    Status.PASS,
-                    f"double-settle rejected (reason {r3.error_reason!r})",
-                )
+            by_id["FA-SET-003"] = mk(
+                "FA-SET-003",
+                Status.PASS,
+                f"double-settle rejected (reason {r3.error_reason!r})",
             )
+    elif r1 is not None and r1.is_pending:
+        by_id["FA-SET-003"] = mk(
+            "FA-SET-003",
+            Status.SKIP,
+            "first settle is still pending after one retry; a double-settle cannot be judged "
+            "until it is terminal",
+            SETTLEMENT_PENDING,
+        )
     else:
-        results.append(mk("FA-SET-003", Status.SKIP, "first settle did not succeed"))
+        by_id["FA-SET-003"] = mk("FA-SET-003", Status.SKIP, "first settle did not succeed")
 
-    # FA-SET-002 — invalid settle (value != requirements) must fail with empty tx
+    # FA-SET-002 — invalid settle (value != requirements) must fail without a broadcast.
+    # The model now admits a failed response with a hash, because a pending or
+    # reverted broadcast is legal *in general*. This payload is not general: it is a
+    # validly signed authorization for less than the price, so broadcasting it moves
+    # funds for an underpayment. A conformant facilitator rejects it before
+    # broadcasting, so a hash here — pending or not — is still a failure.
     cheap = _build_payload(ctx, {**ctx.requirements, "amount": "1"})
     r2, r2_error, _r2_status = _settle(ctx, cheap, ctx.requirements)
+    if r2 is not None:
+        answers.append(r2)
     if r2 is None:
-        results.append(
-            mk("FA-SET-002", Status.FAIL, r2_error or "/settle did not return a valid response")
+        by_id["FA-SET-002"] = mk(
+            "FA-SET-002", Status.FAIL, r2_error or "/settle did not return a valid response"
         )
     elif r2.success:
-        results.append(mk("FA-SET-002", Status.FAIL, "/settle succeeded for an invalid payment"))
+        by_id["FA-SET-002"] = mk(
+            "FA-SET-002", Status.FAIL, "/settle succeeded for an invalid payment"
+        )
     elif r2.transaction:
-        results.append(
-            mk("FA-SET-002", Status.FAIL, "failed settle still carries a non-empty tx hash")
+        state = "pending" if r2.is_pending else f"failed with {r2.error_reason!r}"
+        by_id["FA-SET-002"] = mk(
+            "FA-SET-002",
+            Status.FAIL,
+            f"the facilitator broadcast an underpaying authorization ({state}, transaction "
+            f"{r2.transaction!r}) instead of rejecting it before broadcast",
         )
     else:
-        results.append(
-            mk("FA-SET-002", Status.PASS, f"correctly failed (reason {r2.error_reason!r})")
+        by_id["FA-SET-002"] = mk(
+            "FA-SET-002", Status.PASS, f"correctly failed (reason {r2.error_reason!r})"
         )
 
-    return results
+    # FA-SET-004 — CORE §5.3.2: `transaction` "MUST be non-empty when errorReason is
+    # settlement_pending". Graded over every /settle answer this group received.
+    pending = [a for a in answers if a.is_pending]
+    if not pending:
+        by_id["FA-SET-004"] = mk(
+            "FA-SET-004", Status.SKIP, "no settlement_pending answer was observed"
+        )
+    elif any(not a.transaction for a in pending):
+        by_id["FA-SET-004"] = mk(
+            "FA-SET-004",
+            Status.FAIL,
+            "settlement_pending with an empty transaction — the caller has no broadcast to "
+            "reconcile against and can only retry blind, which is how a payment settles twice",
+        )
+    else:
+        by_id["FA-SET-004"] = mk(
+            "FA-SET-004",
+            Status.PASS,
+            f"{len(pending)} settlement_pending answer(s), each naming its broadcast",
+        )
+
+    return [by_id[c] for c in ("FA-SET-001", "FA-SET-003", "FA-SET-002", "FA-SET-004")]
 
 
 def evaluate_facilitator(ctx: FacilitatorContext | None) -> list[CheckResult]:
