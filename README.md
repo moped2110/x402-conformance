@@ -50,7 +50,7 @@ funds.
 
 ## Status
 
-**v0.5.0** — working tool. CI (pytest + mypy on Python 3.11–3.13) in `.github/workflows/ci.yml`; full release notes in [`CHANGELOG.md`](CHANGELOG.md). Implemented check groups:
+**v0.6.0** — working tool. CI (pytest + mypy on Python 3.11–3.13) in `.github/workflows/ci.yml`; full release notes in [`CHANGELOG.md`](CHANGELOG.md). Implemented check groups:
 
 - **RS-HS** (handshake) and **RS-PR** (PaymentRequired schema) — passive, no payment.
 - **RS-NEG** + **RS-SEC-010** (negative / security) — `--active`: signs deliberately-invalid payments and verifies the endpoint rejects them. Throwaway signer, no funds, no chain needed.
@@ -61,9 +61,9 @@ funds.
 - **RS-PAY** + **RS-SEC-001** (positive settlement + replay) — `check --pay`: signs a valid funded payment, settles it ON-CHAIN, verifies the tx, and confirms a replay is rejected. Confirmed live against Anvil.
 - **FA-SET** (facilitator `/settle`) — `facilitator --settle`: valid settle, invalid settle, double-settle.
 
-Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **76 checks across the groups above; 680+ offline tests, mypy strict.**
+Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **76 checks across the groups above; 700+ offline tests, mypy strict.**
 
-**Unreleased (on `main` after v0.5.0): opt-in PQC receipt profile.** `check --profile pqc` with the `[pqc]` extra runs six hybrid-receipt checks (**PQC-001..006**: capability, `sig_v2` structure, ECDSA-P256 **and** ML-DSA-65 verification, tampered-signature and stripped-`sig_v2` rejection, metadata cross-signing) against psv's receipt-v2 format. The profile replaces the default run, so these six are not in the 76-check count above, and the default run is unchanged. It checks receipt-signature conformance only: chain signatures remain ECDSA/secp256k1, TLS harvest-now-decrypt-later is a separate transport concern, and a green result does not certify "quantum-safe payments".
+**New in v0.6.0: opt-in PQC receipt profile.** `check --profile pqc` with the `[pqc]` extra runs six hybrid-receipt checks (**PQC-001..006**: capability, `sig_v2` structure, ECDSA-P256 **and** ML-DSA-65 verification, tampered-signature and stripped-`sig_v2` rejection, metadata cross-signing) against psv's receipt-v2 format. The profile replaces the default run, so these six are not in the 76-check count above, and the default run is unchanged. It checks receipt-signature conformance only: chain signatures remain ECDSA/secp256k1, TLS harvest-now-decrypt-later is a separate transport concern, and a green result does not certify "quantum-safe payments".
 
 **Solana / SVM — in progress.** The `exact` scheme on Solana works differently from EVM: the client submits a *partial-signed transaction* (an SPL/Token-2022 `TransferChecked` to the recipient's ATA, co-signed by the sponsor `feePayer` at settle time), and a verifier checks the *outcome*, not a signature. The foundations ship behind an opt-in **`[svm]`** extra — CAIP-2 `solana:*` handling, ATA derivation, a spec-faithful partial-signed transaction builder, and tamper primitives for the negative checks. A first runnable group ships: **FA-SVM** sends a valid partial-signed payload and six tampered ones to a facilitator's `/verify` (never `/settle`). The *settlement* path still needs a local validator and is **not shipped yet**. This is purely additive: without `[svm]`, the suite behaves exactly as before (no Solana dependency, no EVM path touched).
 
@@ -200,7 +200,7 @@ Transport defaults to stdio, which is what an editor spawns. Set
 ## Development
 
 ```bash
-pytest          # the suite's own tests (offline, mocked transport) — 680+ tests
+pytest          # the suite's own tests (offline, mocked transport) — 700+ tests
 mypy            # strict type checking
 python tools/check_function_docs.py  # every production/tool function has a docstring
 
