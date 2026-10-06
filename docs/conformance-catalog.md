@@ -8,19 +8,26 @@
 
 **Status:** this catalog is the full *planned* set with spec traceability; some IDs are aspirational. See "Implementation status" below for what actually ships. Severity: **C**ritical (security/funds at risk), **M**ajor (spec violation, interop broken), **m**inor (robustness/quality).
 
-## Implementation status (v0.3.0)
+## Implementation status (v0.6.0)
 
 **Implemented & tested (76 checks):**
-- RS-HS-001…007, RS-PR-001…022 — passive (`check`). RS-PR-008 now does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
+- RS-HS-001…007, RS-PR-001…026, RS-SEC-012 — passive (`check`). RS-PR-008 does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
 - RS-NEG-001/002/003/004/005/006/007/008/009/011/012/013/014/015 + RS-SEC-003 + RS-SEC-004 + RS-SEC-005 + RS-SEC-006 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
-- RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) — on-chain (`check --pay`)
+- RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) + RS-HS-008 (paid 200 not shared-cacheable) — on-chain (`check --pay`)
+- RS-SEC-008 (timing oracle) — opt-in advisory probe (`check --timing`), see below
 - FA-SUP-001/002, FA-VER-002/003/004, FA-ERR-001 — `facilitator`; FA-SET-001/002/003 — `facilitator --settle`
-- DI-001/002/003 — `discovery`
+- DI-001/002/003/004 — `discovery`
+
+`tests/test_catalog_status.py` keeps this list equal to the shipped catalog
+(`x402-conformance explain`) and the heading equal to the package version, so a new check
+or a release that does not update this section fails CI.
 
 Additionally, six separately registered PQC checks (since v0.6.0) run only behind the
 explicit `check --profile pqc` selector and need the `[pqc]` extra. They are not part of
 the 76-check default/group count because selecting the profile replaces, rather than
-extends, the default run.
+extends, the default run. The FA-SVM live `/verify` group is likewise outside the catalog:
+it needs a live SVM facilitator and the `[svm]` extra and is invoked explicitly
+(`python -m x402_conformance.checks.svm_facilitator`).
 
 RS-SEC-009 (content-leak on the rejection path) is enforced inside every active check; `check --active --resource-marker <s>` additionally flags a rejected body that still contains the protected content.
 
