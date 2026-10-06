@@ -1,4 +1,4 @@
-"""Opt-in PQC-001..006 checks for hybrid facilitator receipts."""
+"""Opt-in PQC-001..006 checks for hybrid facilitator receipts (catalog §11)."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from ..probe import ProbeSession
 from ..safety import require_pqc_test_key_network
 from .base import Check, CheckFunc, Severity, Status, append_unique_check
 
-_SPEC = "PSV PQC-Belegformat v2"
+_SPEC = "PSV receipt-v2"
 _DOMAIN = b"PSV-RECEIPT-V2\x00"
 _CLASSICAL = "ECDSA-P256-SHA256"
 _PQC = "ML-DSA-65"
@@ -36,6 +36,7 @@ def _register(
 
 
 def _capability(session: ProbeSession) -> dict[str, object] | None:
+    """Return the `extensions.pqc` capability object from the first 402, if it is an object."""
     raw = session.first.raw
     extensions = raw.get("extensions") if isinstance(raw, dict) else None
     value = extensions.get("pqc") if isinstance(extensions, dict) else None
@@ -43,12 +44,14 @@ def _capability(session: ProbeSession) -> dict[str, object] | None:
 
 
 def _receipt(session: ProbeSession) -> dict[str, object] | None:
+    """Return the sample receipt advertised inside the PQC capability, if it is an object."""
     capability = _capability(session)
     value = capability.get("receipt") if capability is not None else None
     return value if isinstance(value, dict) else None
 
 
 def _decode(value: object) -> bytes:
+    """Decode non-empty, unpadded base64url; raise ``ValueError`` on anything else."""
     if not isinstance(value, str) or not value or "=" in value:
         raise ValueError("signature/key must be non-empty unpadded base64url")
     try:
@@ -60,6 +63,10 @@ def _decode(value: object) -> bytes:
 def _parts(
     session: ProbeSession,
 ) -> tuple[dict[str, object], dict[str, object], dict[str, object], dict[str, object]]:
+    """Split the advertised receipt into receipt, `sig_v2`, classical and PQC entries.
+
+    Raises ``ValueError`` unless `sig_v2` has exactly the closed v2 structure.
+    """
     capability = _capability(session)
     receipt = _receipt(session)
     if capability is None or receipt is None:
@@ -75,6 +82,11 @@ def _parts(
 
 
 def _canonical(receipt: dict[str, object]) -> bytes:
+    """Return the domain-separated bytes both signatures cover.
+
+    Both `signature` values are blanked and the rest is serialized as compact, key-sorted
+    UTF-8 JSON behind the `PSV-RECEIPT-V2\\x00` tag, matching psv's `canonical_receipt_payload`.
+    """
     unsigned = copy.deepcopy(receipt)
     sig_v2 = unsigned["sig_v2"]
     if not isinstance(sig_v2, dict):
@@ -90,6 +102,11 @@ def _canonical(receipt: dict[str, object]) -> bytes:
 
 
 def _keys(session: ProbeSession) -> tuple[bytes, bytes]:
+    """Resolve both key IDs against the advertised public-key registry.
+
+    Marked test-fixture key IDs are refused outside the testnet/local allowlist before any
+    key is decoded. Returns the classical and the PQC public key bytes.
+    """
     capability = _capability(session)
     receipt, _sig_v2, classical, pqc = _parts(session)
     keys = capability.get("keys") if capability is not None else None
@@ -107,6 +124,11 @@ def _keys(session: ProbeSession) -> tuple[bytes, bytes]:
 
 
 def _verify(session: ProbeSession, receipt: dict[str, object] | None = None) -> tuple[bool, bool]:
+    """Verify a receipt's ECDSA-P256 and ML-DSA-65 signatures independently.
+
+    Uses the advertised receipt unless ``receipt`` (e.g. a tampered copy) is given, and
+    returns ``(classical_valid, pqc_valid)`` so callers can enforce the AND-composition.
+    """
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.asymmetric import ec, mldsa

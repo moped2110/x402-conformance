@@ -233,6 +233,7 @@ def _probe_pqc_verifier(
     stripped.pop("sig_v2", None)
 
     def post(value: dict[str, object]) -> dict[str, object] | None:
+        """POST one receipt variant to the verify URL; ``None`` on transport or JSON failure."""
         try:
             response = client.post(verify_url, json=value, follow_redirects=False)
             decoded = response.json()
