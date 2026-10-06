@@ -215,7 +215,7 @@ invalid receipts to that verifier: one with a tampered ML-DSA signature and one 
 | ID | Test | Expected | Spec ref | Sev | Status |
 |----|------|----------|----------|-----|--------|
 | PQC-001 | PQC capability in the 402 response | Closed, schema-valid v2 advertisement | PSV receipt-v2 | M | implemented |
-| PQC-002 | Hybrid `sig_v2` structure | Both registered algorithms and plausible key IDs; ML-DSA-65 signature exactly 3309 bytes | PSV receipt-v2 | M | implemented |
+| PQC-002 | Hybrid `sig_v2` structure | Both registered algorithms and plausible key IDs; ML-DSA-65 signature exactly 3309 bytes; receipt within psv's canonical JSON profile (no floats or `NaN`, ASCII member names, none repeated) | PSV receipt-v2 | M | implemented |
 | PQC-003 | Positive hybrid verification | ECDSA-P256-SHA256 **and** ML-DSA-65 valid | PSV receipt-v2 | C | implemented |
 | PQC-004 | Tampered ML-DSA signature | SUT verifier rejects it | PSV receipt-v2 | C | implemented |
 | PQC-005 | Stripped `sig_v2` downgrade | Reject, or accept only with explicit `degraded: true` | PSV receipt-v2 | C | implemented |

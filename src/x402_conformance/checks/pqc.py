@@ -71,6 +71,9 @@ def _parts(
     receipt = _receipt(session)
     if capability is None or receipt is None:
         raise ValueError("PQC capability or receipt missing")
+    duplicate = _receipt_duplicate_member(session)
+    if duplicate is not None:
+        raise ValueError(f"duplicate JSON member: {duplicate}")
     sig_v2 = receipt.get("sig_v2")
     if not isinstance(sig_v2, dict) or set(sig_v2) != {"version", "classical", "pqc"}:
         raise ValueError("sig_v2 has an invalid structure")
@@ -96,9 +99,89 @@ def _canonical(receipt: dict[str, object]) -> bytes:
         if not isinstance(entry, dict):
             raise ValueError("signature entry must be an object")
         entry["signature"] = ""
-    return _DOMAIN + json.dumps(
-        unsigned, ensure_ascii=False, separators=(",", ":"), sort_keys=True, allow_nan=False
-    ).encode("utf-8")
+    _validate_json_profile(unsigned)
+    try:
+        encoded = json.dumps(
+            unsigned, ensure_ascii=False, separators=(",", ":"), sort_keys=True, allow_nan=False
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("receipt is not canonicalizable JSON") from exc
+    return _DOMAIN + encoded
+
+
+def _validate_json_profile(value: object) -> None:
+    """Reject values whose cross-language canonical encoding would be ambiguous.
+
+    A verbatim port of psv's ``_validate_json_profile`` with the same messages: ASCII
+    string keys only, no floats (amounts travel as decimal strings), JSON types only.
+    """
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if not isinstance(key, str) or not key.isascii():
+                raise ValueError("receipt object keys must be ASCII strings")
+            _validate_json_profile(child)
+    elif isinstance(value, list):
+        for child in value:
+            _validate_json_profile(child)
+    elif isinstance(value, float):
+        raise ValueError("receipt numbers must be integers; decimal amounts use strings")
+    elif value is not None and not isinstance(value, (bool, int, str)):
+        raise ValueError("receipt contains a non-JSON value")
+
+
+class _MemberRecord(dict[str, object]):
+    """A decoded JSON object that remembers the first member name it saw twice."""
+
+    duplicate: str | None = None
+
+
+def _record_members(pairs: list[tuple[str, object]]) -> _MemberRecord:
+    """Build an object last-wins, as ``json`` does, noting the first repeated name."""
+    result = _MemberRecord()
+    for key, value in pairs:
+        if key in result and result.duplicate is None:
+            result.duplicate = key
+        result[key] = value
+    return result
+
+
+def _first_duplicate(value: object) -> str | None:
+    """Return the first repeated member name anywhere inside a decoded value."""
+    if isinstance(value, _MemberRecord) and value.duplicate is not None:
+        return value.duplicate
+    children: list[object]
+    if isinstance(value, dict):
+        children = list(value.values())
+    elif isinstance(value, list):
+        children = value
+    else:
+        return None
+    for child in children:
+        found = _first_duplicate(child)
+        if found is not None:
+            return found
+    return None
+
+
+def _receipt_duplicate_member(session: ProbeSession) -> str | None:
+    """Find a repeated member name inside the advertised receipt's JSON text.
+
+    The probe parses the challenge last-wins, so a duplicate is gone by the time the
+    receipt is a dict. psv parses receipts with a hook that rejects duplicates, so the
+    challenge text is re-read here and only the receipt subtree is inspected: a repeated
+    key elsewhere in the challenge is another check's business.
+    """
+    decoded = session.first.decoded
+    if decoded is None:
+        return None
+    try:
+        document = json.loads(decoded, object_pairs_hook=_record_members)
+    except (ValueError, RecursionError):
+        return None
+    extensions = document.get("extensions") if isinstance(document, dict) else None
+    pqc = extensions.get("pqc") if isinstance(extensions, dict) else None
+    receipt = pqc.get("receipt") if isinstance(pqc, dict) else None
+    return _first_duplicate(receipt) if isinstance(receipt, dict) else None
 
 
 def _keys(session: ProbeSession) -> tuple[bytes, bytes]:
@@ -182,7 +265,7 @@ def pqc_001(session: ProbeSession) -> tuple[Status, str]:
 
 @_register("PQC-002", "Hybrid receipt structure is valid", Severity.MAJOR, _SPEC)
 def pqc_002(session: ProbeSession) -> tuple[Status, str]:
-    """Validate signature entries, registry IDs, key IDs, and ML-DSA length."""
+    """Validate signature entries, registry IDs, key IDs, ML-DSA length and JSON profile."""
     try:
         _receipt_value, sig_v2, classical, pqc = _parts(session)
         if sig_v2.get("version") != 2:
@@ -198,6 +281,7 @@ def pqc_002(session: ProbeSession) -> tuple[Status, str]:
         classical_key, pqc_key = _keys(session)
         if len(classical_key) != 65 or len(pqc_key) != 1952:
             raise ValueError("public key length does not match the algorithm")
+        _canonical(_receipt_value)
     except ValueError as exc:
         return Status.FAIL, str(exc)
     return Status.PASS, "hybrid receipt has the registered v2 structure and lengths"
