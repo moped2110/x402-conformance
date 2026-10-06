@@ -57,12 +57,13 @@ funds.
 - **RS-SEC-012** (paywall bypass by re-encoding the request path) — passive, critical: re-requests the protected URL under encodings a correct server must still gate, with a control probe so catch-all endpoints SKIP.
 - **FA** (facilitator `/supported`, `/verify`) — the `facilitator` command.
 - **DI** (discovery / Bazaar) — the `discovery` command.
-- **PQC** (hybrid receipt conformance) — explicit opt-in with `check --profile pqc`.
 
 - **RS-PAY** + **RS-SEC-001** (positive settlement + replay) — `check --pay`: signs a valid funded payment, settles it ON-CHAIN, verifies the tx, and confirms a replay is rejected. Confirmed live against Anvil.
 - **FA-SET** (facilitator `/settle`) — `facilitator --settle`: valid settle, invalid settle, double-settle.
 
 Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **76 checks across the groups above; 680+ offline tests, mypy strict.**
+
+**Unreleased (on `main` after v0.5.0): opt-in PQC receipt profile.** `check --profile pqc` with the `[pqc]` extra runs six hybrid-receipt checks (**PQC-001..006**: capability, `sig_v2` structure, ECDSA-P256 **and** ML-DSA-65 verification, tampered-signature and stripped-`sig_v2` rejection, metadata cross-signing) against psv's receipt-v2 format. The profile replaces the default run, so these six are not in the 76-check count above, and the default run is unchanged. It checks receipt-signature conformance only: chain signatures remain ECDSA/secp256k1, TLS harvest-now-decrypt-later is a separate transport concern, and a green result does not certify "quantum-safe payments".
 
 **Solana / SVM — in progress.** The `exact` scheme on Solana works differently from EVM: the client submits a *partial-signed transaction* (an SPL/Token-2022 `TransferChecked` to the recipient's ATA, co-signed by the sponsor `feePayer` at settle time), and a verifier checks the *outcome*, not a signature. The foundations ship behind an opt-in **`[svm]`** extra — CAIP-2 `solana:*` handling, ATA derivation, a spec-faithful partial-signed transaction builder, and tamper primitives for the negative checks. A first runnable group ships: **FA-SVM** sends a valid partial-signed payload and six tampered ones to a facilitator's `/verify` (never `/settle`). The *settlement* path still needs a local validator and is **not shipped yet**. This is purely additive: without `[svm]`, the suite behaves exactly as before (no Solana dependency, no EVM path touched).
 
@@ -74,7 +75,8 @@ In v0.3.0: six new passive checks on the challenge — four on `accepts` overspe
 
 ```bash
 pip install -e ".[dev]"     # includes eth-account for active checks
-# optional extras: [onchain] for --pay, [svm] for Solana, [pqc] for --profile pqc
+# optional extras: [onchain] for --pay settlement (web3), [svm] for the Solana/SVM foundations (solders),
+# [pqc] for the opt-in --profile pqc receipt checks (cryptography with ML-DSA)
 ```
 
 ## Usage

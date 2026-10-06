@@ -5,6 +5,19 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- Opt-in `check --profile pqc` category with `PQC-001..006`: capability/schema,
+  hybrid receipt structure, ECDSA-P256 plus ML-DSA-65 AND-verification, tampered
+  ML-DSA rejection, explicit downgrade handling, and cross-signed algorithm metadata.
+- A TEST-ONLY, ephemeral fixture SUT for positive and negative self-tests. Marked
+  fixture key IDs are rejected outside the existing testnet/local safety allowlist.
+- A targeted `[pqc]` extra reuses `cryptography>=50` for OpenSSL-backed ML-DSA-65;
+  the base passive installation remains unchanged.
+- The default profile remains unchanged and does not execute or report PQC checks. This
+  profile checks receipt-signature conformance, not overall system security: chain
+  signatures remain ECDSA/secp256k1, and TLS harvest-now-decrypt-later protection is a
+  separate transport concern. It does not certify an SUT as "quantum-safe".
+
 ### Security
 - **The locked dependency graph is clean under `pip-audit --strict` again.** The weekly
   supply-chain job had been red since 2026-08-31 on 26 advisories in six transitive
@@ -25,23 +38,6 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 - **`twine` cap in the `release` extra widened from `<7` to `<8`.** hatchling 1.32 writes
   `Metadata-Version: 2.5`, which twine 6 rejects, so after the refresh the build job's
   `twine check` would have failed on a correct wheel.
-
-## [0.6.0] — 2026-08-14
-
-### Added
-
-- Opt-in `check --profile pqc` category with `PQC-001..006`: capability/schema,
-  hybrid receipt structure, ECDSA-P256 plus ML-DSA-65 AND-verification, tampered
-  ML-DSA rejection, explicit downgrade handling, and cross-signed algorithm metadata.
-- A TEST-ONLY, ephemeral fixture SUT for positive and negative self-tests. Marked
-  fixture key IDs are rejected outside the existing testnet/local safety allowlist.
-- A targeted `[pqc]` extra reuses `cryptography>=50` for OpenSSL-backed ML-DSA-65;
-  the base passive installation remains unchanged.
-
-The default profile remains unchanged and does not execute or report PQC checks.
-This profile checks receipt-signature conformance, not overall system security: chain
-signatures remain ECDSA/secp256k1, and TLS harvest-now-decrypt-later protection is a
-separate transport concern. It does not certify an SUT as “quantum-safe”.
 
 ## [0.5.0] — 2026-08-13
 
