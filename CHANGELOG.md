@@ -5,6 +5,19 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Documented
+- **`docs/DEVELOPER.md`** is the developer entry point. It covers the full module
+  map, install from a git tag, the hash-locked setup and the Anvil settlement path,
+  the gates, how checks, reason codes and the 0/1/2 verdict work (including
+  `settlement_pending`), adding a check, the release process (release PR, squash
+  merge, annotated tag) and how the suite relates to psv, rvf and the hosted lab.
+  It links to the existing documents rather than repeating them.
+- **`docs/EINFACH-ERKLAERT.md`** explains the suite in plain German for
+  non-technical readers: the problem, the mechanism, what each result means, what
+  the suite does not do, and a short glossary. Both are linked from the README and
+  the docs index.
+- `docs/architecture.md` named JSON report version 1.1; it is 1.4.
+
 ## [0.7.0] — 2026-10-06
 
 The 2026-10 upstream review (`f62a9fa..cb0ec5b`, see

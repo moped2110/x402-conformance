@@ -141,7 +141,8 @@ The central `assessment_exit_code()` contract is:
 | `1` | Not conformant, or any suite ERROR occurred. |
 | `2` | Inconclusive/unreachable/invalid input; includes empty/all-SKIP and V1-only V2 assessments. |
 
-JSON report version `1.1` is validated by `report.schema.json`. JSON, Markdown,
+The JSON report (currently version `1.4`; major 1 is the stable consumer contract)
+is validated by `report.schema.json`. JSON, Markdown,
 SARIF, developer reports, scans, and default run records use the same verdict.
 Persisted targets are reduced to their origin plus a stable SHA-256 fingerprint;
 userinfo, paths, queries, fragments, and URL-bearing exception text are sanitized.

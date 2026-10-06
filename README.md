@@ -47,6 +47,8 @@ funds.
 **Support boundary:** [`docs/support-matrix.md`](docs/support-matrix.md) — exact supported, passive-only, planned, and out-of-scope mechanisms.
 **Architecture:** [`docs/architecture.md`](docs/architecture.md) (how it works, with diagrams). Dated development logs (calibration, on-chain bring-up, report/robustness work) are archived under [`docs/history/`](docs/history/).
 **Independent review:** [`docs/REVIEW-HANDOFF.md`](docs/REVIEW-HANDOFF.md) — safety-first review order, contracts, function index, tests, and known limits.
+**Developer guide:** [`docs/DEVELOPER.md`](docs/DEVELOPER.md) — module map, setup (incl. Anvil), gates, how checks and verdicts work, adding a check, the release process, and how this suite relates to psv, rvf and the hosted lab.
+**Einfach erklärt (German, plain language):** [`docs/EINFACH-ERKLAERT.md`](docs/EINFACH-ERKLAERT.md) — what the suite does and what its results mean, for non-technical readers.
 
 ## Status
 

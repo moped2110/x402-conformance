@@ -7,6 +7,11 @@ of work stood on a given date).
 
 ## Living docs (current source of truth)
 
+- [`DEVELOPER.md`](DEVELOPER.md) — developer entry point: module map, install
+  from a tag, setup and Anvil, gates, checks and verdicts, adding a check, the
+  release process, and how the repositories relate.
+- [`EINFACH-ERKLAERT.md`](EINFACH-ERKLAERT.md) — plain-language explanation in
+  German for non-technical readers.
 - [`REVIEW-HANDOFF.md`](REVIEW-HANDOFF.md) — safety-first technical review guide,
   contracts, production function index, test map, and reviewer checklist.
 - [`architecture.md`](architecture.md) — how the suite works: the passive / active /
