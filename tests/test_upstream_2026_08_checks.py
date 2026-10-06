@@ -161,6 +161,9 @@ def test_builder_code_without_app_code_is_not_a_failure(valid_payload: dict[str,
 #   * RS-PR-025/026 grade the new flow field.
 
 
+SOLANA = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+
+
 def _entry(**over: Any) -> dict[str, Any]:
     base = {
         "scheme": "exact",
@@ -208,8 +211,10 @@ def test_genuine_scheme_extra_mismatch_still_fails(valid_payload: dict[str, Any]
 
 
 def test_upto_carrying_exact_only_keys_fails(valid_payload: dict[str, Any]) -> None:
-    """The upto branch now grades the real exact vocabulary, not one reserved key."""
-    entry = _entry(scheme="upto", extra={"name": "USDC", "version": "2"})
+    """EVM domain fields on an SVM upto entry are foreign. (Since the 2026-10 review
+    the vocabulary is per binding: the same keys on EVM upto are legal, see
+    test_upstream_2026_10_checks.py.)"""
+    entry = _entry(scheme="upto", network=SOLANA, extra={"name": "USDC", "version": "2"})
     assert _run_accepts(valid_payload, [entry])["RS-PR-019"].status is Status.FAIL
 
 
@@ -254,6 +259,7 @@ def test_undefined_flow_fails(valid_payload: dict[str, Any], flow: Any) -> None:
 def test_escrow_entry_declaring_its_flow_passes_cleanly(valid_payload: dict[str, Any]) -> None:
     entry = _entry(
         scheme="upto",
+        network=SOLANA,
         extra={"withdrawDelay": 600, "receiverAuthorizer": "0xabc", "paymentFlow": "escrow"},
     )
     result = _run_accepts(valid_payload, [entry])["RS-PR-026"]
@@ -268,7 +274,9 @@ def test_escrow_entry_without_a_flow_is_advisory_not_a_failure(
     for a non-authorization flow, scheme_upto_svm.md says omit it to default to
     `escrow`. Failing an endpoint for picking one half of that is not a verdict we
     are entitled to, so it reports and never gates."""
-    entry = _entry(scheme="upto", extra={"withdrawDelay": 600, "receiverAuthorizer": "0xabc"})
+    entry = _entry(
+        scheme="upto", network=SOLANA, extra={"withdrawDelay": 600, "receiverAuthorizer": "0xabc"}
+    )
     result = _run_accepts(valid_payload, [entry])["RS-PR-026"]
     assert result.status is Status.PASS
     assert "advisory" in result.detail

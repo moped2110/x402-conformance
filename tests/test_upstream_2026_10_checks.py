@@ -11,10 +11,12 @@ from typing import Any
 
 import httpx
 import pytest
+from conftest import TARGET_URL, encode_header
 
 from x402_conformance.checks.base import Status
 from x402_conformance.checks.discovery import run_discovery_checks
 from x402_conformance.models import DiscoveryResponse
+from x402_conformance.runner import run_checks
 
 # ==========================================================================
 # §1 — Bazaar `lastUpdated` is an ISO 8601 string (x402#3067)
@@ -127,3 +129,175 @@ def test_discovery_model_accepts_iso_and_numeric_but_not_free_text() -> None:
     doc["items"] = [_item("yesterday")]
     with pytest.raises(ValueError):
         DiscoveryResponse.model_validate(doc)
+
+
+# ==========================================================================
+# Shared: run the passive suite against a 402 with a given accepts array
+# ==========================================================================
+
+SOLANA = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+SOL_USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+SOL_PAYTO = "2wKupLR9q6wXYppw8Gr2NvWxKBUqm4PPJKkQfoxHDBg4"
+
+
+def _accept(**over: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "scheme": "exact",
+        "network": "eip155:84532",
+        "amount": "10000",
+        "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        "payTo": "0x209693Bc6afc0C5328bA36FaF03C514EF312287C",
+        "maxTimeoutSeconds": 60,
+        "extra": {"name": "USDC", "version": "2"},
+    }
+    base.update(over)
+    return base
+
+
+def _sol(**over: Any) -> dict[str, Any]:
+    return _accept(network=SOLANA, asset=SOL_USDC, payTo=SOL_PAYTO, **over)
+
+
+def _run_accepts(payload: dict[str, Any], accepts: list[dict[str, Any]]) -> dict[str, Any]:
+    out = copy.deepcopy(payload)
+    out["accepts"] = accepts
+    header = encode_header(out)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(402, headers={"PAYMENT-REQUIRED": header}, json={})
+
+    results = run_checks(TARGET_URL, transport=httpx.MockTransport(handler))
+    return {r.check_id: r for r in results}
+
+
+# ==========================================================================
+# §3 — RS-PR-019 vocabulary per (scheme, network family)
+# ==========================================================================
+
+#: The five spec-conformant shapes the old two-set model failed.
+_CONFORMANT_SHAPES = {
+    "exact SVM": _sol(extra={"feePayer": SOL_PAYTO, "recentBlockhash": "abc"}),
+    "exact SVM upfront": _sol(
+        extra={"feePayer": SOL_PAYTO, "paymentFlow": "upfront", "memo": "order-1"}
+    ),
+    "upto EVM": _accept(
+        scheme="upto",
+        extra={"name": "USDC", "version": "2", "facilitatorAddress": "0xabc"},
+    ),
+    "exact Hedera": _accept(
+        network="hedera:testnet", asset="0.0.429274", payTo="0.0.1234", extra={"feePayer": "0.0.98"}
+    ),
+    "exact Starknet": _accept(network="starknet:SN_SEPOLIA", extra={"feePayer": "0x1"}),
+    "batch-settlement SVM": _sol(
+        scheme="batch-settlement",
+        extra={"feePayer": SOL_PAYTO, "receiverAuthorizer": SOL_PAYTO, "withdrawDelay": 900},
+    ),
+    "auth-capture EVM": _accept(
+        scheme="auth-capture",
+        extra={
+            "name": "USDC",
+            "version": "2",
+            "captureAuthorizer": "0x1",
+            "operatorType": "delegated",
+        },
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_CONFORMANT_SHAPES))
+def test_rs_pr_019_passes_conformant_bindings(valid_payload: dict[str, Any], shape: str) -> None:
+    result = _run_accepts(valid_payload, [_CONFORMANT_SHAPES[shape]])["RS-PR-019"]
+    assert result.status is Status.PASS, (shape, result.detail)
+
+
+def test_rs_pr_019_still_catches_a_key_from_another_binding(valid_payload: dict[str, Any]) -> None:
+    """SVM channel fields on an EVM exact entry are still a copy-paste error."""
+    entry = _accept(extra={"name": "USDC", "version": "2", "recentBlockhash": "abc"})
+    result = _run_accepts(valid_payload, [entry])["RS-PR-019"]
+    assert result.status is Status.FAIL
+    assert "exact on eip155" in result.detail and "recentBlockhash" in result.detail
+
+
+def test_rs_pr_019_does_not_grade_unknown_keys_or_bindings(valid_payload: dict[str, Any]) -> None:
+    # A key no binding defines is not attributable to a wrong scheme.
+    unknown_key = _accept(extra={"name": "USDC", "version": "2", "x-vendor": 1})
+    assert _run_accepts(valid_payload, [unknown_key])["RS-PR-019"].status is Status.PASS
+    # A binding without a vocabulary here is skipped, not failed, even with keys
+    # another binding uses.
+    aptos = _accept(network="aptos:1", extra={"feePayer": "0x1", "name": "x"})
+    assert _run_accepts(valid_payload, [aptos])["RS-PR-019"].status is Status.SKIP
+
+
+def test_rs_pr_017_explain_text_names_all_four_schemes() -> None:
+    from x402_conformance.report import _REMEDIATION
+
+    for scheme in ("exact", "upto", "batch-settlement", "auth-capture"):
+        assert scheme in _REMEDIATION["RS-PR-017"]
+
+
+# ==========================================================================
+# §4 — RS-PR-026 is scheme-aware
+# ==========================================================================
+
+
+def test_rs_pr_026_svm_batch_settlement_is_not_told_to_declare_escrow(
+    valid_payload: dict[str, Any],
+) -> None:
+    """Its flow, when present, MUST be authorization; advising escrow was backwards."""
+    entry = _sol(
+        scheme="batch-settlement",
+        extra={"feePayer": SOL_PAYTO, "receiverAuthorizer": SOL_PAYTO, "withdrawDelay": 900},
+    )
+    assert _run_accepts(valid_payload, [entry])["RS-PR-026"].status is Status.SKIP
+
+
+def test_rs_pr_026_auth_capture_default_escrow_is_advised(valid_payload: dict[str, Any]) -> None:
+    """auth-capture defaults to escrow, so an undeclared flow joins the CORE-vs-binding
+    contradiction SVM upto is already in: advisory, not graded."""
+    entry = _accept(scheme="auth-capture", extra={"name": "USDC", "version": "2"})
+    result = _run_accepts(valid_payload, [entry])["RS-PR-026"]
+    assert result.status is Status.PASS
+    assert result.detail.startswith("advisory:")
+    assert "defaults to escrow" in result.detail
+
+
+def test_rs_pr_026_auto_capture_is_no_longer_an_escrow_signal(
+    valid_payload: dict[str, Any],
+) -> None:
+    entry = _accept(extra={"name": "USDC", "version": "2", "autoCapture": False})
+    assert _run_accepts(valid_payload, [entry])["RS-PR-026"].status is Status.SKIP
+
+
+def test_rs_pr_026_unknown_binding_falls_back_to_signals(valid_payload: dict[str, Any]) -> None:
+    entry = _accept(network="aptos:1", extra={"withdrawDelay": 60})
+    result = _run_accepts(valid_payload, [entry])["RS-PR-026"]
+    assert result.status is Status.PASS and "withdrawDelay" in result.detail
+
+
+def test_rs_pr_026_evm_upto_is_authorization(valid_payload: dict[str, Any]) -> None:
+    entry = _accept(scheme="upto", extra={"name": "USDC", "version": "2", "withdrawDelay": 60})
+    assert _run_accepts(valid_payload, [entry])["RS-PR-026"].status is Status.SKIP
+
+
+# ==========================================================================
+# §7 — RS-PR-018 groups by the reserved keys too (x402#3145)
+# ==========================================================================
+
+
+def test_rs_pr_018_same_asset_per_flow_is_not_a_contradiction(
+    valid_payload: dict[str, Any],
+) -> None:
+    upfront = _sol(amount="10000", extra={"feePayer": SOL_PAYTO, "paymentFlow": "upfront"})
+    authorization = _sol(
+        amount="12000", extra={"feePayer": SOL_PAYTO, "paymentFlow": "authorization"}
+    )
+    result = _run_accepts(valid_payload, [upfront, authorization])["RS-PR-018"]
+    assert result.status is Status.PASS
+
+
+def test_rs_pr_018_same_flow_twice_still_fails(valid_payload: dict[str, Any]) -> None:
+    a = _sol(amount="10000", extra={"paymentFlow": "upfront"})
+    b = _sol(amount="12000", extra={"paymentFlow": "upfront"})
+    result = _run_accepts(valid_payload, [a, b])["RS-PR-018"]
+    assert result.status is Status.FAIL
+    assert "paymentFlow='upfront'" in result.detail
