@@ -122,15 +122,56 @@ _LOCAL_ERROR_CODES = frozenset(
     }
 )
 
+# Codes upstream stopped declaring at the 2026-10 review (f62a9fa..cb0ec5b) that a
+# facilitator built on an older release can still return. Accepted for six months
+# so a deployment is not failed for lagging one SDK release; RETIRED_UNTIL is the
+# recorded removal date, and tests/test_error_reason_drift.py goes red once it has
+# passed so the set is removed deliberately rather than kept forever.
+#
+#  - invalid_exact_solana_payload_amount_insufficient: replaced by
+#    `..._amount_mismatch` in the Go SVM facilitator (x402#3263); deployed Go
+#    facilitators keep returning the old code until they upgrade.
+#  - 8 invalid_exact_evm_server_* and 8 invalid_upto_evm_server_*: money-parsing
+#    errors removed with the spend controls (5246387a). They were declared in
+#    `/server/` files, which the role boundary now excludes from the generated
+#    registry anyway; they are kept here only because Mario's review decided all
+#    17 removals get the same grace period, and the overlap is noted in
+#    docs/upstream-review-2026-10.md.
+RETIRED_UNTIL = "2027-04-06"
+RETIRED_ERROR_CODES = frozenset(
+    {
+        "invalid_exact_solana_payload_amount_insufficient",
+        "invalid_exact_evm_server_amount_required",
+        "invalid_exact_evm_server_failed_to_convert_amount",
+        "invalid_exact_evm_server_failed_to_parse_price",
+        "invalid_exact_evm_server_invalid_amount",
+        "invalid_exact_evm_server_invalid_asset",
+        "invalid_exact_evm_server_invalid_payto_address",
+        "invalid_exact_evm_server_invalid_token_amount",
+        "invalid_exact_evm_server_unsupported_price_type",
+        "invalid_upto_evm_server_amount_required",
+        "invalid_upto_evm_server_failed_to_convert_amount",
+        "invalid_upto_evm_server_failed_to_parse_price",
+        "invalid_upto_evm_server_invalid_amount",
+        "invalid_upto_evm_server_invalid_asset",
+        "invalid_upto_evm_server_invalid_payto_address",
+        "invalid_upto_evm_server_invalid_token_amount",
+        "invalid_upto_evm_server_unsupported_price_type",
+    }
+)
+
 # The vocabulary FA-ERR-001 accepts: an invalidReason / errorReason outside it is a
 # FAIL. It is the *union* of both upstream halves deliberately. The legacy
 # `ErrorReasons` enum alone is no longer sufficient — upstream froze it at 41 codes
-# and current mechanisms declare their own (344 of them, MECHANISM_ERROR_CODES).
+# and current mechanisms declare their own (493 of them at main@cb0ec5b,
+# MECHANISM_ERROR_CODES), plus the retired codes above during their grace period.
 # Gating on the enum alone would fail a facilitator returning, say,
 # `invalid_exact_evm_authorization_value` — a real code from the current EVM
 # package that the enum, which only has the older `..._payload_authorization_value`
 # spelling, has never contained.
-KNOWN_ERROR_CODES = SPEC_ERROR_REASONS | MECHANISM_ERROR_CODES | _LOCAL_ERROR_CODES
+KNOWN_ERROR_CODES = (
+    SPEC_ERROR_REASONS | MECHANISM_ERROR_CODES | _LOCAL_ERROR_CODES | RETIRED_ERROR_CODES
+)
 
 _CAIP2 = __import__("re").compile(r"^[a-z0-9-]{3,8}:[-_a-zA-Z0-9]{1,32}$")
 

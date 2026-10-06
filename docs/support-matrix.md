@@ -5,8 +5,8 @@ run is conformance for the rows marked **supported**, not a blanket certificate 
 every x402 transport, network, scheme, or transfer mechanism.
 
 **Tool spec baseline:** `x402-foundation/x402@d454eb9` (2026-06-08)
-**Latest upstream review:** `main@f62a9fa` (2026-08-13), rechecked 2026-08-13
-**Review notes:** [`docs/upstream-review-2026-08.md`](upstream-review-2026-08.md)
+**Latest upstream review:** `main@cb0ec5b` (2026-10-06)
+**Review notes:** [`docs/upstream-review-2026-10.md`](upstream-review-2026-10.md) (previous: [`2026-08`](upstream-review-2026-08.md))
 **Review sources:** [upstream commits](https://github.com/x402-foundation/x402/commits/main/),
 [V2 core specification](https://github.com/x402-foundation/x402/blob/main/specs/x402-specification-v2.md),
 [scheme specifications](https://github.com/x402-foundation/x402/tree/main/specs/schemes), and
@@ -142,3 +142,16 @@ misconfigured route, and they never appear in a `VerifyResponse` or
 `SettleResponse`. Adding them would make FA-ERR-001 accept codes that must never
 reach a client, so the generator does not collect them and this note exists so
 nobody adds them by hand.
+
+Since the 2026-10 review the same line is drawn for whole files: declarations
+under a `/client/` or `/server/` path segment are excluded, because a client's or
+resource server's own errors (route config, money parsing, settlement hooks — go
+auth-capture `server/errors.go` alone declares 23) never reach a facilitator
+response. `invalid_batch_settlement_evm_deposit_below_min_deposit` is excluded by
+name: only the batch-settlement resource server returns it, and the facilitator
+MUST NOT enforce `minDeposit`. The TypeScript pattern also matches `ERR_*`
+constants (Cardano, SVM `upto`, TVM). Codes upstream stopped declaring stay
+accepted as **retired** until a recorded removal date (`RETIRED_UNTIL`, currently
+2027-04-06); the drift job fails after it. Known gaps, so not accepted: mechanisms
+that return inline string literals (Hedera, Aptos, Keeta, XRPL, Stellar,
+Concordium, NEAR) and SVM batch-settlement's prefix-concatenated codes.
