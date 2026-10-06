@@ -13,6 +13,9 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   fixture key IDs are rejected outside the existing testnet/local safety allowlist.
 - A targeted `[pqc]` extra reuses `cryptography>=50` for OpenSSL-backed ML-DSA-65;
   the base passive installation remains unchanged.
+- A signed receipt-v2 interop vector (`tests/fixtures/pqc/receipt-v2-interop.json`, test
+  keys only), byte-identical to the one psv verifies, checked against this package's own
+  canonicalization and verifier, so the re-implementation cannot drift from psv unnoticed.
 - The default profile remains unchanged and does not execute or report PQC checks. This
   profile checks receipt-signature conformance, not overall system security: chain
   signatures remain ECDSA/secp256k1, and TLS harvest-now-decrypt-later protection is a
