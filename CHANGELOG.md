@@ -5,6 +5,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **`test_verify_rejects_an_invalid_signature_before_simulation` no longer fails 1 run in
+  256.** It "broke" the signature by overwriting r's first byte with `0x00`, which changed
+  nothing whenever r already started with `00`, so the valid signature was submitted as the
+  invalid one. It now flips every bit of that byte, which always changes the signature, and
+  asserts that it did.
+
 ## [0.6.0] — 2026-10-06
 
 ### Added

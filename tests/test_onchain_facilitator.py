@@ -70,7 +70,12 @@ def test_verify_rejects_an_invalid_signature_before_simulation(
     monkeypatch.setattr(harness, "token", _Token(calls))
     payload = _payload(harness)
     signature = payload["payload"]["signature"]
-    broken = "0x00" + signature[4:]
+    # Flip every bit of r's first byte rather than overwriting it. Overwriting with 0x00
+    # was a no-op whenever r already started with 00 (1 run in 256): the "broken"
+    # signature was the valid one, and the test failed. A flipped byte always differs;
+    # whether recovery then yields another address or raises, verify() must refuse it.
+    broken = f"0x{int(signature[2:4], 16) ^ 0xFF:02x}{signature[4:]}"
+    assert broken != signature
 
     result = harness.verify(payload["payload"]["authorization"], broken)
 
