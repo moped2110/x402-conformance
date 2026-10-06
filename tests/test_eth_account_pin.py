@@ -2,9 +2,10 @@
 
 ``payload_builder.eip712_digest`` reaches into a *private* eth-account path
 (``eth_account.messages._hash_eip191_message``). A minor eth-account bump can
-move or rename it, silently breaking every active/on-chain check. pyproject pins
-``eth-account>=0.13,<0.14`` for exactly this reason; this test fails loudly if
-the pinned surface moves, so the pin can never drift out of sync with reality.
+move or rename it, silently breaking every active/on-chain check. pyproject caps
+``eth-account>=0.13,<0.15`` for exactly this reason (0.14 was checked); this test
+fails loudly if the pinned surface moves, so the cap can never drift out of sync
+with reality.
 """
 
 from __future__ import annotations
