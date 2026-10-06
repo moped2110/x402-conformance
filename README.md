@@ -42,7 +42,7 @@ funds.
 
 ---
 
-**Spec baseline:** x402 Protocol v2, `x402-foundation/x402` @ `d454eb9` (2026-06-08).
+**Spec baseline:** x402 Protocol v2, `x402-foundation/x402` @ `d454eb9` (2026-06-08); upstream changes reviewed through `f62a9fa` (2026-08-13) — see [`docs/upstream-review-2026-08.md`](docs/upstream-review-2026-08.md).
 **Test catalog:** see [`docs/conformance-catalog.md`](docs/conformance-catalog.md) — every check carries an ID, severity, and spec reference.
 **Support boundary:** [`docs/support-matrix.md`](docs/support-matrix.md) — exact supported, passive-only, planned, and out-of-scope mechanisms.
 **Architecture:** [`docs/architecture.md`](docs/architecture.md) (how it works, with diagrams). Dated development logs (calibration, on-chain bring-up, report/robustness work) are archived under [`docs/history/`](docs/history/).
@@ -50,21 +50,24 @@ funds.
 
 ## Status
 
-**v0.3.0** — working tool. CI (pytest + mypy on Python 3.11–3.13) in `.github/workflows/ci.yml`; full release notes in [`CHANGELOG.md`](CHANGELOG.md). Implemented check groups:
+**v0.5.0** — working tool. CI (pytest + mypy on Python 3.11–3.13) in `.github/workflows/ci.yml`; full release notes in [`CHANGELOG.md`](CHANGELOG.md). Implemented check groups:
 
 - **RS-HS** (handshake) and **RS-PR** (PaymentRequired schema) — passive, no payment.
 - **RS-NEG** + **RS-SEC-010** (negative / security) — `--active`: signs deliberately-invalid payments and verifies the endpoint rejects them. Throwaway signer, no funds, no chain needed.
+- **RS-SEC-012** (paywall bypass by re-encoding the request path) — passive, critical: re-requests the protected URL under encodings a correct server must still gate, with a control probe so catch-all endpoints SKIP.
 - **FA** (facilitator `/supported`, `/verify`) — the `facilitator` command.
 - **DI** (discovery / Bazaar) — the `discovery` command.
 
 - **RS-PAY** + **RS-SEC-001** (positive settlement + replay) — `check --pay`: signs a valid funded payment, settles it ON-CHAIN, verifies the tx, and confirms a replay is rejected. Confirmed live against Anvil.
 - **FA-SET** (facilitator `/settle`) — `facilitator --settle`: valid settle, invalid settle, double-settle.
 
-Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **76 checks across the groups above; 610+ offline tests, mypy strict, CI green.**
+Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **76 checks across the groups above; 680+ offline tests, mypy strict.**
 
 **Solana / SVM — in progress.** The `exact` scheme on Solana works differently from EVM: the client submits a *partial-signed transaction* (an SPL/Token-2022 `TransferChecked` to the recipient's ATA, co-signed by the sponsor `feePayer` at settle time), and a verifier checks the *outcome*, not a signature. The foundations ship behind an opt-in **`[svm]`** extra — CAIP-2 `solana:*` handling, ATA derivation, a spec-faithful partial-signed transaction builder, and tamper primitives for the negative checks. A first runnable group ships: **FA-SVM** sends a valid partial-signed payload and six tampered ones to a facilitator's `/verify` (never `/settle`). The *settlement* path still needs a local validator and is **not shipped yet**. This is purely additive: without `[svm]`, the suite behaves exactly as before (no Solana dependency, no EVM path touched).
 
-Since v0.2.0 (see [`CHANGELOG.md`](CHANGELOG.md)): six new passive checks on the challenge — four on `accepts` overspecification, two grading the challenge as JSON *text* (literals RFC 8259 does not define, duplicate keys) — the FA-SVM live `/verify` group, an MCP server for the passive surface, a machine-readable `inconclusiveReason` (report 1.3), and the Algorand CAIP-2 alignment that landed upstream as x402#2931.
+Since v0.3.0 (see [`CHANGELOG.md`](CHANGELOG.md)): two reviews of upstream x402 (`61349de..f62a9fa`) produced RS-SEC-012, DI-004 (external `$ref`/`$id` in Bazaar schemas), RS-PR-023…026 (builder-code, payment-flow declarations) and RS-HS-008 (paid 200 not shared-cacheable); FA-ERR-001 now accepts the 344 error codes upstream's mechanism packages actually return, from a generated registry; two checks that failed conformant endpoints after the CORE §6.1 rewrite were fixed; and the support matrix commits to a two-week upstream review cadence.
+
+In v0.3.0: six new passive checks on the challenge — four on `accepts` overspecification, two grading the challenge as JSON *text* (literals RFC 8259 does not define, duplicate keys) — the FA-SVM live `/verify` group, an MCP server for the passive surface, a machine-readable `inconclusiveReason` (report 1.3), and the Algorand CAIP-2 alignment that landed upstream as x402#2931.
 
 ## Install
 
@@ -191,7 +194,7 @@ Transport defaults to stdio, which is what an editor spawns. Set
 ## Development
 
 ```bash
-pytest          # the suite's own tests (offline, mocked transport) — 590+ tests
+pytest          # the suite's own tests (offline, mocked transport) — 680+ tests
 mypy            # strict type checking
 python tools/check_function_docs.py  # every production/tool function has a docstring
 
