@@ -345,6 +345,8 @@ _REMEDIATION: dict[str, str] = {
     "FA-SET-004": "When you answer `settlement_pending`, put the broadcast transaction hash in `transaction` (and keep `network`): the caller reconciles against it instead of paying twice.",
     "RS-SEC-009": "Never echo the protected resource on a rejection path — the 402 body must not leak paid content.",
     "RS-HS-008": "Send `Cache-Control: private` (or `no-store`) on the paid 200 — a shared cache storing it serves the resource to clients who did not pay.",
+    "RS-HS-009": "Strip the facilitator's EXTENSION-RESPONSES header before responding: it is a server-internal sidechannel (CORE §7.2.1) and is never forwarded to the buyer.",
+    "FA-EXT-001": "Send EXTENSION-RESPONSES as base64 of a JSON object keyed by extension name, each value an object; Bazaar's status is success, processing or rejected.",
     "DI-004": "Reject a catalogued `schema` whose `$ref`/`$id` is not a same-document `#` fragment, and never resolve external ones: the resolver fetches them during compilation, before the instance is validated (x402#3039, CWE-918).",
     "RS-PR-023": "Use `^[a-z0-9_]{1,32}$` for your builder-code app code — an invalid code is rejected downstream and your attribution is dropped.",
     "RS-PR-024": "Declare at most MAX_SERVER_SERVICE_CODES (5) service codes. Past that, entries are truncated downstream, so what you declare is not what settles.",
@@ -401,6 +403,12 @@ _ONCHAIN_CHECKS: list[tuple[str, str, Severity, str]] = [
         "Paid 200 response is not shared-cacheable",
         Severity.MINOR,
         "RFC 9111 §4.2.2 + x402#2990",
+    ),
+    (
+        "RS-HS-009",
+        "EXTENSION-RESPONSES is never forwarded to the buyer",
+        Severity.MAJOR,
+        "CORE §7.2.1 + bazaar.md",
     ),
     (
         "FA-SET-001",

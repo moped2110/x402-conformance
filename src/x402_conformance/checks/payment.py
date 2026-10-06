@@ -33,7 +33,11 @@ PAY_CHECK_IDS = [
     "RS-SEC-001",
     "RS-SEC-002",
     "RS-HS-008",
+    "RS-HS-009",
 ]
+
+#: The facilitator-to-server sidechannel header (CORE §7.2.1, x402#3278/#3306).
+EXTENSION_RESPONSES_HEADER = "extension-responses"
 
 
 def _result(
@@ -54,12 +58,15 @@ def _pay_severity(check_id: str) -> Severity:
     The group is CRITICAL by default because it decides whether money moved.
     RS-PAY-004 is MAJOR (proof depth, not acceptance) and RS-HS-008 is MINOR —
     a cacheable paid response is a real leak, but it is a header-hygiene finding
-    and must not gate a settlement verdict.
+    and must not gate a settlement verdict. RS-HS-009 is MAJOR: a spec MUST about
+    what reaches the buyer, but not a question of whether money moved.
     """
     if check_id == "RS-PAY-004":
         return Severity.MAJOR
     if check_id == "RS-HS-008":
         return Severity.MINOR
+    if check_id == "RS-HS-009":
+        return Severity.MAJOR
     return Severity.CRITICAL
 
 
@@ -93,6 +100,52 @@ def _evaluate_paid_cacheability(resp: ActiveResponse, title: str) -> CheckResult
             "or proxy can serve the resource this client paid for to clients who did not",
         )
     return _result(cid, title, Severity.MINOR, Status.PASS, "")
+
+
+def _evaluate_extension_responses_leak(
+    context: ActiveContext, resp: ActiveResponse, title: str
+) -> CheckResult:
+    """Grade RS-HS-009: EXTENSION-RESPONSES never reaches the buyer.
+
+    CORE §7.2.1 makes the header a facilitator-to-resource-server sidechannel
+    ("server internal only; never forwarded to the buyer", bazaar.md). A server
+    that copies the facilitator's headers through leaks, for example, Bazaar
+    cataloguing status to every client. Both responses the buyer sees in this flow
+    are inspected: the unpaid 402 and the answer to the paid request.
+    """
+    cid = "RS-HS-009"
+    leaked = []
+    if EXTENSION_RESPONSES_HEADER in context.challenge_headers:
+        leaked.append("the unpaid 402")
+    if EXTENSION_RESPONSES_HEADER in resp.headers:
+        leaked.append(f"the paid response (HTTP {resp.status_code})")
+    if leaked:
+        return CheckResult(
+            cid,
+            title,
+            Severity.MAJOR,
+            f"{_CORE} §7.2.1 + bazaar.md",
+            Status.FAIL,
+            "EXTENSION-RESPONSES forwarded to the buyer on " + " and ".join(leaked) + " — it is "
+            "the facilitator's sidechannel to the resource server and is never forwarded",
+        )
+    if resp.transport_error is not None:
+        return CheckResult(
+            cid,
+            title,
+            Severity.MAJOR,
+            f"{_CORE} §7.2.1 + bazaar.md",
+            Status.SKIP,
+            "the paid request got no response to inspect",
+        )
+    return CheckResult(
+        cid,
+        title,
+        Severity.MAJOR,
+        f"{_CORE} §7.2.1 + bazaar.md",
+        Status.PASS,
+        f"absent on the 402 and the paid response (HTTP {resp.status_code})",
+    )
 
 
 def _positive_max_age(cache_control: str) -> bool:
@@ -241,6 +294,7 @@ def evaluate_payment(
         "RS-SEC-001": "Replaying a settled payment is rejected (nonce reuse)",
         "RS-SEC-002": "Concurrent settle of one payment yields at most one success (race)",
         "RS-HS-008": "Paid 200 response is not shared-cacheable",
+        "RS-HS-009": "EXTENSION-RESPONSES is never forwarded to the buyer",
     }
     if context is None:
         return [
@@ -363,6 +417,7 @@ def evaluate_payment(
     # the next unpaid client. Upstream made `private` the default on the settled
     # response in x402#2990 (TS/Python) alongside no-store on the 402.
     results.append(_evaluate_paid_cacheability(resp, titles["RS-HS-008"]))
+    results.append(_evaluate_extension_responses_leak(context, resp, titles["RS-HS-009"]))
 
     # RS-PAY-002 — settlement response
     settlement: SettlementResponse | None = resp.settlement

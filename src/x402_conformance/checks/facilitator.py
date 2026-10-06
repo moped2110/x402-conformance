@@ -10,6 +10,8 @@ What runs without a chain (this session):
   ``isValid: false`` with a spec error code (signature/amount/recipient/time
   all reject pre-RPC). Needs a ``--resource`` to source real requirements.
 - FA-ERR-001: ``invalidReason`` values are from the CORE §9 registry.
+- FA-EXT-001: an ``EXTENSION-RESPONSES`` header on ``/verify`` (optional, CORE
+  §7.2.1) is a base64 JSON object keyed by extension name.
 
 With explicit testnet/local settlement consent, a matching RPC, and a funded payer:
 - FA-SET-001/002 and FA-SET-003 exercise valid, invalid, and duplicate settlement.
@@ -24,6 +26,8 @@ Driven explicitly by ``run_facilitator_checks``; not part of the passive REGISTR
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -197,6 +201,8 @@ class FacilitatorContext:
     #: (404/405/501). Read back in `evaluate_facilitator` to tag the result as
     #: ``endpoint_absent`` — "not there", distinct from "not applicable".
     absent_checks: set[str] = field(default_factory=set)
+    #: Raw EXTENSION-RESPONSES header values seen on /verify, in order (FA-EXT-001).
+    extension_responses: list[str] = field(default_factory=list)
 
     def absent(self, check_id: str, detail: str) -> tuple[Status, str]:
         """Record one check as endpoint-absent and return its SKIP outcome."""
@@ -347,6 +353,47 @@ def _absence_reason(path: str, status: int) -> str:
     )
 
 
+def _note_extension_responses(ctx: FacilitatorContext, resp: httpx.Response) -> None:
+    """Record an EXTENSION-RESPONSES header from a /verify answer for FA-EXT-001."""
+    value = resp.headers.get("EXTENSION-RESPONSES")
+    if value is not None:
+        ctx.extension_responses.append(value)
+
+
+#: Values the Bazaar entry of EXTENSION-RESPONSES may report (bazaar.md).
+_BAZAAR_STATUSES = frozenset({"success", "processing", "rejected"})
+
+
+def extension_responses_problems(raw: str) -> list[str]:
+    """Validate one EXTENSION-RESPONSES value (CORE §7.2.1); return its problems.
+
+    The header is base64 of a JSON object keyed by extension name, each value an
+    object. The Bazaar entry carries ``status`` (success | processing | rejected)
+    and optionally ``rejectedReason``.
+    """
+    try:
+        decoded = base64.b64decode(raw, validate=True)
+        body: Any = json.loads(decoded)
+    except (ValueError, binascii.Error) as exc:
+        return [f"not base64-encoded JSON ({type(exc).__name__})"]
+    if not isinstance(body, dict):
+        return [f"decodes to {type(body).__name__}, not an object keyed by extension name"]
+    problems = [
+        f"extension {key!r} maps to {type(value).__name__}, not an object"
+        for key, value in body.items()
+        if not isinstance(value, dict)
+    ]
+    bazaar = body.get("bazaar")
+    if isinstance(bazaar, dict):
+        status = bazaar.get("status")
+        if status is not None and status not in _BAZAAR_STATUSES:
+            problems.append(f"bazaar.status {status!r} is not one of {sorted(_BAZAAR_STATUSES)}")
+        reason = bazaar.get("rejectedReason")
+        if reason is not None and not isinstance(reason, str):
+            problems.append("bazaar.rejectedReason is not a string")
+    return problems
+
+
 def _verify(
     ctx: FacilitatorContext, payload: dict[str, Any], requirements: dict[str, Any]
 ) -> tuple[VerifyResponse | None, str | None, int | None]:
@@ -362,6 +409,7 @@ def _verify(
         )
     except httpx.HTTPError:
         raise
+    _note_extension_responses(ctx, resp)
     if resp.status_code in _ENDPOINT_ABSENT:
         return None, _absence_reason("/verify", resp.status_code), resp.status_code
     if not 200 <= resp.status_code < 500:
@@ -388,6 +436,7 @@ def _verify_raw(
         )
     except httpx.HTTPError:
         raise
+    _note_extension_responses(ctx, resp)
     try:
         data: Any = json.loads(resp.text)
     except Exception:
@@ -512,6 +561,31 @@ def fa_err_001(ctx: FacilitatorContext) -> tuple[Status, str]:
     if reason not in KNOWN_ERROR_CODES:
         return Status.FAIL, f"invalidReason {reason!r} not in the CORE §9 registry"
     return Status.PASS, f"reason {reason!r} is a known code"
+
+
+@_register(
+    "FA-EXT-001",
+    "EXTENSION-RESPONSES (if sent) is a base64 JSON object keyed by extension",
+    Severity.MINOR,
+    f"{_CORE} §7.2.1 + bazaar.md",
+)
+def fa_ext_001(ctx: FacilitatorContext) -> tuple[Status, str]:
+    """Evaluate FA-EXT-001: the optional EXTENSION-RESPONSES header is well-formed.
+
+    Grades every value seen on the /verify calls the checks above made. The header
+    is optional, so its absence is a SKIP. (/settle answers are not graded here:
+    the settle group runs after the registry and only behind --settle.)
+    """
+    if ctx.requirements is None or ctx.signer is None:
+        return Status.SKIP, "no --resource requirements / signer, so no /verify was made"
+    if not ctx.extension_responses:
+        return Status.SKIP, "no EXTENSION-RESPONSES header on /verify (optional, §7.2.1)"
+    problems: list[str] = []
+    for i, raw in enumerate(ctx.extension_responses):
+        problems.extend(f"/verify answer {i + 1}: {p}" for p in extension_responses_problems(raw))
+    if problems:
+        return Status.FAIL, "; ".join(problems[:6])
+    return Status.PASS, f"{len(ctx.extension_responses)} well-formed EXTENSION-RESPONSES value(s)"
 
 
 def _settle(

@@ -53,7 +53,7 @@ The canonical status inventory is
 [`conformance-catalog.md`](conformance-catalog.md), and it is the number to trust:
 a test compares the count stated there against what the code actually emits, so
 this table can go stale but the catalog cannot. The shipped catalog contains
-**78 implemented checks**:
+**80 implemented checks**:
 
 | Group | Invocation | Coverage |
 |---|---|---|

@@ -119,6 +119,8 @@ class ActiveContext:
     send_with_headers: Callable[[dict[str, Any], dict[str, str]], ActiveResponse]
     resource_marker: str | None = None  # if set, a rejected body must NOT contain it
     notes: list[str] = field(default_factory=list)
+    #: Lower-cased headers of the unpaid 402 the requirements came from (RS-HS-009).
+    challenge_headers: dict[str, str] = field(default_factory=dict)
 
 
 def _b64_json(obj: dict[str, Any]) -> str:
@@ -296,6 +298,7 @@ def build_active_context(
         send_header=send_header,
         send_with_headers=send_with_headers,
         resource_marker=resource_marker,
+        challenge_headers=dict(probe.headers),
     )
 
 
