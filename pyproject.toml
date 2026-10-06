@@ -54,6 +54,12 @@ svm = [
     "solders>=0.21",
     "solana>=0.34",
 ]
+# Hybrid receipt verification is opt-in and needs OpenSSL-backed ML-DSA support.
+# cryptography is already used by the mcp/dev surfaces; this extra keeps the base
+# passive install unchanged while making `--profile pqc` explicit and usable.
+pqc = [
+    "cryptography>=50.0.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",

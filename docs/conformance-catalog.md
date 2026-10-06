@@ -17,6 +17,10 @@
 - FA-SUP-001/002, FA-VER-002/003/004, FA-ERR-001 — `facilitator`; FA-SET-001/002/003 — `facilitator --settle`
 - DI-001/002/003 — `discovery`
 
+Additionally, six separately registered PQC checks (unreleased; on `main` after v0.5.0)
+run only behind the explicit `check --profile pqc` selector and need the `[pqc]` extra. They are not part of the 76-check default/group
+count because selecting the profile replaces, rather than extends, the default run.
+
 RS-SEC-009 (content-leak on the rejection path) is enforced inside every active check; `check --active --resource-marker <s>` additionally flags a rejected body that still contains the protected content.
 
 RS-SEC-008 (timing oracle) is an opt-in, MINOR/advisory probe (`check --timing`): it flags a
@@ -199,3 +203,25 @@ Public-testnet cadence, additional reference-server calibration, and adoption
 thresholds for planned mechanisms are recorded in the support matrix. The
 machine-readable report contract is version `1.1` and validated by
 `report.schema.json`.
+
+## 11. PQC — Hybrid receipt conformance (opt-in)
+
+This profile uses the additive PSV receipt-v2 contract (psv `docs/pqc-receipt-v2.md`). A resource advertises
+`extensions.pqc` with `version: 2`, the fixed `algorithms` list, a hybrid `receipt`,
+`verifyUrl`, and a public `keys` mapping addressed by `kid`. The runner sends only two
+invalid receipts to that verifier: one with a tampered ML-DSA signature and one with
+`sig_v2` stripped. It never constructs or settles a payment.
+
+| ID | Test | Expected | Spec ref | Sev | Status |
+|----|------|----------|----------|-----|--------|
+| PQC-001 | PQC capability in the 402 response | Closed, schema-valid v2 advertisement | PSV receipt-v2 | M | implemented |
+| PQC-002 | Hybrid `sig_v2` structure | Both registered algorithms and plausible key IDs; ML-DSA-65 signature exactly 3309 bytes; receipt within psv's canonical JSON profile (no floats or `NaN`, ASCII member names, none repeated) | PSV receipt-v2 | M | implemented |
+| PQC-003 | Positive hybrid verification | ECDSA-P256-SHA256 **and** ML-DSA-65 valid | PSV receipt-v2 | C | implemented |
+| PQC-004 | Tampered ML-DSA signature | SUT verifier rejects it | PSV receipt-v2 | C | implemented |
+| PQC-005 | Stripped `sig_v2` downgrade | Reject, or accept only with explicit `degraded: true` | PSV receipt-v2 | C | implemented |
+| PQC-006 | Algorithm metadata cross-signing | Changing metadata invalidates both signatures | PSV receipt-v2 | C | implemented |
+
+The profile checks receipt-signature conformance, not total security and not settlement
+truth. Chain signatures remain ECDSA/secp256k1. TLS harvest-now-decrypt-later protection
+is separate from receipt signatures. A green result does not certify “quantum-safe
+payments”.

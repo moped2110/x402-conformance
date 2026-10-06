@@ -63,6 +63,8 @@ funds.
 
 Calibrated against a verify-capable reference target (`tools/calibration_target.py`) and confirmed end-to-end on a local chain (Anvil + `onchain/MockUSDC.sol`, a faithful EIP-3009 token). **76 checks across the groups above; 680+ offline tests, mypy strict.**
 
+**Unreleased (on `main` after v0.5.0): opt-in PQC receipt profile.** `check --profile pqc` with the `[pqc]` extra runs six hybrid-receipt checks (**PQC-001..006**: capability, `sig_v2` structure, ECDSA-P256 **and** ML-DSA-65 verification, tampered-signature and stripped-`sig_v2` rejection, metadata cross-signing) against psv's receipt-v2 format. The profile replaces the default run, so these six are not in the 76-check count above, and the default run is unchanged. It checks receipt-signature conformance only: chain signatures remain ECDSA/secp256k1, TLS harvest-now-decrypt-later is a separate transport concern, and a green result does not certify "quantum-safe payments".
+
 **Solana / SVM — in progress.** The `exact` scheme on Solana works differently from EVM: the client submits a *partial-signed transaction* (an SPL/Token-2022 `TransferChecked` to the recipient's ATA, co-signed by the sponsor `feePayer` at settle time), and a verifier checks the *outcome*, not a signature. The foundations ship behind an opt-in **`[svm]`** extra — CAIP-2 `solana:*` handling, ATA derivation, a spec-faithful partial-signed transaction builder, and tamper primitives for the negative checks. A first runnable group ships: **FA-SVM** sends a valid partial-signed payload and six tampered ones to a facilitator's `/verify` (never `/settle`). The *settlement* path still needs a local validator and is **not shipped yet**. This is purely additive: without `[svm]`, the suite behaves exactly as before (no Solana dependency, no EVM path touched).
 
 Since v0.3.0 (see [`CHANGELOG.md`](CHANGELOG.md)): two reviews of upstream x402 (`61349de..f62a9fa`) produced RS-SEC-012, DI-004 (external `$ref`/`$id` in Bazaar schemas), RS-PR-023…026 (builder-code, payment-flow declarations) and RS-HS-008 (paid 200 not shared-cacheable); FA-ERR-001 now accepts the 344 error codes upstream's mechanism packages actually return, from a generated registry; two checks that failed conformant endpoints after the CORE §6.1 rewrite were fixed; and the support matrix commits to a two-week upstream review cadence.
@@ -73,7 +75,8 @@ In v0.3.0: six new passive checks on the challenge — four on `accepts` overspe
 
 ```bash
 pip install -e ".[dev]"     # includes eth-account for active checks
-# optional extras: [onchain] for --pay settlement (web3), [svm] for the Solana/SVM foundations (solders)
+# optional extras: [onchain] for --pay settlement (web3), [svm] for the Solana/SVM foundations (solders),
+# [pqc] for the opt-in --profile pqc receipt checks (cryptography with ML-DSA)
 ```
 
 ## Usage
@@ -84,6 +87,9 @@ x402-conformance check https://api.example.com/premium-data
 
 # Also run active negative checks (sends invalid payments; throwaway signer)
 x402-conformance check https://api.example.com/premium-data --active
+
+# Opt-in hybrid receipt checks (PQC-001..006; default is off)
+x402-conformance check https://api.example.com/premium-data --profile pqc
 
 # Positive settlement: both a funded testnet key and matching RPC are mandatory
 x402-conformance check https://api.example.com/premium-data --pay \

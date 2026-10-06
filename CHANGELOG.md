@@ -5,6 +5,29 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- Opt-in `check --profile pqc` category with `PQC-001..006`: capability/schema,
+  hybrid receipt structure, ECDSA-P256 plus ML-DSA-65 AND-verification, tampered
+  ML-DSA rejection, explicit downgrade handling, and cross-signed algorithm metadata.
+- A TEST-ONLY, ephemeral fixture SUT for positive and negative self-tests. Marked
+  fixture key IDs are rejected outside the existing testnet/local safety allowlist.
+- A targeted `[pqc]` extra reuses `cryptography>=50` for OpenSSL-backed ML-DSA-65;
+  the base passive installation remains unchanged.
+- A signed receipt-v2 interop vector (`tests/fixtures/pqc/receipt-v2-interop.json`, test
+  keys only), byte-identical to the one psv verifies, checked against this package's own
+  canonicalization and verifier, so the re-implementation cannot drift from psv unnoticed.
+- **Receipt canonicalization enforces psv's JSON profile.** Floats (including `NaN`),
+  non-ASCII or non-string member names and non-JSON values are refused, and a member name
+  repeated inside the receipt is refused too (`duplicate JSON member: <name>`), with psv's
+  exact error text. The probe parses the challenge last-wins, so the receipt subtree is
+  re-read from the challenge text; a repeated key elsewhere in the challenge stays a
+  JSON-hygiene finding, not a PQC one. PQC-002 now also fails a receipt outside the profile,
+  and the shared vector's `rejected` texts pin the parity with psv.
+- The default profile remains unchanged and does not execute or report PQC checks. This
+  profile checks receipt-signature conformance, not overall system security: chain
+  signatures remain ECDSA/secp256k1, and TLS harvest-now-decrypt-later protection is a
+  separate transport concern. It does not certify an SUT as "quantum-safe".
+
 ### Security
 - **The locked dependency graph is clean under `pip-audit --strict` again.** The weekly
   supply-chain job had been red since 2026-08-31 on 26 advisories in six transitive
