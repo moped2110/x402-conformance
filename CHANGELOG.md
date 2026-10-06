@@ -5,6 +5,27 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Security
+- **The locked dependency graph is clean under `pip-audit --strict` again.** The weekly
+  supply-chain job had been red since 2026-08-31 on 26 advisories in six transitive
+  packages: `httpx2`/`httpcore2` 2.9.1 (PYSEC-2026-3844..3849), `urllib3` 2.7.0
+  (PYSEC-2026-4175..4177), `pyjwt` 2.13.0 (PYSEC-2026-4140..4152, CVE-2026-102275),
+  `multidict` 6.7.1 (CVE-2026-104874) and `pip` 26.1.2 (PYSEC-2026-3721). All but `pip`
+  get security floors in the `dev` extra the lock is compiled from, beside the existing
+  `aiohttp` floor; `pip` moves with the refresh. The lock was regenerated with
+  `--upgrade`, so the job's "available lock updates" diff is empty as well.
+
+### Changed
+- **`eth-account` cap widened from `<0.14` to `<0.15`.** The cap exists because
+  `payload_builder.py` imports the private `eth_account.messages._hash_eip191_message`.
+  0.14.0 was checked before widening: the path is unchanged, `test_eth_account_pin.py`
+  passes, and so does the byte-identity test against the x402 SDK (now 2.25.0). The lock
+  moves to `eth-account` 0.14.0 / `web3` 8.0.0 / `eth-abi` 6.0.0, the same set psv locks,
+  so the two packages co-install on one resolution again.
+- **`twine` cap in the `release` extra widened from `<7` to `<8`.** hatchling 1.32 writes
+  `Metadata-Version: 2.5`, which twine 6 rejects, so after the refresh the build job's
+  `twine check` would have failed on a correct wheel.
+
 ## [0.5.0] — 2026-08-13
 
 Upstream review `c7e0ac8..f62a9fac` (19 commits). Full notes in

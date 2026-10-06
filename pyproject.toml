@@ -24,15 +24,17 @@ Issues = "https://github.com/moped2110/x402-conformance/issues"
 
 [project.optional-dependencies]
 # Active payment-flow checks (RS-NEG/RS-SEC) need EIP-712 signing.
-# eth-account is pinned <0.14: active.py depends on the 0.13 signing surface
-# (a private-path import for EIP-191 hashing); a minor bump can move it. See
-# tests/test_eth_account_pin.py, which fails loudly if that path relocates.
+# eth-account is capped below the next minor: payload_builder.py depends on a
+# private-path import for EIP-191 hashing, and a minor bump can move it. 0.14 was
+# checked (2026-10): the path is unchanged and the suite, including the
+# byte-identity test against the x402 SDK, passes on it. Widen the cap only after
+# the same check; tests/test_eth_account_pin.py fails loudly if the path relocates.
 evm = [
-    "eth-account>=0.13,<0.14",
+    "eth-account>=0.13,<0.15",
 ]
 # On-chain settlement checks (RS-PAY, FA-SET) additionally need an RPC client.
 onchain = [
-    "eth-account>=0.13,<0.14",
+    "eth-account>=0.13,<0.15",
     "web3>=6.0",
     # Security floor for a transitive of web3, not a direct dependency.
     # `pip-audit --strict` fails the supply-chain job below this version.
@@ -59,12 +61,19 @@ dev = [
     # Pinned exact: ruff's formatter output varies across releases, so an unpinned
     # CI ruff and a local ruff can disagree on `format --check` (skew). Bump deliberately.
     "ruff==0.15.20",
-    "eth-account>=0.13,<0.14",
+    "eth-account>=0.13,<0.15",
     "web3>=6.0",
     # Same security floor as the `onchain` extra: aiohttp is a web3 transitive, and
     # this is the extra the CI lock is compiled from, so the floor has to be here
     # too or `pip-audit --strict` keeps failing the supply-chain job.
     "aiohttp>=3.14.3",  # PYSEC-2026-3545 / -3546 / -3547
+    # Same reasoning, 2026-10: transitives of mcp (httpx2, httpcore2, pyjwt), of
+    # requests (urllib3) and of aiohttp (multidict). Floors, not pins.
+    "httpx2>=2.12.0",  # PYSEC-2026-3845 .. -3849
+    "httpcore2>=2.10.0",  # PYSEC-2026-3844
+    "urllib3>=2.8.0",  # PYSEC-2026-4175 / -4176 / -4177
+    "pyjwt>=2.15.0",  # PYSEC-2026-4140 .. -4152, CVE-2026-102275
+    "multidict>=6.9.1",  # CVE-2026-104874
     "jsonschema>=4.0",
     "solders>=0.21",
     # The MCP SDK is in `dev` as well as its own extra, deliberately. Without it
@@ -89,7 +98,9 @@ release = [
     "build>=1.2,<2",
     "editables>=0.3,<1",
     "hatchling>=1.27,<2",
-    "twine>=6,<7",
+    # <8, not <7: hatchling 1.32 writes Metadata-Version 2.5, which twine 6 rejects
+    # ("'2.5' is not a valid metadata version"), so `twine check` needs twine 7.
+    "twine>=6,<8",
 ]
 # Tools used to regenerate the CI lock and audit it against PyPI advisories.
 # They are opt-in so importing the library never pulls supply-chain tooling.
