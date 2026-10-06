@@ -5,8 +5,8 @@ run is conformance for the rows marked **supported**, not a blanket certificate 
 every x402 transport, network, scheme, or transfer mechanism.
 
 **Tool spec baseline:** `x402-foundation/x402@d454eb9` (2026-06-08)
-**Latest upstream review:** `main@f62a9fa` (2026-08-13), rechecked 2026-08-13
-**Review notes:** [`docs/upstream-review-2026-08.md`](upstream-review-2026-08.md)
+**Latest upstream review:** `main@cb0ec5b` (2026-10-06)
+**Review notes:** [`docs/upstream-review-2026-10.md`](upstream-review-2026-10.md) (previous: [`2026-08`](upstream-review-2026-08.md))
 **Review sources:** [upstream commits](https://github.com/x402-foundation/x402/commits/main/),
 [V2 core specification](https://github.com/x402-foundation/x402/blob/main/specs/x402-specification-v2.md),
 [scheme specifications](https://github.com/x402-foundation/x402/tree/main/specs/schemes), and
@@ -38,12 +38,13 @@ Status meanings:
 | Area | Status | Assessed behavior / boundary |
 |---|---|---|
 | HTTP x402 V2 | supported | 402 signaling, strict `PaymentRequired`, resource identity, headers, robustness, reports, facilitator, and Bazaar discovery checks. The challenge is also assessed as JSON *text*: literals RFC 8259 does not define and duplicate object keys are findings, because both make a challenge mean different things to different parsers. The selected HTTP method is never changed implicitly. |
-| Payment flow models (CORE §6.1) | partially supported | `extra.paymentFlow` is graded against the defined set (RS-PR-025), and an escrow-shaped entry that does not declare its flow is flagged advisorily (RS-PR-026). What is **not** assessed is whether the endpoint actually runs the ordering it declares — proving that `upfront` settled before the handler ran, or that `escrow` settled twice, needs funded settlement on both sides of the resource. `extra.assetTransferMethod` and `extra.paymentFlow` are treated as protocol-reserved on every scheme, never as scheme-private keys. |
+| Payment flow models (CORE §6.1) | partially supported | `extra.paymentFlow` is graded against the defined set (RS-PR-025) and against what the entry's scheme binding allows (RS-PR-027: `upto` never `upfront`, Lightning `exact` always `upfront`, Starknet/Cardano `exact` and SVM batch-settlement `authorization`, SVM `upto` `escrow`, auth-capture `escrow`/`authorization`). An entry whose flow resolves to escrow by binding default or shape but is undeclared is flagged advisorily (RS-PR-026, scheme-aware since 2026-10). Active probes prefer an `authorization` entry over `upfront`. What is **not** assessed is whether the endpoint actually runs the ordering it declares — proving that `upfront` settled before the handler ran, or that `escrow` settled twice, needs funded settlement on both sides of the resource. `extra.assetTransferMethod` and `extra.paymentFlow` are treated as protocol-reserved on every scheme, never as scheme-private keys. |
 | HTTP x402 V1 | passive-only | Recognized and reported as V1; exit 2 (`INCONCLUSIVE`) for a V2 assessment. |
 | x402 **over** MCP or A2A | out of scope | No transport adapter and no verdict: an endpoint that speaks x402 over MCP is not something this suite can assess. Not to be confused with *Interfaces* below — this row is about what gets tested, that section is about how the suite is driven. |
 | `jp402` / `x-jp402` metadata | passive-only | Optional structural and arithmetic validation; not tax, legal, or invoice-compliance advice. |
 | Bazaar discovery | supported | Strict response/pagination/filter checks. Cross-fetch is public-address-only by default with DNS pinning, redirect revalidation, caps, and explicit allowlists. A catalogued extension `schema` is scanned for `$ref`/`$id` values that are not same-document fragments (DI-004, x402#3039); the suite reports them and never resolves one, so inspecting a hostile catalogue cannot itself become the SSRF. |
-| Builder-code | partially supported | The **server-declared** half is assessed: app-code format and the server staying within `MAX_SERVER_SERVICE_CODES` (RS-PR-023/024, x402#3027). The client and facilitator halves — echo rules for `a`, the combined-budget `extension_echo_mismatch` rejection, and the ERC-8021 CBOR calldata suffix — are **not** assessed: the first two need a payment the client controls, the third needs the settlement transaction. |
+| Builder-code | partially supported | The **server-declared** half is assessed: app-code format and the server staying within `MAX_SERVER_SERVICE_CODES` (RS-PR-023/024, x402#3027). Since the 2026-10 review the resource server owns `a`-echo validation, and RS-NEG-016 (`--active`) checks it rejects a mismatched echo with `extension_echo_mismatch` before verification. The combined-budget `s` rejection and the ERC-8021 CBOR calldata suffix are **not** assessed: the first needs padded client payloads beyond the current probe, the second needs the settlement transaction. |
+| `EXTENSION-RESPONSES` (CORE §7.2.1) | partially supported | The facilitator-to-server sidechannel must never reach the buyer (RS-HS-009, `--pay`: the 402 and the paid response), and when a facilitator sends it on `/verify` it must be a base64 JSON object keyed by extension (FA-EXT-001). `/settle` answers are not graded. |
 | Other extension payloads | passive-only | Unknown extension data is preserved; semantic correctness is not assessed. |
 
 ## Interfaces (how the suite is driven)
@@ -76,10 +77,13 @@ operator's choice at start-up and is never a tool parameter.
 | `exact` | SVM (`solana`) | passive-only | CAIP-2 parsing, ATA derivation, a partial-transaction builder, and tamper primitives exist; no runnable conformance group or settlement verifier exists yet. Reviewed 2026-08-07 against the x402#2937 spec change: `extra.recentBlockhash` is a *construction hint* only, `extra.lastValidBlockHeight` is informational and may be ignored, and verification must **not** compare the transaction's blockhash with the hint. The FA-SVM tamper set contains no blockhash case, so nothing here would false-FAIL — checked rather than assumed. |
 | `exact` | Starknet (`starknet:SN_MAIN`, `starknet:SN_SEPOLIA`) | planned | Spec landed 2026-08 (x402#2849) and is detailed enough to implement against: SNIP-9 OutsideExecution, SNIP-12 typed-data hashing, SNIP-6 `is_valid_signature`, `Caller` bound to `extra.feePayer`, single-`transfer` calldata, and mandatory settlement simulation. Nothing is implemented; a clean run makes no Starknet claim. |
 | `exact` | Canton | planned | Spec landed 2026-08 (x402#2634). Nothing implemented; a clean run makes no Canton claim. |
-| `exact` | XRPL, Near, Casper, Hedera, Aptos, AVM, Stellar, TVM, Keeta, and other families | passive-only | Shared V2 HTTP/wire checks only; no family-specific payload or on-chain proof. |
-| `upto` | any | planned | No ceiling, metered-amount, replay, or actual-transfer checks. The *flow declaration* is graded (RS-PR-025/026) and `assetTransferMethod` is accepted on `upto` entries, but that is the challenge only. SVM `upto` defaults to the `escrow` flow (x402#3094/#3135) and settles twice around the resource; none of that ordering is verified. |
-| `auth-capture` | any | planned | Recognised as a protocol-named scheme (RS-PR-017) so an endpoint offering it is not called unpayable, and its `extra.autoCapture` counts as a pre-handler signal for RS-PR-026. No authorize/capture/void/refund/reclaim semantics are assessed. |
-| `batch-settlement` | any | planned | No escrow, voucher, aggregation, or redemption checks. |
+| `exact` | Lightning (`lnbtc:…`) | passive-only | Spec landed 2026-09 (x402#2861): asset `BTC`, method `bolt11`, flow `upfront` only, `extra.requestHash`. The challenge is graded (RS-PR-019 vocabulary, RS-PR-027 requires `upfront`); the server MUST NOT call `/verify`, so a Lightning facilitator is not FA-VER-gradeable, and nothing is paid. |
+| `exact` | Cardano (`cardano:mainnet`/`preprod`/`preview`) | passive-only | Spec and TS SDK landed (x402#2537); methods `default`, `masumi`, `script`. The challenge is graded (RS-PR-019 vocabulary, RS-PR-027 `authorization`); its `ERR_*` codes are in the error registry. No signing or chain proof. |
+| `exact` | Hedera (`hedera:…`) | passive-only | Shared V2 checks plus the RS-PR-019 vocabulary (`feePayer`, `executors`). The new `transferExecutor` method (x402#3205) next to `cryptoTransfer` is not assessed; Hedera returns inline error literals, a known registry gap. |
+| `exact` | XRPL, Near, Casper, Aptos, AVM, Stellar, TVM, Keeta, and other families | passive-only | Shared V2 HTTP/wire checks only; no family-specific payload or on-chain proof. Casper has a TS SDK (x402#2877) but no spec file, so it gets no row of its own. |
+| `upto` | any | planned | No ceiling, metered-amount, replay, or actual-transfer checks. The *flow declaration* is graded (RS-PR-025/026/027) and `assetTransferMethod` is accepted on `upto` entries, but that is the challenge only. SVM `upto` defaults to the `escrow` flow (x402#3094/#3135) and settles twice around the resource; none of that ordering is verified. The SVM delegated `receiverAuthorizer` and its settle-only `payload.type` are not assessed. |
+| `auth-capture` | any | planned | Recognised as a protocol-named scheme (RS-PR-017). The v1.1 declaration rules are graded (RS-PR-027: `escrow`/`authorization`, `autoCapture: true` rejected, no `captureMode` under `authorization`), and its escrow default makes RS-PR-026 advise an explicit `paymentFlow`. No authorize/capture/void/refund/reclaim semantics are assessed; rvf is the right home for the lifecycle. |
+| `batch-settlement` | any | planned | No escrow, voucher, aggregation, or redemption checks. The `extra` vocabularies for EVM and SVM (x402#2698) are graded by RS-PR-019, and SVM's `authorization`-only flow by RS-PR-027. EVM `minDeposit` is server-enforced only, so its rejection code is kept out of the facilitator error registry. |
 
 ## Facilitator completeness
 
@@ -89,7 +93,7 @@ operator's choice at start-up and is never a tool parameter.
 | Invalid `/verify` rejection and error reasons | supported | Uses signed semantic negatives; transport and malformed responses cannot become PASS. |
 | Valid `/verify` returns true with balance semantics (`FA-VER-001`) | planned | Explicit catalog row; not hidden behind another ID. |
 | `/verify` proves no state change (`FA-VER-005`) | planned | Requires a faithful funded-chain proof design. |
-| `/settle` response and replay behavior | supported | Opt-in, testnet/local only. With RPC, success passes only after the exact token Transfer is proven; without proof it SKIPs. |
+| `/settle` response and replay behavior | supported | Opt-in, testnet/local only. With RPC, success passes only after the exact token Transfer is proven; without proof it SKIPs. A `settlement_pending` answer gets one retry with the same payload; still pending is inconclusive (`settlement_pending`), a new hash is a re-broadcast, and the pending answer must name its transaction (FA-SET-004). |
 
 ## Backlog decisions
 
@@ -142,3 +146,16 @@ misconfigured route, and they never appear in a `VerifyResponse` or
 `SettleResponse`. Adding them would make FA-ERR-001 accept codes that must never
 reach a client, so the generator does not collect them and this note exists so
 nobody adds them by hand.
+
+Since the 2026-10 review the same line is drawn for whole files: declarations
+under a `/client/` or `/server/` path segment are excluded, because a client's or
+resource server's own errors (route config, money parsing, settlement hooks — go
+auth-capture `server/errors.go` alone declares 23) never reach a facilitator
+response. `invalid_batch_settlement_evm_deposit_below_min_deposit` is excluded by
+name: only the batch-settlement resource server returns it, and the facilitator
+MUST NOT enforce `minDeposit`. The TypeScript pattern also matches `ERR_*`
+constants (Cardano, SVM `upto`, TVM). Codes upstream stopped declaring stay
+accepted as **retired** until a recorded removal date (`RETIRED_UNTIL`, currently
+2027-04-06); the drift job fails after it. Known gaps, so not accepted: mechanisms
+that return inline string literals (Hedera, Aptos, Keeta, XRPL, Stellar,
+Concordium, NEAR) and SVM batch-settlement's prefix-concatenated codes.

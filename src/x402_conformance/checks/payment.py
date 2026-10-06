@@ -19,7 +19,7 @@ from typing import Any, cast
 
 from ..active import ActiveContext, ActiveResponse
 from ..models import SettlementResponse
-from .base import CheckResult, Severity, Status
+from .base import SETTLEMENT_PENDING, CheckResult, Severity, Status
 
 _CORE = "x402-specification-v2.md"
 
@@ -33,12 +33,23 @@ PAY_CHECK_IDS = [
     "RS-SEC-001",
     "RS-SEC-002",
     "RS-HS-008",
+    "RS-HS-009",
 ]
 
+#: The facilitator-to-server sidechannel header (CORE §7.2.1, x402#3278/#3306).
+EXTENSION_RESPONSES_HEADER = "extension-responses"
 
-def _result(cid: str, title: str, sev: Severity, status: Status, detail: str = "") -> CheckResult:
+
+def _result(
+    cid: str,
+    title: str,
+    sev: Severity,
+    status: Status,
+    detail: str = "",
+    reason_code: str | None = None,
+) -> CheckResult:
     """Construct a payment-flow CheckResult with the correct shared severity and reference."""
-    return CheckResult(cid, title, sev, f"{_CORE} §6.1.3", status, detail)
+    return CheckResult(cid, title, sev, f"{_CORE} §6.1.3", status, detail, reason_code=reason_code)
 
 
 def _pay_severity(check_id: str) -> Severity:
@@ -47,12 +58,15 @@ def _pay_severity(check_id: str) -> Severity:
     The group is CRITICAL by default because it decides whether money moved.
     RS-PAY-004 is MAJOR (proof depth, not acceptance) and RS-HS-008 is MINOR —
     a cacheable paid response is a real leak, but it is a header-hygiene finding
-    and must not gate a settlement verdict.
+    and must not gate a settlement verdict. RS-HS-009 is MAJOR: a spec MUST about
+    what reaches the buyer, but not a question of whether money moved.
     """
     if check_id == "RS-PAY-004":
         return Severity.MAJOR
     if check_id == "RS-HS-008":
         return Severity.MINOR
+    if check_id == "RS-HS-009":
+        return Severity.MAJOR
     return Severity.CRITICAL
 
 
@@ -86,6 +100,52 @@ def _evaluate_paid_cacheability(resp: ActiveResponse, title: str) -> CheckResult
             "or proxy can serve the resource this client paid for to clients who did not",
         )
     return _result(cid, title, Severity.MINOR, Status.PASS, "")
+
+
+def _evaluate_extension_responses_leak(
+    context: ActiveContext, resp: ActiveResponse, title: str
+) -> CheckResult:
+    """Grade RS-HS-009: EXTENSION-RESPONSES never reaches the buyer.
+
+    CORE §7.2.1 makes the header a facilitator-to-resource-server sidechannel
+    ("server internal only; never forwarded to the buyer", bazaar.md). A server
+    that copies the facilitator's headers through leaks, for example, Bazaar
+    cataloguing status to every client. Both responses the buyer sees in this flow
+    are inspected: the unpaid 402 and the answer to the paid request.
+    """
+    cid = "RS-HS-009"
+    leaked = []
+    if EXTENSION_RESPONSES_HEADER in context.challenge_headers:
+        leaked.append("the unpaid 402")
+    if EXTENSION_RESPONSES_HEADER in resp.headers:
+        leaked.append(f"the paid response (HTTP {resp.status_code})")
+    if leaked:
+        return CheckResult(
+            cid,
+            title,
+            Severity.MAJOR,
+            f"{_CORE} §7.2.1 + bazaar.md",
+            Status.FAIL,
+            "EXTENSION-RESPONSES forwarded to the buyer on " + " and ".join(leaked) + " — it is "
+            "the facilitator's sidechannel to the resource server and is never forwarded",
+        )
+    if resp.transport_error is not None:
+        return CheckResult(
+            cid,
+            title,
+            Severity.MAJOR,
+            f"{_CORE} §7.2.1 + bazaar.md",
+            Status.SKIP,
+            "the paid request got no response to inspect",
+        )
+    return CheckResult(
+        cid,
+        title,
+        Severity.MAJOR,
+        f"{_CORE} §7.2.1 + bazaar.md",
+        Status.PASS,
+        f"absent on the 402 and the paid response (HTTP {resp.status_code})",
+    )
 
 
 def _positive_max_age(cache_control: str) -> bool:
@@ -234,6 +294,7 @@ def evaluate_payment(
         "RS-SEC-001": "Replaying a settled payment is rejected (nonce reuse)",
         "RS-SEC-002": "Concurrent settle of one payment yields at most one success (race)",
         "RS-HS-008": "Paid 200 response is not shared-cacheable",
+        "RS-HS-009": "EXTENSION-RESPONSES is never forwarded to the buyer",
     }
     if context is None:
         return [
@@ -309,11 +370,31 @@ def evaluate_payment(
     resp = context.send(payload)
     results: list[CheckResult] = []
 
+    # A server that got `settlement_pending` back (CORE §9, x402#3083) after its one
+    # retry (x402#3214) has a broadcast it could not confirm. The payment may still
+    # land; it is neither accepted nor refused yet.
+    pending = (
+        resp.settlement if resp.settlement is not None and resp.settlement.is_pending else None
+    )
+
     # RS-PAY-001 — resource delivered
     if resp.served_resource:
         results.append(
             _result(
                 "RS-PAY-001", titles["RS-PAY-001"], sev_c, Status.PASS, f"status {resp.status_code}"
+            )
+        )
+    elif pending is not None:
+        results.append(
+            _result(
+                "RS-PAY-001",
+                titles["RS-PAY-001"],
+                sev_c,
+                Status.SKIP,
+                f"status {resp.status_code}: settlement_pending for transaction "
+                f"{pending.transaction!r} — the payment may still confirm; reconcile it on "
+                "chain before retrying, or the retry can pay twice",
+                SETTLEMENT_PENDING,
             )
         )
     else:
@@ -336,6 +417,7 @@ def evaluate_payment(
     # the next unpaid client. Upstream made `private` the default on the settled
     # response in x402#2990 (TS/Python) alongside no-store on the 402.
     results.append(_evaluate_paid_cacheability(resp, titles["RS-HS-008"]))
+    results.append(_evaluate_extension_responses_leak(context, resp, titles["RS-HS-009"]))
 
     # RS-PAY-002 — settlement response
     settlement: SettlementResponse | None = resp.settlement
@@ -351,6 +433,29 @@ def evaluate_payment(
                 sev_c,
                 Status.FAIL,
                 "no PAYMENT-RESPONSE header on a successful payment",
+            )
+        )
+    elif settlement.is_pending and not settlement.transaction:
+        results.append(
+            _result(
+                "RS-PAY-002",
+                titles["RS-PAY-002"],
+                sev_c,
+                Status.FAIL,
+                "settlement_pending with an empty transaction — CORE §5.3.2 requires the "
+                "broadcast hash, without which the client cannot reconcile",
+            )
+        )
+    elif settlement.is_pending:
+        results.append(
+            _result(
+                "RS-PAY-002",
+                titles["RS-PAY-002"],
+                sev_c,
+                Status.SKIP,
+                f"well-formed settlement_pending for transaction {settlement.transaction!r}; "
+                "the settlement outcome is not known yet",
+                SETTLEMENT_PENDING,
             )
         )
     elif not settlement.success:

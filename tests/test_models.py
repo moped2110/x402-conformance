@@ -97,15 +97,29 @@ def test_successful_evm_settlement_requires_canonical_tx_hash() -> None:
         )
 
 
-def test_failed_settlement_must_not_claim_a_transaction() -> None:
-    with pytest.raises(ValidationError):
-        SettlementResponse.model_validate(
-            {
-                "success": False,
-                "transaction": "0x" + "ab" * 32,
-                "network": "eip155:84532",
-            }
-        )
+def test_failed_settlement_may_carry_its_broadcast() -> None:
+    """CORE §5.3.2: `transaction` is empty only "if no transaction was broadcast".
+    A pending (x402#3083) or reverted broadcast is a failed settlement with a hash.
+    This test used to assert the opposite, which made the model reject a
+    spec-conformant `settlement_pending` answer as malformed."""
+    pending = SettlementResponse.model_validate(
+        {
+            "success": False,
+            "errorReason": "settlement_pending",
+            "transaction": "0x" + "ab" * 32,
+            "network": "eip155:84532",
+        }
+    )
+    assert pending.is_pending
+    reverted = SettlementResponse.model_validate(
+        {
+            "success": False,
+            "errorReason": "invalid_transaction_state",
+            "transaction": "0x" + "ab" * 32,
+            "network": "eip155:84532",
+        }
+    )
+    assert not reverted.is_pending
 
 
 def test_strict_facilitator_models_allow_future_fields() -> None:

@@ -15,6 +15,7 @@ from .checks.base import (
     ENDPOINT_ABSENT,
     INCONCLUSIVE_NO_CHECKS_APPLICABLE,
     INCONCLUSIVE_NOT_X402_V2,
+    SETTLEMENT_PENDING,
 )
 from .redaction import sanitize_text, sanitize_url, url_fingerprint
 
@@ -27,8 +28,10 @@ _BAD = (Status.FAIL, Status.ERROR)
 #: `inconclusiveReason` (the machine-readable reason an exit-2 verdict is inconclusive)
 #: and the `endpoint_absent` per-check reason_code. The schema sets
 #: additionalProperties=false, so a new field is a contract change, not a free addition —
-#: minor bump, same major, consumers pinning major 1 keep working.
-REPORT_VERSION = "1.3"
+#: minor bump, same major, consumers pinning major 1 keep working. 1.4 adds the
+#: `settlement_pending` value to both enums (x402#3083: a broadcast-but-unconfirmed
+#: settlement is non-terminal, so the run is inconclusive, not failed).
+REPORT_VERSION = "1.4"
 
 #: SARIF 2.1.0 — the OASIS static-analysis interchange format GitHub code scanning
 #: and bug-bounty platforms ingest. Lets a scan's findings land in a Security tab.
@@ -70,6 +73,10 @@ def assessment_exit_code(results: list[CheckResult]) -> int:
         # We declined to judge a point that would otherwise gate. Certifying
         # conformance on that basis would assert more than we checked.
         return 2
+    if any(result.reason_code == SETTLEMENT_PENDING for result in results):
+        # The settlement may still confirm or may never land; either answer would
+        # be a guess. Same reasoning as above: no verdict on unjudged evidence.
+        return 2
     version = next((r for r in results if r.check_id == "RS-PR-001"), None)
     if version is not None and version.status is not Status.PASS:
         return 2
@@ -80,13 +87,15 @@ def _inconclusive_reason_from_results(results: list[CheckResult]) -> str:
     """Name why a result set reads as inconclusive, most specific cause first.
 
     Priority: a wrong/absent endpoint (nothing of the tested kind was there) outranks
-    a deferred judgement, which outranks "nothing applied", which outranks a failed
-    version check. Callers only use this when the verdict is already exit 2.
+    a deferred judgement, which outranks a pending settlement, which outranks
+    "nothing applied", which outranks a failed version check. Callers only use this when the verdict is already exit 2.
     """
     if any(r.reason_code == ENDPOINT_ABSENT for r in results):
         return ENDPOINT_ABSENT
     if any(r.reason_code == DEFERRED_PENDING_UPSTREAM for r in results):
         return DEFERRED_PENDING_UPSTREAM
+    if any(r.reason_code == SETTLEMENT_PENDING for r in results):
+        return SETTLEMENT_PENDING
     if not results or all(r.status is Status.SKIP for r in results):
         return INCONCLUSIVE_NO_CHECKS_APPLICABLE
     return INCONCLUSIVE_NOT_X402_V2
@@ -314,8 +323,8 @@ _REMEDIATION: dict[str, str] = {
     "RS-PR-009": "Add `extra.name` and `extra.version` to each exact/eip3009 entry — clients need them to build the EIP-712 domain.",
     "RS-PR-013": "Match payTo/asset to the network namespace (EVM address for eip155, Solana address for solana).",
     "RS-PR-014": "Set a strictly positive `amount` (> 0).",
-    "RS-PR-017": "Advertise a protocol-named `scheme` (exact / upto / batch-settlement) — a client can't pay an unknown one.",
-    "RS-PR-018": "Don't offer the same scheme+network+asset at two different payTo/amount values; pick one, or vary the asset.",
+    "RS-PR-017": "Advertise a protocol-named `scheme` (exact / upto / batch-settlement / auth-capture) — a client can't pay an unknown one.",
+    "RS-PR-018": "Don't offer the same scheme+network+asset (and paymentFlow/assetTransferMethod) at two different payTo/amount values; pick one, or vary the asset or flow.",
     "RS-NEG-003": "Reject a payment whose signature doesn't recover to `from` before serving or settling.",
     "RS-NEG-005": "Reject underpayment: the authorized value must equal the required amount.",
     "RS-NEG-007": "Reject a payment whose `to` doesn't match your payTo (recipient mismatch).",
@@ -323,23 +332,28 @@ _REMEDIATION: dict[str, str] = {
     "RS-NEG-013": "Validate the price against YOUR requirements, not the client-supplied `accepted` amount.",
     "RS-NEG-014": "Verify the asset is your expected token contract, not any address the client supplies.",
     "RS-NEG-015": "Reject an asset with no contract code (an EOA): settling against it is a silent no-op — pre-flight `eth_getCode`.",
+    "RS-NEG-016": "Before forwarding a v2 payment, reject it with `extension_echo_mismatch` when the echoed builder-code `a` differs from the `info.a` you declared (or you declared none) — the facilitator no longer checks it.",
     "RS-SEC-003": "Bind each payment to the requested resource — reject a payment whose claimed `resource` differs from the one being served.",
     "RS-SEC-006": "Validate one header deterministically — never let a legacy X-PAYMENT header bypass v2 validation, and don't 5xx on duplicate/contradictory payment headers.",
     "RS-SEC-010": "Bind to the EIP-712 chainId and reject cross-chain-replayed signatures.",
     "RS-SEC-011": "Handle an extreme (2²⁵⁶-1) amount cleanly — reject it, don't 5xx-crash.",
-    "RS-SEC-012": "Match the paywall on the same path your router does. Compile wildcard routes with dotAll/re.DOTALL so a line terminator in the tail cannot miss the route (x402#3036/#3055), and match on the escaped path rather than the decoded one (x402#3044). A missed route means the resource is served with no verification and no settlement.",
+    "RS-SEC-012": "Match the paywall on the same path your router does. Compile wildcard routes with dotAll/re.DOTALL so a line terminator in the tail cannot miss the route (x402#3036/#3055), match on the escaped path rather than the decoded one (x402#3044), and match the parsed path, not the raw request target — reject or normalise absolute-form targets (`GET http://host/paid`), as @x402/fastify's unreleased fix does (x402#3577). A missed route means the resource is served with no verification and no settlement.",
     "FA-SUP-001": "If you expose /supported, return `kinds[]`, `extensions[]`, `signers{}` (it's optional — omitting it is fine).",
     "FA-VER-002": "Your /verify must return `isValid:false` (with a CORE §9 reason) for an invalid payment.",
     "FA-VER-003": "Reject an asset that is an EOA (no bytecode) with `asset_not_deployed_contract`.",
     "FA-VER-004": "Return isValid:false (200/4xx) on invalid input — don't let a balanceOf/parse exception bubble up to a 5xx.",
-    "FA-SET-003": "Reject a double-settle of the same payment (nonce reuse).",
+    "FA-SET-003": "Reject a double-settle of the same payment (nonce reuse). After a `settlement_pending` answer, a retry may report the same transaction as settled, never a different one.",
+    "FA-SET-004": "When you answer `settlement_pending`, put the broadcast transaction hash in `transaction` (and keep `network`): the caller reconciles against it instead of paying twice.",
     "RS-SEC-009": "Never echo the protected resource on a rejection path — the 402 body must not leak paid content.",
     "RS-HS-008": "Send `Cache-Control: private` (or `no-store`) on the paid 200 — a shared cache storing it serves the resource to clients who did not pay.",
+    "RS-HS-009": "Strip the facilitator's EXTENSION-RESPONSES header before responding: it is a server-internal sidechannel (CORE §7.2.1) and is never forwarded to the buyer.",
+    "FA-EXT-001": "Send EXTENSION-RESPONSES as base64 of a JSON object keyed by extension name, each value an object; Bazaar's status is success, processing or rejected.",
     "DI-004": "Reject a catalogued `schema` whose `$ref`/`$id` is not a same-document `#` fragment, and never resolve external ones: the resolver fetches them during compilation, before the instance is validated (x402#3039, CWE-918).",
     "RS-PR-023": "Use `^[a-z0-9_]{1,32}$` for your builder-code app code — an invalid code is rejected downstream and your attribution is dropped.",
     "RS-PR-024": "Declare at most MAX_SERVER_SERVICE_CODES (5) service codes. Past that, entries are truncated downstream, so what you declare is not what settles.",
     "RS-PR-025": "Use one of the paymentFlow values CORE §6.1 defines — authorization, upfront or escrow. A conformant client skips an entry whose flow it does not recognize, so an invented value makes the entry unpayable.",
     "RS-PR-026": "Declare `extra.paymentFlow` when your flow commits funds before the resource runs. Undeclared, the entry reads as post-handler settlement and a client cannot see the commitment coming.",
+    "RS-PR-027": "Declare the paymentFlow your scheme binding allows: never `upfront` on upto, always `upfront` on Lightning exact, `authorization` on Starknet/Cardano exact and SVM batch-settlement, `escrow` on SVM upto, and on auth-capture drop `autoCapture` and don't set `captureMode` under `authorization`.",
     "DI-003": "Keep the discovery listing in sync with each resource's live 402 — the listed asset/payTo must match what the resource actually asks for.",
 }
 
@@ -392,6 +406,12 @@ _ONCHAIN_CHECKS: list[tuple[str, str, Severity, str]] = [
         "RFC 9111 §4.2.2 + x402#2990",
     ),
     (
+        "RS-HS-009",
+        "EXTENSION-RESPONSES is never forwarded to the buyer",
+        Severity.MAJOR,
+        "CORE §7.2.1 + bazaar.md",
+    ),
+    (
         "FA-SET-001",
         "/settle of a valid payment succeeds with a tx hash",
         Severity.MAJOR,
@@ -408,6 +428,12 @@ _ONCHAIN_CHECKS: list[tuple[str, str, Severity, str]] = [
         "Double-settle of the same payment is rejected (nonce reuse)",
         Severity.CRITICAL,
         "CORE §10.1",
+    ),
+    (
+        "FA-SET-004",
+        "A settlement_pending response carries the broadcast transaction",
+        Severity.MINOR,
+        "CORE §5.3.2, §9 settlement_pending",
     ),
     (
         "RS-SEC-008",

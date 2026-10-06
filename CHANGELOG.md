@@ -5,12 +5,64 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+The 2026-10 upstream review (`f62a9fa..cb0ec5b`, see
+[`docs/upstream-review-2026-10.md`](docs/upstream-review-2026-10.md)). All eight review
+decisions are confirmed. 76 → 81 checks; `reportVersion` 1.4.
+
 ### Fixed
+- **DI-001/DI-002 failed every current Bazaar.** CORE §8 (x402#3067) types `lastUpdated`
+  as an ISO 8601 string, which all reference facilitators already send; the checks and
+  `DiscoveryItem` required a number. ISO strings pass; a number is an advisory, not a
+  failure; anything else still fails.
+- **`settlement_pending` graded as an invalid response.** CORE §5.3.2/§9 (x402#3083,
+  #3214) allow `success: false` with the broadcast hash while a settlement is
+  unconfirmed. The settlement model rejected that. Now FA-SET-001/003 retry a pending
+  answer once with the same payload: still pending is inconclusive (new reason code
+  `settlement_pending`, exit 2), a different hash is a re-broadcast (FA-SET-003 FAIL),
+  and a reconciled repeat with the same hash passes. RS-PAY-001/002 treat pending as
+  inconclusive. FA-SET-002 and the RS-NEG checks still fail any broadcast hash on an
+  invalid payment's rejection.
+- **RS-PR-019 failed conformant exact SVM, exact Hedera, exact Starknet and EVM upto
+  entries.** Its vocabulary is now per (scheme, CAIP-2 namespace) for eleven bindings;
+  it fails only keys another binding defines and does not grade unknown bindings.
+- **RS-PR-026** no longer advises SVM batch-settlement (an `authorization` flow) to
+  declare escrow, drops `autoCapture` (removed in auth-capture v1.1) as a signal, and
+  treats auth-capture's escrow default like SVM upto's. Still advisory.
+- **RS-PR-018** groups by the reserved `paymentFlow`/`assetTransferMethod` too, so one
+  offer per flow (x402#3145) is not a contradiction.
 - **`test_verify_rejects_an_invalid_signature_before_simulation` no longer fails 1 run in
   256.** It "broke" the signature by overwriting r's first byte with `0x00`, which changed
   nothing whenever r already started with `00`, so the valid signature was submitted as the
   invalid one. It now flips every bit of that byte, which always changes the signature, and
   asserts that it did.
+
+### Added
+- **FA-SET-004** (minor): a `settlement_pending` answer names its transaction.
+- **RS-SEC-012 absolute-form variant**: the Fastify bypass where an absolute-form
+  request target (`GET http://host/paid HTTP/1.1`) skipped the paywall (x402#3577; the
+  fix is not in a release yet).
+- **RS-PR-027** (major): `paymentFlow` per scheme binding — `upto` never `upfront`,
+  Lightning `exact` always `upfront`, Starknet/Cardano `exact` and SVM batch-settlement
+  `authorization`, SVM `upto` `escrow`, auth-capture `escrow`/`authorization` with
+  `autoCapture: true` and `captureMode`-under-`authorization` rejected. Preferring
+  `authorization` for `exact` is advisory.
+- **RS-HS-009** (major, `--pay`): `EXTENSION-RESPONSES` is never forwarded to the buyer.
+- **FA-EXT-001** (minor): an `EXTENSION-RESPONSES` header on `/verify` is a base64 JSON
+  object keyed by extension name.
+- **RS-NEG-016** (major, `--active`): the resource server rejects a builder-code echo
+  whose app code differs from its declaration with `extension_echo_mismatch`.
+
+### Changed
+- **Error registry regenerated against `cb0ec5b`:** 344 → 493 codes from 29 files.
+  `/client/` and `/server/` declaring files are excluded (their codes never reach a
+  facilitator response); the TypeScript pattern matches `ERR_*` (+47 Cardano codes);
+  `invalid_batch_settlement_evm_deposit_below_min_deposit` is excluded (the facilitator
+  MUST NOT enforce `minDeposit`). The 17 codes upstream stopped declaring stay accepted
+  as `RETIRED_ERROR_CODES` until 2027-04-06; the drift job fails after that date.
+- Active probes prefer an `authorization` entry over `upfront` and skip undefined flows.
+- Upstream pin `cb0ec5b`; the support matrix records the 2026-10-06 review and new rows
+  for Lightning, Cardano, Hedera, SVM batch-settlement and SVM upto.
+- `reportVersion` 1.4: `settlement_pending` in both reason enums of `report.schema.json`.
 
 ### Documented
 - **The catalog's implementation status names v0.6.0 and lists what ships.** The heading

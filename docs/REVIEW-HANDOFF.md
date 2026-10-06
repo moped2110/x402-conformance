@@ -53,17 +53,17 @@ The canonical status inventory is
 [`conformance-catalog.md`](conformance-catalog.md), and it is the number to trust:
 a test compares the count stated there against what the code actually emits, so
 this table can go stale but the catalog cannot. The shipped catalog contains
-**76 implemented checks**:
+**81 implemented checks**:
 
 | Group | Invocation | Coverage |
 |---|---|---|
 | `RS-HS-001..008` | `check` | HTTP 402 handshake and caching |
-| `RS-PR-001..026` | `check` | strict PaymentRequired content, identity, JSON text hygiene, accepts overspecification, declared builder-code and payment-flow fields |
-| `RS-NEG-*`, `RS-SEC-*` | `check --active` | signed semantic negatives, robustness, leak protection, paywall-bypass probing (`RS-SEC-012`) |
-| `RS-PAY-001..004`, `RS-SEC-001/002` | `check --pay` | positive settlement, exact Transfer proof, replay/race |
+| `RS-PR-001..027` | `check` | strict PaymentRequired content, identity, JSON text hygiene, accepts overspecification, per-binding `extra` vocabulary, declared builder-code and payment-flow fields (incl. per-binding flow rules) |
+| `RS-NEG-*`, `RS-SEC-*` | `check --active` | signed semantic negatives (incl. the builder-code echo, `RS-NEG-016`), robustness, leak protection, paywall-bypass probing (`RS-SEC-012`, incl. absolute-form targets) |
+| `RS-PAY-001..004`, `RS-SEC-001/002`, `RS-HS-008/009` | `check --pay` | positive settlement (a `settlement_pending` answer is inconclusive), exact Transfer proof, replay/race, paid-response caching and no forwarded `EXTENSION-RESPONSES` |
 | `PQC-001..006` | `check --profile pqc` | opt-in hybrid receipt structure, verification, downgrade and cross-signing |
-| `FA-SUP-*`, `FA-VER-*`, `FA-ERR-001` | `facilitator` | supported and verify behavior |
-| `FA-SET-001..003` | `facilitator --settle` | testnet settle, invalid settle, double settle |
+| `FA-SUP-*`, `FA-VER-*`, `FA-ERR-001`, `FA-EXT-001` | `facilitator` | supported and verify behavior, error registry, `EXTENSION-RESPONSES` shape |
+| `FA-SET-001..004` | `facilitator --settle` | testnet settle, invalid settle, double settle, `settlement_pending` reconciliation and its broadcast hash |
 | `DI-001..004` | `discovery` | strict Bazaar schema, filters, safe live cross-check, external `$ref`/`$id` in catalogued schemas |
 
 `RS-SEC-009` is enforced on every active rejection path rather than as a
@@ -138,13 +138,13 @@ signature or adversarial trust anchor.
 
 ## Report and run-record contracts
 
-- JSON reports use `reportVersion: "1.3"` and are validated by the repository
+- JSON reports use `reportVersion: "1.4"` and are validated by the repository
   root `report.schema.json`. Consumers should pin the major version.
 - Every result carries `check_id`, `title`, `severity`, `spec_ref`, `status`, and
-  sanitized `detail`, plus an optional `reason_code` (`deferred_pending_upstream`
-  or `endpoint_absent`) qualifying a SKIP. Result ordering is deterministic.
+  sanitized `detail`, plus an optional `reason_code` (`deferred_pending_upstream`,
+  `endpoint_absent`, or `settlement_pending` since 1.4) qualifying a SKIP. Result ordering is deterministic.
 - An exit-2 report carries a top-level `inconclusiveReason` naming why the verdict
-  is inconclusive (`endpoint_absent` / `deferred_pending_upstream` / `not_x402_v2` /
+  is inconclusive (`endpoint_absent` / `deferred_pending_upstream` / `settlement_pending` / `not_x402_v2` /
   `no_checks_applicable` / `unreachable` / `invalid_input`); it is null otherwise.
 - Exit `0` means sufficient supported evidence and no gating failure; exit `1`
   means a critical/major failure or suite ERROR; exit `2` means inconclusive,

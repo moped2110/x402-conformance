@@ -19,6 +19,7 @@ from conftest import TARGET_URL, encode_header
 
 from x402_conformance.checks.base import Status
 from x402_conformance.checks.path_variants import (
+    ABSOLUTE_FORM_LABEL,
     CONTROL_LABEL,
     PATH_VARIANT_CHECK_ID,
     PathVariant,
@@ -49,6 +50,7 @@ def test_variants_cover_the_upstream_bug_classes() -> None:
     assert "raw backslash" in labels  # x402#3116
     assert "encoded backslash" in labels
     assert "percent-encoded unreserved character" in labels
+    assert ABSOLUTE_FORM_LABEL in labels  # x402#3577 (Fastify)
     # and always the control
     assert CONTROL_LABEL in labels
 
@@ -80,7 +82,11 @@ def test_no_variant_is_inert_on_the_wire() -> None:
     for target in ("https://api.example.com/premium-data", "https://api.example.com/a/b/c"):
         canonical = httpx.URL(target).raw_path
         for v in build_variants(target):
-            assert httpx.URL(v.url).raw_path != canonical, (
+            # `wire_target` is the request line's target: the raw path for the
+            # encoded variants, the absolute URI for the absolute-form one.
+            if not v.absolute_form:
+                assert v.wire_target == httpx.URL(v.url).raw_path
+            assert v.wire_target != canonical, (
                 f"{v.label} sends the canonical path — the client normalised it away, "
                 "so this variant probes nothing"
             )
@@ -372,3 +378,100 @@ def test_backslash_fixed_server_passes(valid_payload: dict[str, Any]) -> None:
     """With the fix — escape rather than fold — every variant stays gated."""
     results = run_checks(_PARAM_TARGET, transport=_backslash_transport(valid_payload, fixed=True))
     assert _sec_012(results).status is Status.PASS, _sec_012(results).detail
+
+
+# --- x402#3577: absolute-form request target (Fastify) ----------------------------
+
+
+def _absolute_form_transport(payload: dict[str, Any], *, fixed: bool) -> httpx.MockTransport:
+    """A server carrying upstream's pre-fix @x402/fastify behaviour.
+
+    Fastify routes an absolute-form target on its path, but the middleware matched
+    the raw ``request.url`` — the whole URI — against the protected route, missed,
+    and let the paid handler run. ``fixed=True`` is the upstream fix: 400 for any
+    non-origin-form target.
+    """
+    header = encode_header(payload)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raw_url = request.extensions.get("target", request.url.raw_path).decode()
+        if not raw_url.startswith("/"):
+            if fixed:
+                return httpx.Response(400, text="non-origin-form request target")
+            # The middleware's route test runs on the whole URI and misses.
+            return httpx.Response(200, text=PROTECTED_BODY)
+        if request.url.path == "/premium-data":
+            return httpx.Response(402, headers={"PAYMENT-REQUIRED": header}, json={})
+        return httpx.Response(404, text="not found")
+
+    return httpx.MockTransport(handler)
+
+
+def test_absolute_form_variant_puts_the_uri_in_the_request_line() -> None:
+    v = next(v for v in build_variants("https://api.example.com/a/b?k=1") if v.absolute_form)
+    assert v.label == ABSOLUTE_FORM_LABEL
+    assert v.wire_target == b"https://api.example.com/a/b?k=1"
+
+
+def test_absolute_form_bypass_is_detected(valid_payload: dict[str, Any]) -> None:
+    results = run_checks(TARGET_URL, transport=_absolute_form_transport(valid_payload, fixed=False))
+    result = _sec_012(results)
+    assert result.status is Status.FAIL, result.detail
+    assert "absolute-form" in result.detail and "x402#3577" in result.detail
+
+
+def test_absolute_form_refused_with_400_passes(valid_payload: dict[str, Any]) -> None:
+    results = run_checks(TARGET_URL, transport=_absolute_form_transport(valid_payload, fixed=True))
+    assert _sec_012(results).status is Status.PASS, _sec_012(results).detail
+
+
+def test_absolute_form_reaches_a_real_socket_verbatim(valid_payload: dict[str, Any]) -> None:
+    """The `target` extension must survive the real transport, not just the mock:
+    a tiny HTTP server records the request lines it receives."""
+    import socket
+    import threading
+
+    header = encode_header(valid_payload)
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(32)
+    srv.settimeout(5)
+    port = srv.getsockname()[1]
+    lines: list[bytes] = []
+
+    def serve() -> None:
+        while True:
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                return
+            with conn:
+                data = b""
+                while b"\r\n\r\n" not in data:
+                    chunk = conn.recv(4096)
+                    if not chunk:
+                        break
+                    data += chunk
+                line = data.split(b"\r\n", 1)[0]
+                lines.append(line)
+                target = line.split(b" ")[1] if line.count(b" ") >= 2 else b""
+                if target == b"/premium-data":
+                    head = (
+                        b"HTTP/1.1 402 Payment Required\r\nPAYMENT-REQUIRED: "
+                        + header.encode()
+                        + b"\r\n"
+                    )
+                elif target.startswith(b"http://"):
+                    head = b"HTTP/1.1 400 Bad Request\r\n"
+                else:
+                    head = b"HTTP/1.1 404 Not Found\r\n"
+                conn.sendall(head + b"Content-Length: 0\r\nConnection: close\r\n\r\n")
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    try:
+        results = run_checks(f"http://127.0.0.1:{port}/premium-data", timeout=5)
+    finally:
+        srv.close()
+    assert f"GET http://127.0.0.1:{port}/premium-data HTTP/1.1".encode() in lines
+    assert _sec_012(results).status is Status.PASS

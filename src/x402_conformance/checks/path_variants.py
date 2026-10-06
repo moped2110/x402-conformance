@@ -25,7 +25,14 @@ every language it ships:
 Two more landed while this check was being written — x402#3073 (ts/py path
 normalization) and x402#3100 (Go wildcards compiled with ``(?s)``) — which is
 five fixes of one class across four languages in five weeks. The class is not
-settling down.
+settling down. The sixth, x402#3577 (2026-10-02), is not an encoding at all:
+
+  * x402#3577 (Fastify) — an *absolute-form* request target
+    (``GET http://host/paid HTTP/1.1``, RFC 9112 §3.2.2) is routed by Fastify on
+    its path, but the payment middleware read the raw ``request.url`` — the whole
+    URI — so the route did not match and the paid handler ran unpaid. The fix
+    answers 400 to any non-origin-form target. It is unreleased as of
+    ``@x402/fastify`` 2.28.0, so every Fastify deployment is exposed today.
 
 So the check sends the protected URL again under encodings that a correct server
 must still treat as paywalled, and looks for a 2xx.
@@ -51,6 +58,14 @@ probes were re-sending the canonical path and could never fail — coverage on
 paper only. They are percent-encoded now, which both survives and probes the
 sharper question of whether the server decodes before it normalises.
 ``test_no_variant_is_inert_on_the_wire`` holds the whole set to that rule.
+
+The absolute-form variant keeps the canonical path and changes the *request
+target* instead. It is sent through the normal client with httpcore's ``target``
+request extension, which writes the given bytes into the request line verbatim,
+over plain HTTP or TLS alike, so no hand-rolled socket is needed and the probe
+goes through the same transport (and the same test doubles) as every other
+variant. A correct server answers it like the canonical request (402) or refuses
+it (400, the upstream fix); serving the paid body is the bypass.
 """
 
 from __future__ import annotations
@@ -58,6 +73,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit, urlunsplit
+
+import httpx
 
 from .base import Severity, Status, register
 
@@ -67,7 +84,10 @@ if TYPE_CHECKING:
 _CORE = "x402-specification-v2.md"
 PATH_VARIANT_CHECK_ID = "RS-SEC-012"
 _TITLE = "Paywall cannot be bypassed by re-encoding the request path"
-_SPEC_REF = f"{_CORE} §10.1 + x402#3036/#3044/#3055/#3073/#3100/#3116"
+_SPEC_REF = f"{_CORE} §10.1 + x402#3036/#3044/#3055/#3073/#3100/#3116/#3577"
+
+#: Label of the absolute-form request-target variant (x402#3577).
+ABSOLUTE_FORM_LABEL = "absolute-form request target"
 
 #: Label used for the catch-all control probe. Not a bypass candidate.
 CONTROL_LABEL = "control (nonexistent sibling)"
@@ -75,11 +95,24 @@ CONTROL_LABEL = "control (nonexistent sibling)"
 
 @dataclass(frozen=True)
 class PathVariant:
-    """One rewritten request path plus why a correct server must still gate it."""
+    """One rewritten request path plus why a correct server must still gate it.
+
+    ``absolute_form`` variants keep ``url`` canonical and send the absolute URI as
+    the request target instead of the origin-form path (see ``wire_target``).
+    """
 
     label: str
     url: str
     rationale: str
+    absolute_form: bool = False
+
+    @property
+    def wire_target(self) -> bytes:
+        """The request-target bytes this variant puts in the HTTP request line."""
+        url = httpx.URL(self.url)
+        if self.absolute_form:
+            return url.scheme.encode("ascii") + b"://" + url.netloc + url.raw_path
+        return url.raw_path
 
 
 def _rebuild(parts: tuple[str, str, str, str, str], path: str) -> str:
@@ -216,6 +249,18 @@ def build_variants(target_url: str) -> list[PathVariant]:
                 "equivalent to their decoded form — same resource",
             )
         )
+
+    # Absolute-form request target (x402#3577). Same resource by definition: RFC
+    # 9112 §3.2.2 requires a server to accept absolute-form and route on its path.
+    variants.append(
+        PathVariant(
+            ABSOLUTE_FORM_LABEL,
+            _rebuild(split, path),
+            "x402#3577: the router dispatched an absolute-form target on its path while "
+            "the payment middleware matched the raw URI and saw no protected route",
+            absolute_form=True,
+        )
+    )
 
     variants.append(
         PathVariant(

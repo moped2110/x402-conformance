@@ -48,23 +48,113 @@ _KNOWN_SCHEMES = frozenset({"exact", "upto", "batch-settlement", "auth-capture"}
 #: graded as a foreign key.
 _RESERVED_EXTRA_KEYS = frozenset({"assetTransferMethod", "paymentFlow"})
 
-# Scheme-specific `extra` vocabularies, from the scheme specs. `exact` on EVM
-# (scheme_exact_evm.md) uses the EIP-712 domain fields; `upto` on SVM
-# (scheme_upto_svm.md) uses the payment-channel fields. A key from one scheme
-# appearing on an entry declaring the other is a scheme/extra mismatch — but the
-# reserved keys above belong to neither vocabulary and are excluded from both.
-_EXACT_EXTRA_KEYS = frozenset({"name", "version"})
-_UPTO_EXTRA_KEYS = frozenset(
-    {
-        "feePayer",
-        "receiverAuthorizer",
-        "withdrawDelay",
-        "tokenProgram",
-        "recentBlockhash",
-        "recentSlot",
-        "validAfter",
-    }
-)
+#: Scheme-private `extra` vocabularies per binding, keyed on (scheme, CAIP-2
+#: namespace) and taken from each binding's PaymentRequirements table at upstream
+#: main@cb0ec5b. The 2026-10 review replaced the old two-set model (`exact` =
+#: EVM domain fields, `upto` = SVM channel fields), which failed spec-conformant
+#: exact SVM, exact Hedera, exact Starknet and EVM upto entries: the same key
+#: (`feePayer`, `name`) is legal under one binding and foreign under another.
+#: The reserved keys above are in none of these sets and never graded.
+_BINDING_EXTRA_KEYS: dict[tuple[str, str], frozenset[str]] = {
+    ("exact", "eip155"): frozenset({"name", "version"}),
+    ("exact", "solana"): frozenset({"feePayer", "recentBlockhash", "lastValidBlockHeight", "memo"}),
+    ("exact", "hedera"): frozenset({"feePayer", "executors"}),
+    ("exact", "starknet"): frozenset({"feePayer"}),
+    ("exact", "lnbtc"): frozenset(
+        {"invoice", "requestHash", "requestBindingProfile", "requestBindingParams"}
+    ),
+    ("exact", "cardano"): frozenset(
+        {
+            "confirmationPolicy",
+            "datum",
+            "deployment",
+            "inputCommitment",
+            "referenceKey",
+            "referenceSignature",
+            "blockchainIdentifier",
+            "areFeesSponsored",
+            "terms",
+            "script",
+            "scriptHash",
+            "parameters",
+        }
+    ),
+    ("upto", "eip155"): frozenset({"name", "version", "facilitatorAddress"}),
+    ("upto", "solana"): frozenset(
+        {
+            "feePayer",
+            "receiverAuthorizer",
+            "withdrawDelay",
+            "tokenProgram",
+            "memo",
+            "recentBlockhash",
+            "lastValidBlockHeight",
+            "recentSlot",
+            "validAfter",
+        }
+    ),
+    ("batch-settlement", "eip155"): frozenset(
+        {
+            "receiverAuthorizer",
+            "withdrawDelay",
+            "name",
+            "version",
+            "minDeposit",
+            "channelState",
+            "voucherState",
+        }
+    ),
+    ("batch-settlement", "solana"): frozenset(
+        {
+            "feePayer",
+            "receiverAuthorizer",
+            "voucherSigner",
+            "operator",
+            "withdrawDelay",
+            "tokenProgram",
+            "memo",
+            "recentBlockhash",
+            "recentSlot",
+            "minDeposit",
+            "maxIdleSecs",
+            "channelState",
+            "voucherState",
+        }
+    ),
+    ("auth-capture", "eip155"): frozenset(
+        {
+            "name",
+            "version",
+            "authCaptureEscrow",
+            "captureAuthorizer",
+            "receiverAuthorizer",
+            "policy",
+            "captureDeadline",
+            "refundDeadline",
+            "feeRecipient",
+            "minFeeBps",
+            "maxFeeBps",
+            "captureMode",
+            "operatorType",
+            "operators",
+        }
+    ),
+}
+
+#: Every key some binding above defines. A key outside this union is not graded:
+#: it may belong to a binding this suite has no vocabulary for, and RS-PR-019 only
+#: speaks to keys it can attribute to a *different* binding.
+_ALL_BINDING_EXTRA_KEYS = frozenset().union(*_BINDING_EXTRA_KEYS.values())
+
+
+def _binding(entry: dict[str, object]) -> tuple[str, str] | None:
+    """Return (scheme, CAIP-2 namespace) for an accepts entry, or None if either is unreadable."""
+    scheme = entry.get("scheme")
+    network = entry.get("network")
+    if not isinstance(scheme, str) or not isinstance(network, str) or ":" not in network:
+        return None
+    return scheme, network.split(":", 1)[0]
+
 
 #: The payment flow models defined in CORE §6.1. `authorization` verifies before
 #: the resource runs and settles after; `upfront` and `escrow` commit funds
@@ -76,12 +166,32 @@ _PAYMENT_FLOWS = frozenset({"authorization", "upfront", "escrow"})
 #: coming without knowing the mechanism.
 _PRE_HANDLER_FLOWS = frozenset({"upfront", "escrow"})
 
-#: `extra` fields that only exist because a mechanism holds or escrows funds
-#: before the resource runs: the SVM `upto` channel controls
-#: (scheme_upto_svm.md) and the `auth-capture` capture switch
-#: (scheme_auth_capture.md). Their presence is the observable hint that this
-#: entry is not plain post-handler settlement.
-_ESCROW_EXTRA_SIGNALS = frozenset({"withdrawDelay", "receiverAuthorizer", "autoCapture"})
+#: Bindings whose flow, when `extra.paymentFlow` is omitted, resolves to a
+#: pre-handler flow by the binding's own default: SVM `upto` ("omit to use that
+#: default", scheme_upto_svm.md) and `auth-capture` (escrow by default,
+#: scheme_auth_capture.md v1.1). The namespace "*" matches any network.
+_PRE_HANDLER_DEFAULT_BINDINGS = frozenset({("upto", "solana"), ("auth-capture", "*")})
+
+#: Bindings whose flow is `authorization` (or unspecified) even though their
+#: `extra` carries channel machinery: SVM batch-settlement ("if present, MUST be
+#: authorization"), EVM upto, and EVM batch-settlement, whose binding does not
+#: specify a flow. RS-PR-026 does not treat their channel fields as an escrow hint.
+_NOT_PRE_HANDLER_BINDINGS = frozenset(
+    {("batch-settlement", "solana"), ("upto", "eip155"), ("batch-settlement", "eip155")}
+)
+
+#: For a binding this suite has no flow knowledge of, `extra` fields that only
+#: exist because a mechanism holds funds before the resource runs. `autoCapture`
+#: was a signal until auth-capture v1.1 removed it (and now requires rejecting
+#: `autoCapture: true`, see RS-PR-027).
+_ESCROW_EXTRA_SIGNALS = frozenset({"withdrawDelay", "receiverAuthorizer"})
+
+
+def _binding_in(binding: tuple[str, str] | None, bindings: frozenset[tuple[str, str]]) -> bool:
+    """Whether a binding matches a set that may use "*" as a namespace wildcard."""
+    if binding is None:
+        return False
+    return binding in bindings or (binding[0], "*") in bindings
 
 
 def _hkey(v: object) -> object:
@@ -598,16 +708,32 @@ def pr_018(s: ProbeSession) -> tuple[Status, str]:
     # recipient or price is real. Two entries that differ only by asset (pay in
     # USDC *or* DAI) are a legitimate choice, not a contradiction — so the group
     # key includes asset and only (payTo, amount) variance within a group fails.
-    groups: dict[tuple[object, object, object], set[tuple[object, object]]] = {}
+    # The protocol-reserved extra keys are part of the key too: since x402#3145 the
+    # same asset may be offered once per paymentFlow / assetTransferMethod (e.g. an
+    # `upfront` entry at one price next to an `authorization` entry at another),
+    # and those are distinct offers, not a contradiction.
+    groups: dict[tuple[object, ...], set[tuple[object, object]]] = {}
     for e in accepts:
-        key = (_hkey(e.get("scheme")), _hkey(e.get("network")), _hkey(e.get("asset")))
+        raw_extra = e.get("extra")
+        extra = raw_extra if isinstance(raw_extra, dict) else {}
+        key = (
+            _hkey(e.get("scheme")),
+            _hkey(e.get("network")),
+            _hkey(e.get("asset")),
+            *(_hkey(extra.get(k)) for k in sorted(_RESERVED_EXTRA_KEYS)),
+        )
         groups.setdefault(key, set()).add((_hkey(e.get("payTo")), _hkey(e.get("amount"))))
     problems = []
-    for (scheme, network, asset), variants in groups.items():
+    for (scheme, network, asset, *reserved), variants in groups.items():
         if len(variants) > 1:
+            qualifier = "".join(
+                f" {k}={v!r}"
+                for k, v in zip(sorted(_RESERVED_EXTRA_KEYS), reserved, strict=True)
+                if v is not None
+            )
             problems.append(
-                f"scheme={scheme!r} network={network!r} asset={asset!r} offered with "
-                f"{len(variants)} different (payTo, amount) combinations"
+                f"scheme={scheme!r} network={network!r} asset={asset!r}{qualifier} offered "
+                f"with {len(variants)} different (payTo, amount) combinations"
             )
     if problems:
         return Status.FAIL, "; ".join(problems) + " — ambiguous which payment is the real one"
@@ -616,42 +742,46 @@ def pr_018(s: ProbeSession) -> tuple[Status, str]:
 
 @register(
     "RS-PR-019",
-    "accepts extra fields match the entry's scheme",
+    "accepts extra fields match the entry's scheme binding",
     Severity.MINOR,
-    "scheme_exact_evm.md + scheme_upto_svm.md",
+    "scheme_<scheme>_<family>.md PaymentRequirements tables",
 )
 def pr_019(s: ProbeSession) -> tuple[Status, str]:
-    """Evaluate RS-PR-019: accepts extra fields match the entry's scheme."""
+    """Evaluate RS-PR-019: accepts extra fields match the entry's (scheme, network family).
+
+    A key is a mismatch only when this suite knows the entry's binding, the key is
+    not in that binding's vocabulary, and the key *is* in another binding's
+    vocabulary, i.e. it was most likely copied from the wrong scheme or chain.
+    Bindings without a vocabulary here (Aptos, Stellar, Sui, …) are not graded, and
+    unknown keys are left to the binding's own validation.
+    """
     if _x402_version(s) == 1:
         return Status.SKIP, _V1_SKIP
     accepts = _accepts_raw(s)
     if not accepts:
         return Status.SKIP, "no accepts entries to inspect"
+    graded = 0
     problems = []
     for i, e in enumerate(accepts):
         raw_extra = e.get("extra")
-        if not isinstance(raw_extra, dict):
+        binding = _binding(e)
+        if not isinstance(raw_extra, dict) or binding not in _BINDING_EXTRA_KEYS:
             continue
-        # The protocol-reserved keys belong to no scheme's vocabulary, so they can
-        # never be a mismatch in either direction (CORE §6.1).
-        keys = set(raw_extra) - _RESERVED_EXTRA_KEYS
-        scheme = e.get("scheme")
-        if scheme == "exact":
-            leaked = sorted(keys & _UPTO_EXTRA_KEYS)
-            if leaked:
-                problems.append(
-                    f"accepts[{i}] scheme=exact carries upto-only extra field(s): "
-                    + ", ".join(leaked)
-                )
-        elif scheme == "upto":
-            leaked = sorted(keys & _EXACT_EXTRA_KEYS)
-            if leaked:
-                problems.append(
-                    f"accepts[{i}] scheme=upto carries exact-only extra field(s): "
-                    + ", ".join(leaked)
-                )
+        assert binding is not None  # narrowed by the membership test above
+        graded += 1
+        own = _BINDING_EXTRA_KEYS[binding]
+        # The protocol-reserved keys belong to no binding's vocabulary, so they can
+        # never be a mismatch (CORE §6.1).
+        foreign = sorted((set(raw_extra) - _RESERVED_EXTRA_KEYS - own) & _ALL_BINDING_EXTRA_KEYS)
+        if foreign:
+            problems.append(
+                f"accepts[{i}] {binding[0]} on {binding[1]} carries extra field(s) from "
+                "another binding: " + ", ".join(foreign)
+            )
+    if graded == 0:
+        return Status.SKIP, "no entry with extra on a binding this suite has a vocabulary for"
     if problems:
-        return Status.FAIL, "; ".join(problems) + " — extra does not match the declared scheme"
+        return Status.FAIL, "; ".join(problems) + " — extra does not match the declared binding"
     return Status.PASS, ""
 
 
@@ -877,7 +1007,7 @@ def pr_025(s: ProbeSession) -> tuple[Status, str]:
     "RS-PR-026",
     "a flow that commits funds before the resource runs says so",
     Severity.MINOR,
-    f"{_CORE} §6.1 vs scheme_upto_svm.md §PaymentRequirements",
+    f"{_CORE} §6.1 vs scheme_upto_svm.md / scheme_auth_capture.md",
 )
 def pr_026(s: ProbeSession) -> tuple[Status, str]:
     """Evaluate RS-PR-026: a flow that commits funds before the resource runs says so.
@@ -887,7 +1017,8 @@ def pr_026(s: ProbeSession) -> tuple[Status, str]:
     `accepts[].extra.paymentFlow` MUST be present so clients can reason about
     pre-handler fund commitment without scheme-specific knowledge."
     `scheme_upto_svm.md` §PaymentRequirements, on the same field: "Only supported
-    value is `escrow`; omit to use that default."
+    value is `escrow`; omit to use that default." auth-capture v1.1 has the same
+    escrow default.
 
     An endpoint following the scheme binding literally omits the field and is
     correct by that document while violating the core one. Gating on it would
@@ -903,28 +1034,169 @@ def pr_026(s: ProbeSession) -> tuple[Status, str]:
     problems = []
     for i, e in enumerate(accepts):
         raw_extra = e.get("extra")
-        if not isinstance(raw_extra, dict):
+        extra = raw_extra if isinstance(raw_extra, dict) else {}
+        binding = _binding(e)
+        # Scheme-aware since the 2026-10 review. A binding whose default flow is
+        # escrow is a candidate whether or not its extra looks like escrow; a binding
+        # that is authorization (SVM batch-settlement, EVM upto) or unspecified (EVM
+        # batch-settlement) never is, even though it carries channel fields; for the
+        # rest, the generic signals are the only hint. Guessing beyond that would
+        # turn a silent omission into a false accusation.
+        if _binding_in(binding, _NOT_PRE_HANDLER_BINDINGS):
             continue
-        # Only entries whose extra actually carries escrow/upfront machinery are
-        # graded. Inferring the resolved flow for an arbitrary mechanism needs
-        # knowledge this suite does not have, and guessing would turn a silent
-        # omission into a false accusation.
-        signals = sorted(set(raw_extra) & _ESCROW_EXTRA_SIGNALS)
-        if not signals:
-            continue
+        if _binding_in(binding, _PRE_HANDLER_DEFAULT_BINDINGS):
+            hint = f"{binding[0]} on {binding[1]} defaults to escrow" if binding else ""
+        else:
+            signals = sorted(set(extra) & _ESCROW_EXTRA_SIGNALS)
+            if not signals:
+                continue
+            hint = f"extra has {', '.join(signals)}"
         candidates += 1
-        if "paymentFlow" not in raw_extra:
-            problems.append(f"accepts[{i}].extra has {', '.join(signals)} but no paymentFlow")
+        if "paymentFlow" not in extra:
+            problems.append(f"accepts[{i}]: {hint} but declares no paymentFlow")
     if candidates == 0:
-        return Status.SKIP, "no entry carries pre-handler settlement fields"
+        return Status.SKIP, "no entry resolves to a pre-handler flow this suite can infer"
     if problems:
         return Status.PASS, (
             "advisory: "
             + "; ".join(problems)
             + " — CORE §6.1 wants paymentFlow present whenever the resolved flow is not "
             "`authorization`, so a client can see its funds are committed before the "
-            "resource runs. scheme_upto_svm.md permits omitting it and defaulting to "
-            "`escrow`, so this is not graded; declaring it explicitly costs nothing and "
-            "removes the ambiguity"
+            "resource runs. scheme_upto_svm.md and scheme_auth_capture.md permit omitting "
+            "it and defaulting to `escrow`, so this is not graded; declaring it explicitly "
+            "costs nothing and removes the ambiguity"
         )
     return Status.PASS, f"{candidates} pre-handler entry/entries declare their flow"
+
+
+def _resolved_flow(entry: dict[str, object]) -> object:
+    """Return an entry's declared paymentFlow, defaulting to the protocol's `authorization`."""
+    raw_extra = entry.get("extra")
+    extra = raw_extra if isinstance(raw_extra, dict) else {}
+    return extra.get("paymentFlow", "authorization")
+
+
+def _flow_problems(entry: dict[str, object], binding: tuple[str, str] | None) -> list[str]:
+    """Return the binding-specific paymentFlow MUST violations for one accepts entry."""
+    raw_extra = entry.get("extra")
+    extra = raw_extra if isinstance(raw_extra, dict) else {}
+    present = "paymentFlow" in extra
+    flow = extra.get("paymentFlow")
+    if present and flow not in _PAYMENT_FLOWS:
+        return []  # an undefined value is RS-PR-025's finding, not a binding mismatch
+    if binding is None:
+        return []
+    scheme, family = binding
+    problems: list[str] = []
+    if scheme == "upto" and flow == "upfront":
+        problems.append("upto MUST NOT use paymentFlow 'upfront' (scheme_upto.md)")
+    if scheme == "upto" and family == "solana" and present and flow != "escrow":
+        problems.append(f"SVM upto supports only 'escrow', got {flow!r} (scheme_upto_svm.md)")
+    if (scheme, family) == ("exact", "lnbtc") and flow != "upfront":
+        got = repr(flow) if present else "no paymentFlow"
+        problems.append(
+            f"exact on lnbtc MUST declare paymentFlow 'upfront', got {got} (scheme_exact_lnbtc.md)"
+        )
+    if (
+        (scheme, family)
+        in {
+            ("exact", "starknet"),
+            ("exact", "cardano"),
+            ("batch-settlement", "solana"),
+        }
+        and present
+        and flow != "authorization"
+    ):
+        problems.append(
+            f"{scheme} on {family} is always 'authorization' when paymentFlow is present, "
+            f"got {flow!r}"
+        )
+    if scheme == "auth-capture":
+        if present and flow not in ("escrow", "authorization"):
+            problems.append(f"auth-capture allows 'escrow' or 'authorization', got {flow!r}")
+        if extra.get("autoCapture") is True:
+            problems.append(
+                "auth-capture v1.1 removed autoCapture; `autoCapture: true` MUST be rejected "
+                "(invalid_auth_capture_evm_unsupported_payment_flow)"
+            )
+        if flow == "authorization" and "captureMode" in extra:
+            problems.append("captureMode MUST NOT be set when paymentFlow is 'authorization'")
+    return problems
+
+
+#: Bindings RS-PR-027 grades even without a declared flow, because they carry a
+#: MUST that an omission can violate or a field (autoCapture/captureMode) it reads.
+_FLOW_CONSTRAINED = frozenset(
+    {
+        ("upto", "*"),
+        ("exact", "lnbtc"),
+        ("exact", "starknet"),
+        ("exact", "cardano"),
+        ("batch-settlement", "solana"),
+        ("auth-capture", "*"),
+    }
+)
+
+
+@register(
+    "RS-PR-027",
+    "declared paymentFlow is one the entry's scheme binding allows",
+    Severity.MAJOR,
+    f"{_CORE} §6.1 + scheme_exact.md, scheme_upto*.md, scheme_exact_lnbtc.md, "
+    "scheme_exact_starknet.md, scheme_batch_settlement_svm.md, scheme_auth_capture_evm.md",
+)
+def pr_027(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-027: paymentFlow per binding (x402#3145, auth-capture v1.1).
+
+    MUST rules fail: `upto` is never `upfront`; Lightning `exact` is always
+    `upfront` and must say so; Starknet and Cardano `exact` and SVM
+    batch-settlement are `authorization` when the field is present; SVM `upto` is
+    `escrow`; auth-capture is `escrow` or `authorization`, rejects
+    `autoCapture: true`, and has no `captureMode` under `authorization`. The
+    SHOULD (scheme_exact.md: prefer `authorization` when both are offered) is
+    advisory: an `upfront` exact entry with no `authorization` sibling for the
+    same network and asset is reported, never failed.
+    """
+    if _x402_version(s) == 1:
+        return Status.SKIP, _V1_SKIP
+    accepts = _accepts_raw(s)
+    if not accepts:
+        return Status.SKIP, "no accepts entries to inspect"
+    graded = 0
+    problems: list[str] = []
+    advisories: list[str] = []
+    for i, e in enumerate(accepts):
+        binding = _binding(e)
+        raw_extra = e.get("extra")
+        extra = raw_extra if isinstance(raw_extra, dict) else {}
+        upfront_exact = (
+            binding is not None
+            and binding[0] == "exact"
+            and (extra.get("paymentFlow") == "upfront")
+        )
+        if not _binding_in(binding, _FLOW_CONSTRAINED) and not upfront_exact:
+            continue
+        graded += 1
+        problems.extend(f"accepts[{i}]: {p}" for p in _flow_problems(e, binding))
+        if upfront_exact and binding != ("exact", "lnbtc"):
+            siblings = [
+                o
+                for o in accepts
+                if o is not e
+                and o.get("scheme") == "exact"
+                and o.get("network") == e.get("network")
+                and o.get("asset") == e.get("asset")
+                and _resolved_flow(o) == "authorization"
+            ]
+            if not siblings:
+                advisories.append(
+                    f"accepts[{i}] offers exact as 'upfront' only — scheme_exact.md says "
+                    "`authorization` SHOULD be preferred and defines no refund for upfront"
+                )
+    if graded == 0:
+        return Status.SKIP, "no entry on a binding with paymentFlow constraints"
+    if problems:
+        return Status.FAIL, "; ".join(problems)
+    if advisories:
+        return Status.PASS, "advisory: " + "; ".join(advisories)
+    return Status.PASS, f"{graded} flow-constrained entry/entries match their binding"

@@ -91,6 +91,17 @@ def _assert_rejected(
         )
     if resp.settled_ok:
         return Status.FAIL, "endpoint reported successful settlement for an invalid payment"
+    if resp.settlement is not None and resp.settlement.transaction:
+        # The settlement model admits a failed answer with a hash, because a pending
+        # or reverted broadcast is legal in general (CORE §5.3.2). Here it is not: an
+        # invalid payment must be refused at verification, so a broadcast hash on the
+        # rejection — pending or otherwise — means it went to the chain.
+        state = "pending" if resp.settlement.is_pending else "failed"
+        return Status.FAIL, (
+            f"rejection carries a broadcast transaction ({state}, "
+            f"{resp.settlement.transaction!r}) — the invalid payment reached the chain "
+            "instead of being refused at verification"
+        )
     if resp.marker_leaked:
         return Status.FAIL, (
             f"status {resp.status_code} but the response body contained the resource "
@@ -495,6 +506,106 @@ def neg_012(ctx: ActiveContext) -> tuple[Status, str]:
     payload = _build_payload(ctx)
     payload["x402Version"] = 99
     return _assert_rejected(ctx.send(payload))
+
+
+#: The builder-code reason upstream's resource servers return (python
+#: server_base.py, x402#3302/#3313/#3320).
+_ECHO_MISMATCH = "extension_echo_mismatch"
+_ECHO_PROBE_CODE = "x402_conformance_probe"
+
+
+def _rejection_reason(resp: ActiveResponse) -> str | None:
+    """Return PaymentRequired.error from a rejection's header or JSON body, if any."""
+    import base64
+    import json
+
+    candidates: list[Any] = []
+    raw = resp.headers.get("payment-required")
+    if raw:
+        try:
+            candidates.append(json.loads(base64.b64decode(raw, validate=True)))
+        except ValueError:
+            pass
+    try:
+        candidates.append(json.loads(resp.body))
+    except ValueError:
+        pass
+    for doc in candidates:
+        if isinstance(doc, dict) and isinstance(doc.get("error"), str) and doc["error"]:
+            return str(doc["error"])
+    return None
+
+
+def _mismatched_builder_code_echo(extensions: dict[str, Any]) -> tuple[dict[str, Any], str] | None:
+    """Return the echoed extensions with builder-code `a` changed, plus the code used.
+
+    Keeps the echo in whatever shape the server declared it (an ``info`` object,
+    or the flat form builder_code.md shows), so only `a` differs. ``None`` when no
+    builder-code extension is declared.
+    """
+    echoed = copy.deepcopy(extensions)
+    entry = echoed.get("builder-code")
+    if not isinstance(entry, dict):
+        return None
+    target = entry["info"] if isinstance(entry.get("info"), dict) else entry
+    declared = target.get("a")
+    probe = _ECHO_PROBE_CODE if declared != _ECHO_PROBE_CODE else _ECHO_PROBE_CODE + "_2"
+    target["a"] = probe
+    return echoed, probe
+
+
+@_register(
+    "RS-NEG-016",
+    "A builder-code echo whose app code differs from the declaration is rejected",
+    Severity.MAJOR,
+    "extensions/builder_code.md §Builder Code Validation (x402#3302/#3313)",
+)
+def neg_016(ctx: ActiveContext) -> tuple[Status, str]:
+    """Evaluate RS-NEG-016: the resource server owns builder-code `a` validation.
+
+    builder_code.md: before forwarding a v2 payment to the facilitator, the
+    resource server MUST reject (`extension_echo_mismatch`) a payment whose echoed
+    `a` is present and differs from the declared `info.a`, including when the
+    server declared no `a`. The facilitator-side check was removed upstream, so a
+    server that skips this lets a client re-attribute the payment.
+
+    The probe signer is unfunded, so a server that forwards the payment instead
+    gets a facilitator rejection with a different reason, which is the FAIL
+    signal. Runs only when the challenge declares builder-code.
+    """
+    tampered = _mismatched_builder_code_echo(ctx.extensions)
+    if tampered is None:
+        return Status.SKIP, "no builder-code extension declared — nothing to echo"
+    extensions, probe = tampered
+    payload = build_exact_eip3009_payload(
+        ctx.requirements, ctx.signer, resource_url=ctx.resource_url, extensions=extensions
+    )
+    resp = ctx.send(payload)
+    status, detail = _assert_rejected(resp, allowed_statuses=frozenset({400, 402}))
+    if status is not Status.PASS:
+        return status, detail
+    # Upstream servers put the reason in PaymentRequired.error on the 402; some
+    # servers report rejections in a failed PAYMENT-RESPONSE instead. Read both.
+    reason = _rejection_reason(resp) or (
+        resp.settlement.error_reason if resp.settlement is not None else None
+    )
+    if reason == _ECHO_MISMATCH:
+        return Status.PASS, f"rejected with {_ECHO_MISMATCH} (echoed a={probe!r})"
+    if reason is not None:
+        return Status.FAIL, (
+            f"rejected with {reason!r}, not {_ECHO_MISMATCH!r}: the payment went past the "
+            "builder-code echo check (likely to the facilitator), so a mismatched app code "
+            "would have been attributed had it been funded"
+        )
+    if resp.settlement is not None:
+        return Status.FAIL, (
+            "the rejection carries a PAYMENT-RESPONSE without a reason, so the payment "
+            "reached settlement — the echo must be rejected before verification/settlement"
+        )
+    return Status.PASS, (
+        f"rejected (status {resp.status_code}) without a reason, so whether the echo check "
+        f"ran is not visible; a conformant server reports {_ECHO_MISMATCH!r}"
+    )
 
 
 def _run_active_check(check: _ActiveCheck, context: ActiveContext | None) -> CheckResult:

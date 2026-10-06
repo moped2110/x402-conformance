@@ -41,7 +41,10 @@ from pathlib import Path
 #: sweeping up unrelated string constants.
 _PATTERNS: dict[str, re.Pattern[str]] = {
     # `export const ErrFoo = "..."`, allowing prettier's wrap before the value.
-    ".ts": re.compile(r'export const (Err\w+)\s*=\s*\n?\s*"([a-z0-9_]+)"'),
+    # `ERR_FOO` too: Cardano, SVM upto and TVM declare their codes that way, and
+    # the `Err\w+`-only pattern silently missed all of them (47 Cardano codes at
+    # the 2026-10 review).
+    ".ts": re.compile(r'export const (Err\w+|ERR_\w+)\s*=\s*\n?\s*"([a-z0-9_]+)"'),
     # Go const blocks: `ErrFoo = "..."` (aliases to another const are skipped,
     # since the pattern requires a string literal — the alias target is picked
     # up at its own declaration site).
@@ -65,6 +68,39 @@ _PATTERNS: dict[str, re.Pattern[str]] = {
 # legitimately reach a client makes the check accept things it should catch. If a
 # future pattern starts matching them, exclude them explicitly rather than
 # letting them in.
+
+# Role boundary (decided at the 2026-10 review)
+# ---------------------------------------------
+# FA-ERR-001 grades what a *facilitator* returns. Files under a `/client/` or
+# `/server/` path segment declare errors a client or a resource server raises for
+# itself — route validation at start-up, money parsing, settlement hooks (go
+# auth-capture `server/errors.go` alone declared 23 such
+# `invalid_auth_capture_evm_server_*` codes, wrapped in fmt.Errorf with suffix
+# text). None of them can legitimately arrive on a VerifyResponse or
+# SettleResponse, so accepting them would weaken the check the same way the
+# RouteValidationError values above would. Declaring files outside those
+# directories stay in even when the code is server-raised (python
+# `server_base.py`'s `extension_echo_mismatch`, `pending_settlement_store.py`'s
+# `settlement_pending`), because those codes are also documented wire codes.
+_ROLE_SCOPED = ("/client/", "/server/")
+
+#: Individual codes kept out although they are declared in a facilitator-side
+#: file. `invalid_batch_settlement_evm_deposit_below_min_deposit` is returned by
+#: the batch-settlement *resource server* when a deposit is under its own
+#: `minDeposit`; scheme_batch_settlement_evm.md says the facilitator MUST NOT
+#: enforce `minDeposit`, so a facilitator returning it is wrong and FA-ERR-001
+#: should say so.
+_EXCLUDED_CODES = frozenset({"invalid_batch_settlement_evm_deposit_below_min_deposit"})
+
+# Known gaps (not collected, so not accepted; a facilitator returning one fails
+# FA-ERR-001 until the gap is closed)
+# --------------------------------------------------------------------------
+#   * Inline literals. Hedera, Aptos, Keeta, XRPL, Stellar, Concordium and NEAR
+#     return `invalidReason: "..."` string literals instead of declaring
+#     constants, so no declaration pattern sees them.
+#   * Prefix concatenation. SVM batch-settlement builds codes as
+#     `errorPrefix + "..."` in Go and with a template literal in TypeScript; the
+#     wire string never appears whole in the source.
 
 #: Path fragments that never hold a shipped declaration. Tests in particular
 #: assert on *invalid* codes, which must not enter the accepted vocabulary.
@@ -95,7 +131,9 @@ packages returns codes from *both* halves and failing it for that would be our
 bug, not its.
 
 Extracted from {source_count} declaring files in the upstream tree; see
-``tools/sync_error_registry.py`` for the declaration patterns and exclusions.
+``tools/sync_error_registry.py`` for the declaration patterns, the role boundary
+(``/client/`` and ``/server/`` files are excluded), the excluded codes and the
+known gaps (inline literals, prefix concatenation).
 """
 
 from __future__ import annotations
@@ -111,6 +149,8 @@ def _iter_sources(upstream: Path) -> Iterable[Path]:
         rel = "/" + str(path.relative_to(upstream)).replace("\\", "/")
         if any(fragment in rel for fragment in _EXCLUDED):
             continue
+        if any(fragment in rel for fragment in _ROLE_SCOPED):
+            continue
         yield path
 
 
@@ -122,7 +162,7 @@ def extract(upstream: Path) -> dict[str, set[str]]:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        codes = {m.group(2) for m in _PATTERNS[path.suffix].finditer(text)}
+        codes = {m.group(2) for m in _PATTERNS[path.suffix].finditer(text)} - _EXCLUDED_CODES
         if codes:
             found[str(path.relative_to(upstream)).replace("\\", "/")] = codes
     return found

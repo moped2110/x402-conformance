@@ -10,12 +10,12 @@
 
 ## Implementation status (v0.6.0)
 
-**Implemented & tested (76 checks):**
-- RS-HS-001…007, RS-PR-001…026, RS-SEC-012 — passive (`check`). RS-PR-008 does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
-- RS-NEG-001/002/003/004/005/006/007/008/009/011/012/013/014/015 + RS-SEC-003 + RS-SEC-004 + RS-SEC-005 + RS-SEC-006 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
-- RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) + RS-HS-008 (paid 200 not shared-cacheable) — on-chain (`check --pay`)
+**Implemented & tested (81 checks):**
+- RS-HS-001…007, RS-PR-001…027, RS-SEC-012 — passive (`check`). RS-PR-008 does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
+- RS-NEG-001/002/003/004/005/006/007/008/009/011/012/013/014/015/016 + RS-SEC-003 + RS-SEC-004 + RS-SEC-005 + RS-SEC-006 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
+- RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) + RS-HS-008 (paid 200 not shared-cacheable) + RS-HS-009 (EXTENSION-RESPONSES never forwarded to the buyer) — on-chain (`check --pay`)
 - RS-SEC-008 (timing oracle) — opt-in advisory probe (`check --timing`), see below
-- FA-SUP-001/002, FA-VER-002/003/004, FA-ERR-001 — `facilitator`; FA-SET-001/002/003 — `facilitator --settle`
+- FA-SUP-001/002, FA-VER-002/003/004, FA-ERR-001, FA-EXT-001 — `facilitator`; FA-SET-001/002/003/004 — `facilitator --settle`
 - DI-001/002/003/004 — `discovery`
 
 `tests/test_catalog_status.py` keeps this list equal to the shipped catalog
@@ -24,7 +24,7 @@ or a release that does not update this section fails CI.
 
 Additionally, six separately registered PQC checks (since v0.6.0) run only behind the
 explicit `check --profile pqc` selector and need the `[pqc]` extra. They are not part of
-the 76-check default/group count because selecting the profile replaces, rather than
+the 81-check default/group count because selecting the profile replaces, rather than
 extends, the default run. The FA-SVM live `/verify` group is likewise outside the catalog:
 it needs a live SVM facilitator and the `[svm]` extra and is invoked explicitly
 (`python -m x402_conformance.checks.svm_facilitator`).
@@ -57,6 +57,7 @@ proof.
 | RS-HS-006 | Response body usable alongside 402 (no protocol data required in body) | Protocol info complete via headers alone | HTTP §Response Body | m | implemented |
 | RS-HS-007 | 402 with payment details is not cacheable | `Cache-Control` is `no-store`/`private` (no `public`, no long `max-age`); else CDN/proxy could serve a stale paywall | RFC 9111 + PR1 (testcase-integration-analysis) | M | implemented |
 | RS-HS-008 | The **paid** 200 is not shared-cacheable | `Cache-Control` carries `private`/`no-store` (no `public`, no positive `max-age`/`s-maxage`); a shared cache storing the paid response serves it to clients who did not pay. Advisory: absent Cache-Control is flagged in the detail, never gated | RFC 9111 §4.2.2 + x402#2990 | m | implemented |
+| RS-HS-009 | `EXTENSION-RESPONSES` is never forwarded to the buyer | The facilitator's sidechannel header (base64 JSON keyed by extension) is absent on the unpaid 402 and on the answer to the paid request — "server internal only; never forwarded to the buyer". Runs in the pay flow (`check --pay`) | CORE §7.2.1 + bazaar.md | M | implemented |
 
 ## 2. RS-PR — PaymentRequired schema content
 
@@ -78,16 +79,17 @@ proof.
 | RS-PR-014 | amount is strictly positive | `amount` > 0 (not "0", not negative) — a zero/negative price is a logic hole | CORE §5.1.2 + N5 | M | implemented |
 | RS-PR-016 | **jp402 OpenAPI invoice** (when `jp402` is advertised) is structurally valid | The qualified-invoice metadata (`registrationNumber` `^T[0-9]{13}$`) lives in the seller's OpenAPI doc (`x-jp402.invoice` at `info` / per-operation), not on the live 402. The runner fetches `/openapi.json` only when the 402 advertises `jp402`; an unreachable/absent doc is a SKIP, a present-but-malformed invoice FAILs. Community extension, MINOR | jp402-registry | m | implemented |
 | RS-PR-015 | **jp402 tax** breakdown (if present) is structurally consistent | Opt-in JP-rail check: SKIP unless `jp402` advertised on the live 402; validates the `tax` block (`excl_jpyc`/`vat_jpyc`/`rate`) — `vat == excl * rate` and `excl + vat` scaling onto `amount` by a power of ten. The qualified-invoice `registrationNumber` (`^T[0-9]{13}$`) lives in the OpenAPI doc (`x-jp402.invoice`), validated by `find_invoice_blocks` + `validate_invoice`. Community extension (jp402-registry), not core; MINOR so it never gates | jp402-registry | m | implemented |
-| RS-PR-017 | accepts `scheme` is a known payment scheme | `scheme` ∈ {`exact`, `upto`, `batch-settlement`} — an invented scheme is unpayable by any conformant client. A missing/non-string scheme is left to RS-PR-005 | CORE Document Scope + §6 | M | implemented |
-| RS-PR-018 | no contradictory accepts entries for the same rail+asset | Two entries sharing `scheme`+`network`+`asset` but differing in (`payTo`, `amount`) are ambiguous — a client cannot tell which recipient/price is real. Differing only by `asset` (pay in USDC *or* DAI) is a legitimate choice; byte-identical duplicates collapse | CORE §5.1.2 | M | implemented |
-| RS-PR-019 | accepts `extra` fields match the entry's scheme | Cross-scheme leakage: an `exact` entry carrying an upto-only channel field (`feePayer`/`receiverAuthorizer`/`withdrawDelay`/…) or an `upto` entry carrying the exact-only `assetTransferMethod`. Skips on v1. MINOR (never gates) | scheme_exact_evm.md + scheme_upto_svm.md | m | implemented |
+| RS-PR-017 | accepts `scheme` is a known payment scheme | `scheme` ∈ {`exact`, `upto`, `batch-settlement`, `auth-capture`} — an invented scheme is unpayable by any conformant client. A missing/non-string scheme is left to RS-PR-005 | CORE Document Scope + §6 | M | implemented |
+| RS-PR-018 | no contradictory accepts entries for the same rail+asset | Two entries sharing `scheme`+`network`+`asset` (and the protocol-reserved `extra.paymentFlow`/`assetTransferMethod`) but differing in (`payTo`, `amount`) are ambiguous — a client cannot tell which recipient/price is real. Differing only by `asset` (pay in USDC *or* DAI) or by flow (an `upfront` and an `authorization` offer, x402#3145) is a legitimate choice; byte-identical duplicates collapse | CORE §5.1.2 | M | implemented |
+| RS-PR-019 | accepts `extra` fields match the entry's scheme binding | Vocabulary keyed on (scheme, CAIP-2 namespace) from each binding's PaymentRequirements table: exact on eip155/solana/hedera/starknet/lnbtc/cardano, upto on eip155/solana, batch-settlement on eip155/solana, auth-capture on eip155. FAIL only for a key another binding defines that the entry's own binding does not (e.g. `recentBlockhash` on EVM exact). Reserved keys, unknown keys and bindings without a vocabulary are not graded. Skips on v1. MINOR (never gates) | scheme_<scheme>_<family>.md | m | implemented |
 | RS-PR-020 | accepts entries carry no fields outside the v2 schema | Any key beyond {`scheme`,`network`,`amount`,`asset`,`payTo`,`maxTimeoutSeconds`,`extra`} (e.g. legacy `outputSchema`) — a conformant client ignores it, so payment-relevant data placed there is silently dropped. Skips on v1. MINOR (never gates) | CORE §5.1.2 | m | implemented |
 | RS-PR-021 | challenge is standard JSON (no `NaN`/`Infinity` literals) | RFC 8259 defines no such literals. Python's decoder accepts them, Go's rejects them — so the challenge is readable to some clients and not others, while looking fine in testing | RFC 8259 §6 + CORE §5.1.1 | M | implemented |
 | RS-PR-022 | challenge has no duplicate object keys | RFC 8259 permits repeats but leaves the meaning to the parser (last-wins, first-wins, reject are all in use). On a payment challenge that is a field whose value depends on who reads it | RFC 8259 §4 + CORE §5.1.1 | M | implemented |
 | RS-PR-023 | declared builder-code app code is well-formed | `extensions['builder-code'].info.a` matches `^[a-z0-9_]{1,32}$`; an invalid code is rejected at construction time, so attribution silently drops | extensions/builder_code.md §Builder Code Validation | m | implemented |
 | RS-PR-024 | declared builder-code service codes stay within the server reservation | `info.s` is a string or array of well-formed codes, at most `MAX_SERVER_SERVICE_CODES` (5). The per-party budgets (client 5 / server 5 / facilitator 1) exist so no participant crowds out another; entries past the reservation are truncated downstream | extensions/builder_code.md §Builder Code Fields + x402#3027 | m | implemented |
 | RS-PR-025 | declared `paymentFlow` is one the protocol defines | `extra.paymentFlow`, when present, is `authorization`, `upfront` or `escrow`. §6.1 says a client MUST NOT construct a payment for a flow it does not recognize and SHOULD skip the entry, so an invented value makes the entry unpayable by every conformant client | CORE §6.1 | M | implemented |
-| RS-PR-026 | a flow that commits funds before the resource runs says so | An entry whose `extra` carries escrow/capture machinery (`withdrawDelay`, `receiverAuthorizer`, `autoCapture`) also declares `paymentFlow`. **Advisory, never gates:** CORE §6.1 says the field MUST be present for a non-`authorization` flow, while `scheme_upto_svm.md` says omit it to default to `escrow`. Failing an endpoint for choosing one half of an upstream contradiction is not a verdict this suite is entitled to | CORE §6.1 vs scheme_upto_svm.md | m | implemented |
+| RS-PR-026 | a flow that commits funds before the resource runs says so | Scheme-aware: SVM `upto` and `auth-capture` default to escrow and are always candidates; SVM batch-settlement and EVM upto (authorization) and EVM batch-settlement (unspecified) never are; other bindings are candidates only when `extra` carries `withdrawDelay`/`receiverAuthorizer`. A candidate should declare `paymentFlow`. **Advisory, never gates:** CORE §6.1 says the field MUST be present for a non-`authorization` flow, while `scheme_upto_svm.md` and `scheme_auth_capture.md` default to `escrow` when it is omitted. Failing an endpoint for choosing one half of an upstream contradiction is not a verdict this suite is entitled to | CORE §6.1 vs scheme_upto_svm.md / scheme_auth_capture.md | m | implemented |
+| RS-PR-027 | declared paymentFlow is one the entry's scheme binding allows | MUST rules fail: `upto` never `upfront`; Lightning `exact` declares `upfront`; Starknet/Cardano `exact` and SVM batch-settlement are `authorization` when present; SVM `upto` is `escrow`; auth-capture is `escrow`/`authorization`, rejects `autoCapture: true`, no `captureMode` under `authorization`. The `exact` SHOULD (prefer `authorization`, x402#3145) is advisory: an `upfront`-only exact offer is reported, never failed. Undefined values are RS-PR-025's | CORE §6.1 + scheme bindings | M | implemented |
 
 ## 3. RS-PAY — Payment flow, positive path (testnet/mock only)
 
@@ -119,6 +121,7 @@ These are the money tests: a server that delivers the resource despite an invali
 | RS-NEG-013 | Tampered `accepted.amount` (lower than server's offer, signature consistent with tampered value) | 402 — server must validate against ITS requirements, not client-supplied ones | CORE §6.1.2 step 5 | C | implemented |
 | RS-NEG-014 | Payment with a well-formed but **wrong asset contract** (lookalike token) | 402 — server validates the contract address against its requirement, not the token symbol | CORE §6.1.2 step 4 + N10 | C | implemented |
 | RS-NEG-015 | Payment whose **asset is an EOA** (no contract code) | 402 — calling transferWithAuthorization on an EOA never reverts, so settlement is a silent no-op; server must reject (`asset_not_deployed_contract`) before settling | CORE §6.1.2 step 4 + x402#2554 | C | implemented |
+| RS-NEG-016 | Payment whose **builder-code echo** carries a different app code `a` than the server declared (only when `builder-code` is declared) | 402/400 with `extension_echo_mismatch`, before verification/settlement. Rejected for another reason (e.g. the facilitator's `insufficient_funds` for the unfunded probe signer) means the echo was not checked: FAIL. Served, settled, or a reasonless PAYMENT-RESPONSE: FAIL. A reasonless 402 passes with a note | extensions/builder_code.md + x402#3302/#3313 | M | implemented |
 
 ## 5. RS-SEC — Security & robustness
 
@@ -134,7 +137,7 @@ These are the money tests: a server that delivers the resource despite an invali
 | RS-SEC-008 | Timing: response time for invalid sig vs. unknown payer comparable (info-leak smoke test) | No gross oracle | robustness | m | implemented |
 | RS-SEC-010 | **Cross-chain signature replay:** valid payload signed for network A replayed at an endpoint on network B (different chainId) | Rejected — EIP-712 domain binds chainId; the defense is the domain separator | CORE §10.1 + C0 | C | implemented |
 | RS-SEC-011 | Extreme/near-2²⁵⁶ amount values in requirements or payload | Tooling parses without overflow; endpoint responds cleanly (no crash) | robustness + N4/N13 | m | implemented |
-| RS-SEC-012 | **Paywall bypass by path re-encoding:** the protected URL re-requested with a line terminator in the wildcard tail (LF/CR/U+2028), a percent-encoded separator, dot-segments, or a percent-encoded unreserved character | Still gated (402/4xx) — never 2xx with content. A control probe against a nonexistent sibling path guards against a catch-all endpoint, which SKIPs instead of failing | CORE §10.1 + RFC 3986 §5.2.4/§6.2.2.2 + x402#3036/#3044/#3055 | C | implemented |
+| RS-SEC-012 | **Paywall bypass by path re-encoding:** the protected URL re-requested with a line terminator in the wildcard tail (LF/CR/U+2028), a percent-encoded separator, a raw or encoded backslash, encoded dot-segments, a percent-encoded unreserved character, or the canonical path as an absolute-form request target (`GET http://host/paid HTTP/1.1`) | Still gated (402/4xx; 400 is the upstream fix for absolute-form) — never 2xx with content. A control probe against a nonexistent sibling path guards against a catch-all endpoint, which SKIPs instead of failing | CORE §10.1 + RFC 3986 §5.2.4/§6.2.2.2 + RFC 9112 §3.2.2 + x402#3036/#3044/#3055/#3116/#3577 | C | implemented |
 
 ## 6. FA — Facilitator conformance (secondary target)
 
@@ -170,8 +173,10 @@ instance.)
 | FA-VER-004 | `/verify` handles invalid client input (EOA asset) with a clean 4xx/200, not a 5xx | No server error on malformed input — a `balanceOf`/parse exception must surface as `isValid:false`, not HTTP 500 | CORE §7.1 (robustness) | m | implemented |
 | FA-SET-001 | `POST /settle` with valid payload | `{success:true, transaction, network}`; tx on-chain | CORE §7.2 | M | implemented |
 | FA-SET-002 | `/settle` with invalid payload | `{success:false, errorReason, transaction:""}` | CORE §7.2 | M | implemented |
-| FA-SET-003 | Double-settle same payload | Second call fails (nonce protection) | CORE §10.1 | C | implemented |
+| FA-SET-003 | Double-settle same payload | Second call fails (nonce protection); after a `settlement_pending` first answer, a repeat reporting the same hash is reconciliation and passes | CORE §10.1 | C | implemented |
+| FA-SET-004 | A `settlement_pending` answer carries the broadcast | `transaction` non-empty whenever `errorReason` is `settlement_pending`; a still-pending retry is inconclusive (`settlement_pending`), a new hash on the retry fails FA-SET-003 | CORE §5.3.2, §9 | m | implemented |
 | FA-ERR-001 | Error codes match the standard registry (§9 list) | Exact string match | CORE §9 | m | implemented |
+| FA-EXT-001 | `EXTENSION-RESPONSES` (if sent) is well-formed | Every value seen on `/verify` decodes to a JSON object keyed by extension name, each value an object; Bazaar's `status` is success/processing/rejected and `rejectedReason` a string. Optional header, so absence SKIPs. `/settle` answers are not graded | CORE §7.2.1 + bazaar.md | m | implemented |
 
 ## 7. DI — Discovery/Bazaar (Phase 2)
 

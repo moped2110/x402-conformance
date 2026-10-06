@@ -35,12 +35,14 @@ import pytest
 from x402_conformance.checks.facilitator import (
     _LOCAL_ERROR_CODES,
     KNOWN_ERROR_CODES,
+    RETIRED_ERROR_CODES,
+    RETIRED_UNTIL,
     SPEC_ERROR_REASONS,
 )
 from x402_conformance.error_registry import MECHANISM_ERROR_CODES
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from sync_error_registry import extract, render  # noqa: E402
+from sync_error_registry import _EXCLUDED_CODES, _ROLE_SCOPED, extract, render  # noqa: E402
 
 # Relative locations of x402Specs.ts to try when X402_SPEC_TS isn't set. Best
 # effort — the env var is the reliable path; these cover the clone sitting beside
@@ -175,8 +177,9 @@ def test_spec_error_reasons_pinned():
 
 
 def test_mechanism_error_codes_pinned():
-    """CI-safe: the generated mechanism registry is the set we reviewed."""
-    assert len(MECHANISM_ERROR_CODES) == 344
+    """CI-safe: the generated mechanism registry is the set we reviewed
+    (main@cb0ec5b, 2026-10 review: 493 codes from 29 declaring files)."""
+    assert len(MECHANISM_ERROR_CODES) == 493
     # The two codes upstream added since the last reviewed pin, and the reason
     # this half exists at all: neither is in the legacy enum.
     assert "invalid_exact_evm_transfer_event_mismatch" in MECHANISM_ERROR_CODES
@@ -190,11 +193,61 @@ def test_mechanism_error_codes_pinned():
     assert "invalid_exact_evm_authorization_value" not in SPEC_ERROR_REASONS
 
 
+def test_registry_boundary_decisions_hold():
+    """CI-safe: the 2026-10 boundary decisions are visible in the committed set.
+
+    1. Role-scoped `/client/` and `/server/` files are excluded: their codes are
+       raised by a client or resource server for itself and never reach a
+       VerifyResponse/SettleResponse (e.g. go auth-capture `server/errors.go`).
+    3. The TS pattern covers `ERR_*`, so Cardano's codes are in.
+    4. The batch-settlement resource server's minDeposit code is out: the
+       facilitator MUST NOT enforce minDeposit.
+    """
+    assert _ROLE_SCOPED == ("/client/", "/server/")
+    assert not {
+        c for c in MECHANISM_ERROR_CODES if c.startswith("invalid_auth_capture_evm_server_")
+    }
+    assert not {c for c in MECHANISM_ERROR_CODES if "_client_" in c}
+    assert "exact_cardano_facilitator_chain_lookup_failed" in MECHANISM_ERROR_CODES
+    assert "invalid_batch_settlement_evm_deposit_below_min_deposit" in _EXCLUDED_CODES
+    assert "invalid_batch_settlement_evm_deposit_below_min_deposit" not in KNOWN_ERROR_CODES
+    # The two server-raised codes that are also documented wire codes stay.
+    assert {"settlement_pending", "extension_echo_mismatch"} <= MECHANISM_ERROR_CODES
+
+
+def test_retired_codes_are_accepted_during_their_grace_period():
+    """Decision 2: the 17 codes upstream stopped declaring at cb0ec5b stay
+    accepted until RETIRED_UNTIL, so a facilitator one SDK release behind is not
+    failed. They are no longer in the generated half by construction."""
+    assert len(RETIRED_ERROR_CODES) == 17
+    assert RETIRED_UNTIL == "2027-04-06"
+    assert RETIRED_ERROR_CODES <= KNOWN_ERROR_CODES
+    assert RETIRED_ERROR_CODES.isdisjoint(MECHANISM_ERROR_CODES)
+    assert "invalid_exact_solana_payload_amount_insufficient" in RETIRED_ERROR_CODES
+
+
+def test_retired_codes_have_not_outlived_their_removal_date():
+    """Live: once RETIRED_UNTIL has passed, the grace period is over and the set
+    must be removed deliberately. Runs only where the drift job runs (with
+    X402_UPSTREAM), so an ordinary test run never fails on the calendar alone."""
+    if not os.environ.get("X402_UPSTREAM"):
+        pytest.skip("expiry is enforced by the supply-chain drift job (X402_UPSTREAM set)")
+    import datetime as dt
+
+    today = dt.datetime.now(dt.UTC).date()
+    assert today <= dt.date.fromisoformat(RETIRED_UNTIL), (
+        f"RETIRED_ERROR_CODES passed its removal date {RETIRED_UNTIL}: remove the set "
+        "from checks/facilitator.py (and this test's count) in the next review window"
+    )
+
+
 def test_known_error_codes_is_the_union():
     """FA-ERR-001 must accept both halves, not just the frozen enum."""
     assert SPEC_ERROR_REASONS <= KNOWN_ERROR_CODES
     assert MECHANISM_ERROR_CODES <= KNOWN_ERROR_CODES
-    assert KNOWN_ERROR_CODES == SPEC_ERROR_REASONS | MECHANISM_ERROR_CODES | _LOCAL_ERROR_CODES
+    assert KNOWN_ERROR_CODES == (
+        SPEC_ERROR_REASONS | MECHANISM_ERROR_CODES | _LOCAL_ERROR_CODES | RETIRED_ERROR_CODES
+    )
 
 
 def test_known_error_codes_match_spec_enum():

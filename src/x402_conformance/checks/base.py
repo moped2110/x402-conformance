@@ -53,6 +53,14 @@ DEFERRED_PENDING_UPSTREAM = "deferred_pending_upstream"
 #: nothing of that kind there, not because it passed.
 ENDPOINT_ABSENT = "endpoint_absent"
 
+#: Per-check: the settlement was broadcast but not confirmed — `success: false`,
+#: `errorReason: "settlement_pending"`, with the broadcast hash (CORE §5.3, §9,
+#: x402#3083). The outcome is non-terminal: the transaction may still land, so the
+#: check is neither passed nor failed, and a run containing one is inconclusive
+#: rather than conformant. Deliberately a reason code, not a new status: every
+#: report reader already understands a qualified SKIP.
+SETTLEMENT_PENDING = "settlement_pending"
+
 #: Run-level inconclusive reasons that only the runner or CLI can determine.
 INCONCLUSIVE_UNREACHABLE = "unreachable"
 INCONCLUSIVE_INVALID_INPUT = "invalid_input"
@@ -68,11 +76,12 @@ INCONCLUSIVE_REASONS = frozenset(
         INCONCLUSIVE_NO_CHECKS_APPLICABLE,
         ENDPOINT_ABSENT,
         DEFERRED_PENDING_UPSTREAM,
+        SETTLEMENT_PENDING,
     }
 )
 
 #: The values a single ``CheckResult.reason_code`` may carry.
-PER_CHECK_REASON_CODES = frozenset({DEFERRED_PENDING_UPSTREAM, ENDPOINT_ABSENT})
+PER_CHECK_REASON_CODES = frozenset({DEFERRED_PENDING_UPSTREAM, ENDPOINT_ABSENT, SETTLEMENT_PENDING})
 
 #: A check returns ``(status, detail)`` or, when it wants to qualify a SKIP,
 #: ``(status, detail, reason_code)``. The runner normalises both to a CheckResult.
