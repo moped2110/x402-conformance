@@ -9,11 +9,37 @@ are enforced where the protocol requires them.
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator, model_validator
 
 _EVM_TX_HASH = re.compile(r"^0x[0-9a-fA-F]{64}$")
+#: An ISO 8601 calendar date-time, as CORE §8.3 types `lastUpdated` since x402#3067
+#: (`"2025-08-09T01:07:04.005Z"`). The time part is required — the field is a
+#: timestamp — and the offset is optional, because ISO 8601 permits local time and
+#: failing a Bazaar for the omission would be stricter than the specification.
+_ISO8601_DATETIME = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?([Zz]|[+-]\d{2}(:?\d{2})?)?$"
+)
+
+
+def is_iso8601_timestamp(value: object) -> bool:
+    """Recognize an ISO 8601 date-time string that names a real instant."""
+    if not isinstance(value, str) or _ISO8601_DATETIME.fullmatch(value) is None:
+        return False
+    normalized = value.upper()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    # The regex fixes the shape; fromisoformat rejects impossible values such as
+    # month 13 or 25:00. Nanosecond precision is legal ISO 8601 but beyond what
+    # datetime parses, so the fraction is cut to microseconds first.
+    normalized = re.sub(r"(\.\d{6})\d+", r"\1", normalized)
+    try:
+        datetime.fromisoformat(normalized)
+    except ValueError:
+        return False
+    return True
 
 
 class WireModel(BaseModel):
@@ -120,8 +146,23 @@ class DiscoveryItem(WireModel):
     type: Annotated[str, Field(min_length=1)]
     x402_version: int = Field(alias="x402Version")
     accepts: list[PaymentRequirements]
-    last_updated: int = Field(alias="lastUpdated", ge=0)
+    #: CORE §8.3: an ISO 8601 timestamp string since x402#3067. The V1 shape, a
+    #: non-negative Unix-seconds number, is still accepted because older
+    #: facilitators send it; DI-001 reports it as an advisory, not a failure.
+    last_updated: (
+        Annotated[str, Field(min_length=1)]
+        | Annotated[int, Field(ge=0)]
+        | Annotated[FiniteFloat, Field(ge=0)]
+    ) = Field(alias="lastUpdated")
     metadata: dict[str, Any] | None = None
+
+    @field_validator("last_updated")
+    @classmethod
+    def validate_last_updated(cls, value: str | int | float) -> str | int | float:
+        """A string `lastUpdated` must be a real ISO 8601 timestamp, not any text."""
+        if isinstance(value, str) and not is_iso8601_timestamp(value):
+            raise ValueError("lastUpdated must be an ISO 8601 timestamp")
+        return value
 
 
 class DiscoveryPagination(WireModel):

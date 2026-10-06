@@ -35,7 +35,9 @@ ITEM = {
     "type": "http",
     "x402Version": 2,
     "accepts": [ACCEPT],
-    "lastUpdated": 1703123456,
+    # CORE §8.3 since x402#3067. OTHER_ITEM keeps the V1 number so the catalogue
+    # mixes both shapes, as real Bazaars mid-upgrade do.
+    "lastUpdated": "2025-08-09T01:07:04.005Z",
     "extensions": {"bazaar": {"category": "finance"}},
 }
 OTHER_ITEM = {

@@ -5,6 +5,12 @@ returns ``{x402Version, items[], pagination}`` where each item is a discovered
 resource (``resource``, ``type``, ``x402Version``, ``accepts[]``, ``lastUpdated``).
 See CORE sections 8.1 and 8.3.
 
+``lastUpdated`` is an ISO 8601 timestamp string since x402#3067 (2026-08). The V1
+specification typed it as a Unix-seconds number, and every reference facilitator
+already emitted strings when the V2 text caught up, so a string is the conformant
+shape and a number is reported as an advisory, never failed: older facilitators
+still send numbers, and the field carries no payment semantics.
+
 DI-001 and DI-002 only query the operator-supplied Bazaar. DI-003 additionally
 cross-fetches URLs supplied by that Bazaar. Those cross-fetches use a dedicated,
 DNS-pinning client and reject non-public destinations unless the operator supplied
@@ -29,6 +35,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 import httpx
 
 from .. import USER_AGENT
+from ..models import is_iso8601_timestamp
 from .base import CheckResult, Severity, Status, append_unique_check
 
 _CORE = "x402-specification-v2.md"
@@ -411,8 +418,13 @@ def _validate_discovery_body(
     *,
     expected_limit: int | None = None,
     expected_offset: int | None = None,
+    advisories: list[str] | None = None,
 ) -> list[str]:
-    """Validate the discovery envelope, pagination invariants, items, and payment requirements."""
+    """Validate the discovery envelope, pagination invariants, items, and payment requirements.
+
+    Findings that are reported but must not fail the check go to ``advisories``
+    when the caller passes a list; today that is only a numeric ``lastUpdated``.
+    """
     problems: list[str] = []
     if not _is_int(body.get("x402Version")) or body["x402Version"] != 2:
         problems.append("x402Version must be the integer 2")
@@ -464,8 +476,15 @@ def _validate_discovery_body(
             for j, requirement in enumerate(accepts):
                 problems.extend(_validate_requirement(requirement, f"{path}.accepts[{j}]"))
         last_updated = item.get("lastUpdated")
-        if not _is_finite_number(last_updated) or last_updated < 0:
-            problems.append(f"{path}.lastUpdated must be a non-negative finite number")
+        if is_iso8601_timestamp(last_updated):
+            pass
+        elif _is_finite_number(last_updated) and last_updated >= 0:
+            # The pre-x402#3067 shape. Legal under the V1 text and still sent by
+            # older facilitators, so it is reported rather than failed.
+            if advisories is not None:
+                advisories.append(f"{path}.lastUpdated")
+        else:
+            problems.append(f"{path}.lastUpdated must be an ISO 8601 timestamp string")
         if "extensions" in item and not isinstance(item["extensions"], dict):
             problems.append(f"{path}.extensions must be an object when present")
     return problems
@@ -482,10 +501,22 @@ def di_001(ctx: DiscoveryContext) -> tuple[Status, str]:
     body = _get_json(ctx, _resources_url(ctx.base_url))
     if body is None:
         return Status.FAIL, "GET /discovery/resources did not return 200 with a JSON object"
-    problems = _validate_discovery_body(body, expected_limit=20, expected_offset=0)
+    advisories: list[str] = []
+    problems = _validate_discovery_body(
+        body, expected_limit=20, expected_offset=0, advisories=advisories
+    )
     if problems:
         return Status.FAIL, "; ".join(problems[:8])
-    return Status.PASS, f"{len(body['items'])} item(s), schema-valid"
+    detail = f"{len(body['items'])} item(s), schema-valid"
+    if advisories:
+        shown = ", ".join(advisories[:3]) + (" …" if len(advisories) > 3 else "")
+        detail += (
+            f"; advisory: {len(advisories)} item(s) send lastUpdated as a number ({shown}). "
+            "CORE §8.3 types it as an ISO 8601 string since x402#3067, and current SDK "
+            "clients parse it as one; a number is the V1 shape, accepted here but not "
+            "what new clients expect"
+        )
+    return Status.PASS, detail
 
 
 def _item_has_accept_value(item: object, key: str, value: str) -> bool:
