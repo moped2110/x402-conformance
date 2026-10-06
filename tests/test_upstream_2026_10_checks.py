@@ -301,3 +301,135 @@ def test_rs_pr_018_same_flow_twice_still_fails(valid_payload: dict[str, Any]) ->
     result = _run_accepts(valid_payload, [a, b])["RS-PR-018"]
     assert result.status is Status.FAIL
     assert "paymentFlow='upfront'" in result.detail
+
+
+# ==========================================================================
+# §7/§10 — RS-PR-027 paymentFlow per binding (x402#3145, auth-capture v1.1)
+# ==========================================================================
+
+_LN = "lnbtc:000000000019d6689c085ae165831e93"
+
+_FLOW_OK = {
+    "exact EVM upfront with an authorization sibling": [
+        _accept(extra={"name": "USDC", "version": "2", "paymentFlow": "upfront"}),
+        _accept(extra={"name": "USDC", "version": "2"}),
+    ],
+    "lightning upfront": [
+        _accept(
+            network=_LN,
+            asset="BTC",
+            payTo="node",
+            extra={"paymentFlow": "upfront", "assetTransferMethod": "bolt11", "invoice": "lnbc1"},
+        )
+    ],
+    "starknet authorization": [
+        _accept(network="starknet:SN_SEPOLIA", extra={"paymentFlow": "authorization"})
+    ],
+    "svm upto escrow": [_sol(scheme="upto", extra={"paymentFlow": "escrow"})],
+    "svm upto default": [_sol(scheme="upto", extra={"feePayer": SOL_PAYTO})],
+    "svm batch authorization": [
+        _sol(scheme="batch-settlement", extra={"paymentFlow": "authorization"})
+    ],
+    "auth-capture escrow deferred": [
+        _accept(scheme="auth-capture", extra={"paymentFlow": "escrow", "captureMode": "deferred"})
+    ],
+    "auth-capture authorization": [
+        _accept(scheme="auth-capture", extra={"paymentFlow": "authorization", "autoCapture": False})
+    ],
+}
+
+_FLOW_BAD = {
+    "upto upfront": ([_accept(scheme="upto", extra={"paymentFlow": "upfront"})], "MUST NOT"),
+    "lightning without a flow": (
+        [_accept(network=_LN, asset="BTC", payTo="node", extra={"invoice": "lnbc1"})],
+        "no paymentFlow",
+    ),
+    "lightning authorization": (
+        [_accept(network=_LN, asset="BTC", payTo="node", extra={"paymentFlow": "authorization"})],
+        "'authorization'",
+    ),
+    "starknet escrow": (
+        [_accept(network="starknet:SN_SEPOLIA", extra={"paymentFlow": "escrow"})],
+        "always 'authorization'",
+    ),
+    "svm batch escrow": (
+        [_sol(scheme="batch-settlement", extra={"paymentFlow": "escrow"})],
+        "always 'authorization'",
+    ),
+    "svm upto authorization": (
+        [_sol(scheme="upto", extra={"paymentFlow": "authorization"})],
+        "only 'escrow'",
+    ),
+    "auth-capture upfront": (
+        [_accept(scheme="auth-capture", extra={"paymentFlow": "upfront"})],
+        "'escrow' or 'authorization'",
+    ),
+    "auth-capture autoCapture true": (
+        [_accept(scheme="auth-capture", extra={"autoCapture": True})],
+        "autoCapture",
+    ),
+    "auth-capture captureMode under authorization": (
+        [
+            _accept(
+                scheme="auth-capture", extra={"paymentFlow": "authorization", "captureMode": "sync"}
+            )
+        ],
+        "captureMode",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_FLOW_OK))
+def test_rs_pr_027_accepts_what_the_binding_allows(
+    valid_payload: dict[str, Any], case: str
+) -> None:
+    result = _run_accepts(valid_payload, _FLOW_OK[case])["RS-PR-027"]
+    assert result.status is Status.PASS, (case, result.detail)
+    assert "advisory" not in result.detail
+
+
+@pytest.mark.parametrize("case", sorted(_FLOW_BAD))
+def test_rs_pr_027_fails_binding_must_violations(valid_payload: dict[str, Any], case: str) -> None:
+    accepts, needle = _FLOW_BAD[case]
+    result = _run_accepts(valid_payload, accepts)["RS-PR-027"]
+    assert result.status is Status.FAIL, (case, result.detail)
+    assert needle in result.detail
+    assert result.severity.value == "major"
+
+
+def test_rs_pr_027_upfront_only_exact_is_advisory(valid_payload: dict[str, Any]) -> None:
+    """`upfront` is legal for exact since x402#3145; preferring `authorization` is a SHOULD."""
+    entry = _accept(extra={"name": "USDC", "version": "2", "paymentFlow": "upfront"})
+    result = _run_accepts(valid_payload, [entry])["RS-PR-027"]
+    assert result.status is Status.PASS
+    assert result.detail.startswith("advisory:")
+
+
+def test_rs_pr_027_skips_unconstrained_entries(valid_payload: dict[str, Any]) -> None:
+    assert _run_accepts(valid_payload, [_accept()])["RS-PR-027"].status is Status.SKIP
+
+
+def test_rs_pr_027_leaves_undefined_values_to_rs_pr_025(valid_payload: dict[str, Any]) -> None:
+    by_id = _run_accepts(valid_payload, [_accept(scheme="upto", extra={"paymentFlow": "deferred"})])
+    assert by_id["RS-PR-025"].status is Status.FAIL
+    assert by_id["RS-PR-027"].status is Status.PASS
+
+
+# --- active.py: prefer the authorization entry -----------------------------
+
+
+def test_active_probes_prefer_authorization_over_upfront() -> None:
+    from x402_conformance.active import choose_eip3009_requirement
+
+    upfront = _accept(extra={"name": "USDC", "version": "2", "paymentFlow": "upfront"})
+    authorization = _accept(
+        amount="20000", extra={"name": "USDC", "version": "2", "paymentFlow": "authorization"}
+    )
+    assert choose_eip3009_requirement({"accepts": [upfront, authorization]}) is authorization
+    implicit = _accept(amount="30000")
+    assert choose_eip3009_requirement({"accepts": [upfront, implicit]}) is implicit
+    # upfront is still usable when it is the only option
+    assert choose_eip3009_requirement({"accepts": [upfront]}) is upfront
+    # an undefined flow is never constructed (CORE §6.1)
+    weird = _accept(extra={"name": "USDC", "version": "2", "paymentFlow": "deferred"})
+    assert choose_eip3009_requirement({"accepts": [weird]}) is None

@@ -148,6 +148,13 @@ def choose_eip3009_requirement(
     Eligible mainnet and unknown-chain entries fail closed instead of being
     silently skipped.  If a server advertises several eligible entries, a safe
     testnet/local entry is preferred.
+
+    Among safe entries, one whose flow resolves to ``authorization`` (no
+    ``extra.paymentFlow``, or ``"authorization"``) is preferred over ``upfront``:
+    scheme_exact.md (x402#3145) says clients SHOULD pick ``authorization`` when
+    both are offered, and an ``upfront`` entry settles before the resource runs,
+    which a probe should not cause unless it is the only option. An entry whose
+    ``paymentFlow`` is not a defined value is skipped, as CORE §6.1 requires.
     """
     if not raw:
         return None
@@ -155,6 +162,7 @@ def choose_eip3009_requirement(
     if not isinstance(accepts, list):
         return None
     denied_networks: list[object] = []
+    fallback: dict[str, Any] | None = None
     for entry in accepts:
         if not isinstance(entry, dict):
             continue
@@ -167,13 +175,21 @@ def choose_eip3009_requirement(
         extra: dict[str, Any] = raw_extra if isinstance(raw_extra, dict) else {}
         if extra.get("assetTransferMethod", "eip3009") != "eip3009":
             continue
+        flow = extra.get("paymentFlow", "authorization")
+        if flow not in ("authorization", "upfront"):
+            continue
         if extra.get("name") and extra.get("version"):
             try:
                 safety_policy.require_safe_network(network)
             except SafetyViolation:
                 denied_networks.append(network)
                 continue
-            return entry
+            if flow == "authorization":
+                return entry
+            if fallback is None:
+                fallback = entry
+    if fallback is not None:
+        return fallback
     if denied_networks:
         # Re-run the central policy to emit its stable, user-facing reason.
         safety_policy.require_safe_network(denied_networks[0])

@@ -350,6 +350,7 @@ _REMEDIATION: dict[str, str] = {
     "RS-PR-024": "Declare at most MAX_SERVER_SERVICE_CODES (5) service codes. Past that, entries are truncated downstream, so what you declare is not what settles.",
     "RS-PR-025": "Use one of the paymentFlow values CORE §6.1 defines — authorization, upfront or escrow. A conformant client skips an entry whose flow it does not recognize, so an invented value makes the entry unpayable.",
     "RS-PR-026": "Declare `extra.paymentFlow` when your flow commits funds before the resource runs. Undeclared, the entry reads as post-handler settlement and a client cannot see the commitment coming.",
+    "RS-PR-027": "Declare the paymentFlow your scheme binding allows: never `upfront` on upto, always `upfront` on Lightning exact, `authorization` on Starknet/Cardano exact and SVM batch-settlement, `escrow` on SVM upto, and on auth-capture drop `autoCapture` and don't set `captureMode` under `authorization`.",
     "DI-003": "Keep the discovery listing in sync with each resource's live 402 — the listed asset/payTo must match what the resource actually asks for.",
 }
 

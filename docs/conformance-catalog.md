@@ -10,8 +10,8 @@
 
 ## Implementation status (v0.6.0)
 
-**Implemented & tested (77 checks):**
-- RS-HS-001…007, RS-PR-001…026, RS-SEC-012 — passive (`check`). RS-PR-008 does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
+**Implemented & tested (78 checks):**
+- RS-HS-001…007, RS-PR-001…027, RS-SEC-012 — passive (`check`). RS-PR-008 does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).
 - RS-NEG-001/002/003/004/005/006/007/008/009/011/012/013/014/015 + RS-SEC-003 + RS-SEC-004 + RS-SEC-005 + RS-SEC-006 + RS-SEC-007 + RS-SEC-010 + RS-SEC-011 — active (`check --active`)
 - RS-PAY-001…004 + RS-SEC-001 (replay) + RS-SEC-002 (race) + RS-HS-008 (paid 200 not shared-cacheable) — on-chain (`check --pay`)
 - RS-SEC-008 (timing oracle) — opt-in advisory probe (`check --timing`), see below
@@ -24,7 +24,7 @@ or a release that does not update this section fails CI.
 
 Additionally, six separately registered PQC checks (since v0.6.0) run only behind the
 explicit `check --profile pqc` selector and need the `[pqc]` extra. They are not part of
-the 77-check default/group count because selecting the profile replaces, rather than
+the 78-check default/group count because selecting the profile replaces, rather than
 extends, the default run. The FA-SVM live `/verify` group is likewise outside the catalog:
 it needs a live SVM facilitator and the `[svm]` extra and is invoked explicitly
 (`python -m x402_conformance.checks.svm_facilitator`).
@@ -88,6 +88,7 @@ proof.
 | RS-PR-024 | declared builder-code service codes stay within the server reservation | `info.s` is a string or array of well-formed codes, at most `MAX_SERVER_SERVICE_CODES` (5). The per-party budgets (client 5 / server 5 / facilitator 1) exist so no participant crowds out another; entries past the reservation are truncated downstream | extensions/builder_code.md §Builder Code Fields + x402#3027 | m | implemented |
 | RS-PR-025 | declared `paymentFlow` is one the protocol defines | `extra.paymentFlow`, when present, is `authorization`, `upfront` or `escrow`. §6.1 says a client MUST NOT construct a payment for a flow it does not recognize and SHOULD skip the entry, so an invented value makes the entry unpayable by every conformant client | CORE §6.1 | M | implemented |
 | RS-PR-026 | a flow that commits funds before the resource runs says so | Scheme-aware: SVM `upto` and `auth-capture` default to escrow and are always candidates; SVM batch-settlement and EVM upto (authorization) and EVM batch-settlement (unspecified) never are; other bindings are candidates only when `extra` carries `withdrawDelay`/`receiverAuthorizer`. A candidate should declare `paymentFlow`. **Advisory, never gates:** CORE §6.1 says the field MUST be present for a non-`authorization` flow, while `scheme_upto_svm.md` and `scheme_auth_capture.md` default to `escrow` when it is omitted. Failing an endpoint for choosing one half of an upstream contradiction is not a verdict this suite is entitled to | CORE §6.1 vs scheme_upto_svm.md / scheme_auth_capture.md | m | implemented |
+| RS-PR-027 | declared paymentFlow is one the entry's scheme binding allows | MUST rules fail: `upto` never `upfront`; Lightning `exact` declares `upfront`; Starknet/Cardano `exact` and SVM batch-settlement are `authorization` when present; SVM `upto` is `escrow`; auth-capture is `escrow`/`authorization`, rejects `autoCapture: true`, no `captureMode` under `authorization`. The `exact` SHOULD (prefer `authorization`, x402#3145) is advisory: an `upfront`-only exact offer is reported, never failed. Undefined values are RS-PR-025's | CORE §6.1 + scheme bindings | M | implemented |
 
 ## 3. RS-PAY — Payment flow, positive path (testnet/mock only)
 

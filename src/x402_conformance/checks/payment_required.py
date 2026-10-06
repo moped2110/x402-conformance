@@ -1067,3 +1067,136 @@ def pr_026(s: ProbeSession) -> tuple[Status, str]:
             "costs nothing and removes the ambiguity"
         )
     return Status.PASS, f"{candidates} pre-handler entry/entries declare their flow"
+
+
+def _resolved_flow(entry: dict[str, object]) -> object:
+    """Return an entry's declared paymentFlow, defaulting to the protocol's `authorization`."""
+    raw_extra = entry.get("extra")
+    extra = raw_extra if isinstance(raw_extra, dict) else {}
+    return extra.get("paymentFlow", "authorization")
+
+
+def _flow_problems(entry: dict[str, object], binding: tuple[str, str] | None) -> list[str]:
+    """Return the binding-specific paymentFlow MUST violations for one accepts entry."""
+    raw_extra = entry.get("extra")
+    extra = raw_extra if isinstance(raw_extra, dict) else {}
+    present = "paymentFlow" in extra
+    flow = extra.get("paymentFlow")
+    if present and flow not in _PAYMENT_FLOWS:
+        return []  # an undefined value is RS-PR-025's finding, not a binding mismatch
+    if binding is None:
+        return []
+    scheme, family = binding
+    problems: list[str] = []
+    if scheme == "upto" and flow == "upfront":
+        problems.append("upto MUST NOT use paymentFlow 'upfront' (scheme_upto.md)")
+    if scheme == "upto" and family == "solana" and present and flow != "escrow":
+        problems.append(f"SVM upto supports only 'escrow', got {flow!r} (scheme_upto_svm.md)")
+    if (scheme, family) == ("exact", "lnbtc") and flow != "upfront":
+        got = repr(flow) if present else "no paymentFlow"
+        problems.append(
+            f"exact on lnbtc MUST declare paymentFlow 'upfront', got {got} (scheme_exact_lnbtc.md)"
+        )
+    if (
+        (scheme, family)
+        in {
+            ("exact", "starknet"),
+            ("exact", "cardano"),
+            ("batch-settlement", "solana"),
+        }
+        and present
+        and flow != "authorization"
+    ):
+        problems.append(
+            f"{scheme} on {family} is always 'authorization' when paymentFlow is present, "
+            f"got {flow!r}"
+        )
+    if scheme == "auth-capture":
+        if present and flow not in ("escrow", "authorization"):
+            problems.append(f"auth-capture allows 'escrow' or 'authorization', got {flow!r}")
+        if extra.get("autoCapture") is True:
+            problems.append(
+                "auth-capture v1.1 removed autoCapture; `autoCapture: true` MUST be rejected "
+                "(invalid_auth_capture_evm_unsupported_payment_flow)"
+            )
+        if flow == "authorization" and "captureMode" in extra:
+            problems.append("captureMode MUST NOT be set when paymentFlow is 'authorization'")
+    return problems
+
+
+#: Bindings RS-PR-027 grades even without a declared flow, because they carry a
+#: MUST that an omission can violate or a field (autoCapture/captureMode) it reads.
+_FLOW_CONSTRAINED = frozenset(
+    {
+        ("upto", "*"),
+        ("exact", "lnbtc"),
+        ("exact", "starknet"),
+        ("exact", "cardano"),
+        ("batch-settlement", "solana"),
+        ("auth-capture", "*"),
+    }
+)
+
+
+@register(
+    "RS-PR-027",
+    "declared paymentFlow is one the entry's scheme binding allows",
+    Severity.MAJOR,
+    f"{_CORE} §6.1 + scheme_exact.md, scheme_upto*.md, scheme_exact_lnbtc.md, "
+    "scheme_exact_starknet.md, scheme_batch_settlement_svm.md, scheme_auth_capture_evm.md",
+)
+def pr_027(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-PR-027: paymentFlow per binding (x402#3145, auth-capture v1.1).
+
+    MUST rules fail: `upto` is never `upfront`; Lightning `exact` is always
+    `upfront` and must say so; Starknet and Cardano `exact` and SVM
+    batch-settlement are `authorization` when the field is present; SVM `upto` is
+    `escrow`; auth-capture is `escrow` or `authorization`, rejects
+    `autoCapture: true`, and has no `captureMode` under `authorization`. The
+    SHOULD (scheme_exact.md: prefer `authorization` when both are offered) is
+    advisory: an `upfront` exact entry with no `authorization` sibling for the
+    same network and asset is reported, never failed.
+    """
+    if _x402_version(s) == 1:
+        return Status.SKIP, _V1_SKIP
+    accepts = _accepts_raw(s)
+    if not accepts:
+        return Status.SKIP, "no accepts entries to inspect"
+    graded = 0
+    problems: list[str] = []
+    advisories: list[str] = []
+    for i, e in enumerate(accepts):
+        binding = _binding(e)
+        raw_extra = e.get("extra")
+        extra = raw_extra if isinstance(raw_extra, dict) else {}
+        upfront_exact = (
+            binding is not None
+            and binding[0] == "exact"
+            and (extra.get("paymentFlow") == "upfront")
+        )
+        if not _binding_in(binding, _FLOW_CONSTRAINED) and not upfront_exact:
+            continue
+        graded += 1
+        problems.extend(f"accepts[{i}]: {p}" for p in _flow_problems(e, binding))
+        if upfront_exact and binding != ("exact", "lnbtc"):
+            siblings = [
+                o
+                for o in accepts
+                if o is not e
+                and o.get("scheme") == "exact"
+                and o.get("network") == e.get("network")
+                and o.get("asset") == e.get("asset")
+                and _resolved_flow(o) == "authorization"
+            ]
+            if not siblings:
+                advisories.append(
+                    f"accepts[{i}] offers exact as 'upfront' only — scheme_exact.md says "
+                    "`authorization` SHOULD be preferred and defines no refund for upfront"
+                )
+    if graded == 0:
+        return Status.SKIP, "no entry on a binding with paymentFlow constraints"
+    if problems:
+        return Status.FAIL, "; ".join(problems)
+    if advisories:
+        return Status.PASS, "advisory: " + "; ".join(advisories)
+    return Status.PASS, f"{graded} flow-constrained entry/entries match their binding"
