@@ -9,9 +9,10 @@ the tester does NOT depend on the x402 SDK at runtime, so it cannot inherit the
 SDK's bugs. The SDK is used only as a *test-time oracle* (see tests): we assert
 our EIP-712 digest is byte-identical to the reference implementation's.
 
-``eth-account`` is an optional dependency. Install with::
+``eth-account`` is an optional dependency, the ``[evm]`` extra. The package is not on
+PyPI; install a tagged release from GitHub (see README "Install")::
 
-    pip install x402-conformance[evm]
+    pip install "x402-conformance[evm] @ git+https://github.com/moped2110/x402-conformance@vX.Y.Z"
 
 No mainnet keys, ever. Signers are testnet-only throwaway keys (see SECURITY.md).
 """
@@ -50,8 +51,8 @@ def _require_evm() -> None:
     """Fail with an installation hint when the optional EVM signer is unavailable."""
     if not _EVM_AVAILABLE:
         raise RuntimeError(
-            "EVM payload signing requires eth-account. Install with: "
-            "pip install x402-conformance[evm]"
+            "EVM payload signing requires eth-account: install the [evm] extra "
+            '(see README "Install")'
         )
 
 

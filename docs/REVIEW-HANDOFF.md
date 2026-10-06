@@ -1,7 +1,7 @@
 # Technical review handoff
 
 This guide is the shortest reliable route through an independent review of
-`x402-conformance` 0.6.0. It describes the shipped code, not the aspirational
+`x402-conformance` 0.7.0. It describes the shipped code, not the aspirational
 catalog. The authoritative protocol baseline is `x402-foundation/x402@d454eb9`;
 the latest upstream comparison and every support claim are recorded in
 [`support-matrix.md`](support-matrix.md), which also states the review cadence

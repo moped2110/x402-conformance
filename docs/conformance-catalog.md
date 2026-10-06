@@ -8,7 +8,7 @@
 
 **Status:** this catalog is the full *planned* set with spec traceability; some IDs are aspirational. See "Implementation status" below for what actually ships. Severity: **C**ritical (security/funds at risk), **M**ajor (spec violation, interop broken), **m**inor (robustness/quality).
 
-## Implementation status (v0.6.0)
+## Implementation status (v0.7.0)
 
 **Implemented & tested (81 checks):**
 - RS-HS-001…007, RS-PR-001…027, RS-SEC-012 — passive (`check`). RS-PR-008 does full EIP-55 checksum validation (mixed-case addresses) when keccak is available. RS-PR-015 is an opt-in structural check for the community `jp402.tax` breakdown on a live 402 (SKIP unless advertised); RS-PR-016 validates the qualified-invoice metadata on the OpenAPI surface (`/openapi.json`, fetched only when `jp402` is advertised).

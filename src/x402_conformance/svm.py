@@ -105,9 +105,7 @@ def derive_ata(owner: str, mint: str, token_program: str = TOKEN_PROGRAM) -> str
     try:
         from solders.pubkey import Pubkey
     except ImportError as e:  # pragma: no cover - only hit without the [svm] extra
-        raise ImportError(
-            "SVM ATA derivation needs the [svm] extra: pip install x402-conformance[svm]"
-        ) from e
+        raise ImportError('SVM ATA derivation needs the [svm] extra (see README "Install")') from e
 
     ata_program = Pubkey.from_string(ASSOCIATED_TOKEN_PROGRAM)
     seeds = [
@@ -162,7 +160,7 @@ def build_exact_svm_transaction(
         from solders.transaction import VersionedTransaction
     except ImportError as e:  # pragma: no cover - only hit without the [svm] extra
         raise ImportError(
-            "SVM transaction building needs the [svm] extra: pip install x402-conformance[svm]"
+            'SVM transaction building needs the [svm] extra (see README "Install")'
         ) from e
 
     if memo is not None and len(memo.encode("utf-8")) > MAX_MEMO_BYTES:
