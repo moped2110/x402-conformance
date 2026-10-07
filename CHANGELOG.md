@@ -5,6 +5,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- **Supply chain: available lock updates are reported, not failed.** The weekly job's
+  update check now writes the pending bumps to the job summary and emits a warning
+  instead of failing on any newer release; `pip-audit --strict` remains the hard gate.
+- **Lock refreshed** (`requirements/ci.txt`): iniconfig 2.3.1, opentelemetry-api 1.45.1,
+  toolz 1.2.0, typer 0.27.3. No advisories involved.
+- **CI runners pinned to `ubuntu-24.04`** in every workflow, ahead of `ubuntu-latest`
+  moving to Ubuntu 26 on 2026-10-19.
+
 ### Fixed
 - **`x402-conformance version` and every report's `specBaseline` named the wrong upstream
   review.** v0.7.0 still said "upstream reviewed through f62a9fa (2026-08-13)", but the
