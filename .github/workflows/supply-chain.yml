@@ -15,7 +15,7 @@ env:
 jobs:
   dependencies:
     name: Vulnerabilities and available lock updates
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
@@ -27,7 +27,11 @@ jobs:
         run: python -m pip install --require-hashes -r requirements/ci.txt
       - name: Audit the locked dependency graph
         run: python -m pip_audit --strict --require-hashes --disable-pip -r requirements/ci.txt
-      - name: Detect available dependency updates
+      - name: Report available dependency updates
+        # Report-only. Some locked package publishes a patch release most weeks, so a
+        # step that failed on any drift was red on almost every run and hid the signal
+        # that matters. Known vulnerabilities fail the job in the pip-audit step above;
+        # plain update drift is a summary note and a warning, refreshed when convenient.
         run: |
           # Same resolution floor as the committed lock (see ci.yml), otherwise
           # this comparison reports drift that does not exist.
@@ -37,11 +41,26 @@ jobs:
             --universal --python-version 3.11 --generate-hashes --no-annotate \
             --no-header --upgrade -o /tmp/ci-updated.txt
           tail -n +3 requirements/ci.txt > /tmp/ci-current.txt
-          diff -u /tmp/ci-current.txt /tmp/ci-updated.txt
+          if diff -u /tmp/ci-current.txt /tmp/ci-updated.txt > /tmp/ci-lock.diff; then
+            echo "requirements/ci.txt is current." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          bumps="$(grep -E '^[-+][A-Za-z0-9]' /tmp/ci-lock.diff | sed -E 's/ .*//')"
+          count="$(printf '%s\n' "$bumps" | grep -c '^+' || true)"
+          echo "::warning::${count} locked dependencies have newer releases; regenerate requirements/ci.txt with --upgrade."
+          {
+            echo "### Available dependency updates (${count})"
+            echo
+            echo "No known vulnerabilities (pip-audit passed). Refresh the lock when convenient:"
+            echo
+            echo '```diff'
+            printf '%s\n' "$bumps"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   upstream-drift:
     name: Upstream spec, error, and schema drift
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out the conformance suite
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
