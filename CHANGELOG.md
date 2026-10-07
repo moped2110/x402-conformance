@@ -5,6 +5,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **`x402-conformance version` and every report's `specBaseline` named the wrong upstream
+  review.** v0.7.0 still said "upstream reviewed through f62a9fa (2026-08-13)", but the
+  2026-10 review had moved the pin to `cb0ec5b` (2026-10-06). `SPEC_BASELINE` now says so,
+  and `tests/test_spec_baseline.py` ties it to `.github/upstream-reviewed-commit` and the
+  support matrix's review date, so the next pin move cannot leave it behind.
+
 ### Documented
 - **`docs/DEVELOPER.md`** is the developer entry point. It covers the full module
   map, install from a git tag, the hash-locked setup and the Anvil settlement path,
