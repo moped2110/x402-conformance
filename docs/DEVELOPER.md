@@ -25,7 +25,7 @@ check ID, a severity and a spec reference.
 
 - **81 checks** in the default catalog. The opt-in `--profile pqc` checks
   `PQC-001..006` and the `[svm]` FA-SVM group are outside that count.
-- **JSON report 1.4.**
+- **JSON report 1.5** (unreleased; v0.7.0 ships 1.4).
 - **Spec baseline:** x402 v2 @ `d454eb9`.
 - **Upstream review:** through `cb0ec5b` (2026-10-06), recorded in
   `.github/upstream-reviewed-commit`.
@@ -181,7 +181,15 @@ FA-SET-004 requires the pending answer to name its transaction.
 **Reports.**
 
 - JSON is validated against [`report.schema.json`](../report.schema.json)
-  (`reportVersion` 1.4). Major 1 is the stable consumer contract.
+  (`reportVersion` 1.5). Major 1 is the stable consumer contract.
+- `target` is the redacted origin. Since 1.5, `targetUrl` adds the path, so two
+  endpoints on one host are distinguishable. Path segments that look like secrets
+  (20+ characters mixing letters and digits, longer than 64, or outside RFC 3986
+  `pchar`) become `<redacted>`; userinfo, query and fragment are always dropped. Set
+  `X402_CONFORMANCE_REDACT_PATH=1` for capability-URL endpoints to drop the path.
+- A PASS may carry `reason_code: noncanonical_reason` (since 1.5): correct
+  behaviour, non-canonical machine-readable reason (e.g. FA-VER-003). It never
+  changes the exit code; console and Markdown name such checks under the summary.
 - Markdown, SARIF, the developer `--fix` report, scans and run records share the
   same verdict.
 - Targets are persisted as origin plus fingerprint.

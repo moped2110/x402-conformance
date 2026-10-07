@@ -15,9 +15,10 @@ from .checks.base import (
     ENDPOINT_ABSENT,
     INCONCLUSIVE_NO_CHECKS_APPLICABLE,
     INCONCLUSIVE_NOT_X402_V2,
+    NONCANONICAL_REASON,
     SETTLEMENT_PENDING,
 )
-from .redaction import sanitize_text, sanitize_url, url_fingerprint
+from .redaction import sanitize_target_url, sanitize_text, sanitize_url, url_fingerprint
 
 _GATING = (Severity.CRITICAL, Severity.MAJOR)
 _BAD = (Status.FAIL, Status.ERROR)
@@ -30,8 +31,11 @@ _BAD = (Status.FAIL, Status.ERROR)
 #: additionalProperties=false, so a new field is a contract change, not a free addition —
 #: minor bump, same major, consumers pinning major 1 keep working. 1.4 adds the
 #: `settlement_pending` value to both enums (x402#3083: a broadcast-but-unconfirmed
-#: settlement is non-terminal, so the run is inconclusive, not failed).
-REPORT_VERSION = "1.4"
+#: settlement is non-terminal, so the run is inconclusive, not failed). 1.5 adds the
+#: optional top-level `targetUrl` (origin plus a secret-redacted path); `target` stays
+#: the origin, so 1.4 consumers are unaffected, and the `noncanonical_reason`
+#: per-check reason_code (on a PASS; never changes the exit code).
+REPORT_VERSION = "1.5"
 
 #: SARIF 2.1.0 — the OASIS static-analysis interchange format GitHub code scanning
 #: and bug-bounty platforms ingest. Lets a scan's findings land in a Security tab.
@@ -147,6 +151,7 @@ def to_json(
             "tool": {"name": "x402-conformance", "version": __version__},
             "specBaseline": SPEC_BASELINE,
             "target": sanitize_url(target_url),
+            "targetUrl": sanitize_target_url(target_url),
             "targetFingerprint": url_fingerprint(target_url),
             "timestamp": datetime.now(UTC).isoformat(),
             "summary": summarize(results),
@@ -238,6 +243,7 @@ def to_sarif(results: list[CheckResult], target_url: str, outcome_code: int | No
                 "results": sarif_results,
                 "properties": {
                     "target": safe_target,
+                    "targetUrl": sanitize_target_url(target_url) or "<redacted>",
                     "targetFingerprint": url_fingerprint(target_url),
                     "specBaseline": SPEC_BASELINE,
                     "conformant": code == 0,
@@ -288,9 +294,17 @@ def to_markdown(
     lines = [
         "# x402 Conformance Report",
         "",
-        f"**Target:** `{_md_inline_code(sanitize_url(target_url) or '<redacted>')}`",
+        f"**Target:** `{_md_inline_code(sanitize_target_url(target_url) or '<redacted>')}`",
         f"**Verdict:** {verdict} "
         f"({s['passed']} passed, {s['failed']} failed, {s['skipped']} skipped, {s['errors']} errors)",
+        *(
+            [
+                "**Passed with a non-canonical reason:** "
+                + ", ".join(r.check_id for r in results if r.reason_code == NONCANONICAL_REASON)
+            ]
+            if any(r.reason_code == NONCANONICAL_REASON for r in results)
+            else []
+        ),
         f"**Spec baseline:** {SPEC_BASELINE}",
         f"**Generated:** {datetime.now(UTC).isoformat()} by x402-conformance {__version__}",
         "",
@@ -325,6 +339,9 @@ _REMEDIATION: dict[str, str] = {
     "RS-PR-014": "Set a strictly positive `amount` (> 0).",
     "RS-PR-017": "Advertise a protocol-named `scheme` (exact / upto / batch-settlement / auth-capture) — a client can't pay an unknown one.",
     "RS-PR-018": "Don't offer the same scheme+network+asset (and paymentFlow/assetTransferMethod) at two different payTo/amount values; pick one, or vary the asset or flow.",
+    "RS-NEG-001": "Answer an undecodable PAYMENT-SIGNATURE with HTTP 400 (transports-v2/http.md: Invalid Payment). The upstream Python SDK answers 402 as of x402@cb0ec5b; if you use it, the fix is upstream.",
+    "RS-NEG-002": "Answer a PAYMENT-SIGNATURE that is base64 but not JSON with HTTP 400 (transports-v2/http.md: Invalid Payment). The upstream Python SDK answers 402 as of x402@cb0ec5b; if you use it, the fix is upstream.",
+    "RS-NEG-012": "Reject an unknown x402Version cleanly with 400 or 402 — never serve, settle, or crash on it.",
     "RS-NEG-003": "Reject a payment whose signature doesn't recover to `from` before serving or settling.",
     "RS-NEG-005": "Reject underpayment: the authorized value must equal the required amount.",
     "RS-NEG-007": "Reject a payment whose `to` doesn't match your payTo (recipient mismatch).",
@@ -530,7 +547,7 @@ def to_developer_report(
     s = summarize(results)
     lines = [
         "x402 conformance — developer report",
-        f"Target: {sanitize_url(target_url) or '<redacted>'}",
+        f"Target: {sanitize_target_url(target_url) or '<redacted>'}",
         "",
     ]
     if not failures:

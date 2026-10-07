@@ -61,6 +61,13 @@ ENDPOINT_ABSENT = "endpoint_absent"
 #: report reader already understands a qualified SKIP.
 SETTLEMENT_PENDING = "settlement_pending"
 
+#: Per-check: a PASS whose behaviour is correct but whose machine-readable answer is
+#: not the canonical one — e.g. /verify rejects an EOA asset (the security property
+#: holds) with a different ``invalidReason`` than ``asset_not_deployed_contract``.
+#: It never changes the exit code; it exists so the deviation is visible in the
+#: summary instead of only in a PASS row's detail text.
+NONCANONICAL_REASON = "noncanonical_reason"
+
 #: Run-level inconclusive reasons that only the runner or CLI can determine.
 INCONCLUSIVE_UNREACHABLE = "unreachable"
 INCONCLUSIVE_INVALID_INPUT = "invalid_input"
@@ -81,7 +88,9 @@ INCONCLUSIVE_REASONS = frozenset(
 )
 
 #: The values a single ``CheckResult.reason_code`` may carry.
-PER_CHECK_REASON_CODES = frozenset({DEFERRED_PENDING_UPSTREAM, ENDPOINT_ABSENT, SETTLEMENT_PENDING})
+PER_CHECK_REASON_CODES = frozenset(
+    {DEFERRED_PENDING_UPSTREAM, ENDPOINT_ABSENT, SETTLEMENT_PENDING, NONCANONICAL_REASON}
+)
 
 #: A check returns ``(status, detail)`` or, when it wants to qualify a SKIP,
 #: ``(status, detail, reason_code)``. The runner normalises both to a CheckResult.

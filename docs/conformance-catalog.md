@@ -106,7 +106,7 @@ These are the money tests: a server that delivers the resource despite an invali
 
 | ID | Test | Expected | Spec ref | Sev | Status |
 |----|------|----------|----------|-----|--------|
-| RS-NEG-001 | `PAYMENT-SIGNATURE` is garbage base64 | 400, no resource | HTTP §Error Handling | M | implemented |
+| RS-NEG-001 | `PAYMENT-SIGNATURE` is garbage base64 | 400, no resource (the upstream Python SDK answers 402 as of x402@cb0ec5b; the failure says so) | HTTP §Error Handling | M | implemented |
 | RS-NEG-002 | Valid base64, malformed JSON | 400, no resource | HTTP §Error Handling | M | implemented |
 | RS-NEG-003 | Schema-valid payload, invalid signature bytes | 402, no resource | CORE §6.1.2 step 1 | C | implemented |
 | RS-NEG-004 | Signature valid but recovers to address ≠ `authorization.from` | 402, no resource | EVM §1 Phase 2.1 | C | implemented |
@@ -117,7 +117,7 @@ These are the money tests: a server that delivers the resource despite an invali
 | RS-NEG-009 | Not-yet-valid authorization (`validAfter` in future) | 402 (`..valid_after`) | CORE §9 | M | implemented |
 | RS-NEG-010 | Unfunded payer (zero balance) | 402 (`insufficient_funds`), resource NOT delivered before settlement check | CORE §6.1.2 step 2 | C | planned |
 | RS-NEG-011 | `accepted` does not match any offered requirement (wrong scheme/network/asset) | 402 (`invalid_scheme`/`invalid_network`) | CORE §9 | M | implemented |
-| RS-NEG-012 | `x402Version` ≠ 2 (e.g. 1, 99) | Rejected or correct V1 fallback (`invalid_x402_version`) | CORE §9 | M | implemented |
+| RS-NEG-012 | `x402Version` ≠ 2 (e.g. 1, 99) | Rejected with 400 or 402 (`invalid_x402_version`), or correct V1 fallback; upstream Python answers 402, Go 400 | CORE §9 | M | implemented |
 | RS-NEG-013 | Tampered `accepted.amount` (lower than server's offer, signature consistent with tampered value) | 402 — server must validate against ITS requirements, not client-supplied ones | CORE §6.1.2 step 5 | C | implemented |
 | RS-NEG-014 | Payment with a well-formed but **wrong asset contract** (lookalike token) | 402 — server validates the contract address against its requirement, not the token symbol | CORE §6.1.2 step 4 + N10 | C | implemented |
 | RS-NEG-015 | Payment whose **asset is an EOA** (no contract code) | 402 — calling transferWithAuthorization on an EOA never reverts, so settlement is a silent no-op; server must reject (`asset_not_deployed_contract`) before settling | CORE §6.1.2 step 4 + x402#2554 | C | implemented |
@@ -168,7 +168,7 @@ remains for any future point under clarification; Algorand was simply its first 
 instance.)
 | FA-VER-001 | `POST /verify` with valid payload | `{isValid:true, payer}` | CORE §7.1 | M | planned |
 | FA-VER-002 | `/verify` with each RS-NEG payload class | `isValid:false` + correct `invalidReason` code | CORE §7.1, §9 | C | implemented |
-| FA-VER-003 | `/verify` with an **asset that is an EOA** (no bytecode) | `isValid:false` — facilitator must pre-flight `eth_getCode` and reject (`asset_not_deployed_contract`), else settlement is a silent no-op | CORE §7.1 + x402#2554 | C | implemented |
+| FA-VER-003 | `/verify` with an **asset that is an EOA** (no bytecode) | `isValid:false` — facilitator must pre-flight `eth_getCode` and reject (`asset_not_deployed_contract`), else settlement is a silent no-op. A different `invalidReason` still passes but is tagged `noncanonical_reason` and named in the summary | CORE §7.1 + x402#2554 | C | implemented |
 | FA-VER-005 | `/verify` does NOT settle (no on-chain tx) | No state change | CORE §7.1 | C | planned |
 | FA-VER-004 | `/verify` handles invalid client input (EOA asset) with a clean 4xx/200, not a 5xx | No server error on malformed input — a `balanceOf`/parse exception must surface as `isValid:false`, not HTTP 500 | CORE §7.1 (robustness) | m | implemented |
 | FA-SET-001 | `POST /settle` with valid payload | `{success:true, transaction, network}`; tx on-chain | CORE §7.2 | M | implemented |
