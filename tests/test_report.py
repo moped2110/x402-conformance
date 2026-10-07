@@ -100,13 +100,49 @@ def test_json_report_is_valid_and_complete() -> None:
 
 
 def test_report_redacts_target_and_details() -> None:
-    target = "https://alice:pwd123@t.example/signed/SECRET?api_key=TOKEN#fragment"
+    target = (
+        "https://alice:pwd123@t.example/signed/sk_live_51HxAbCdEf0123456789?api_key=TOKEN#fragment"
+    )
     result = CheckResult("A", "t", Severity.MAJOR, "spec", Status.FAIL, f"failed at {target}")
     doc = json.loads(to_json([result], target))
     encoded = json.dumps(doc)
     assert doc["target"] == "https://t.example"
-    for secret in ("alice", "pwd123", "SECRET", "TOKEN", "api_key", "fragment"):
+    assert doc["targetUrl"] == "https://t.example/signed/<redacted>"
+    for secret in ("alice", "pwd123", "sk_live", "TOKEN", "api_key", "fragment"):
         assert secret not in encoded
+
+
+def test_target_url_keeps_the_path_so_endpoints_on_one_origin_differ() -> None:
+    a = json.loads(to_json([], "https://x402.org/facilitator"))
+    b = json.loads(to_json([], "https://x402.org/other-facilitator/"))
+    assert a["target"] == b["target"] == "https://x402.org"
+    assert a["targetUrl"] == "https://x402.org/facilitator"
+    assert b["targetUrl"] == "https://x402.org/other-facilitator/"
+    assert json.loads(to_json([], "https://t.example"))["targetUrl"] == "https://t.example"
+    md = to_markdown([], "http://localhost:4021/premium/content")
+    assert "`http://localhost:4021/premium/content`" in md
+
+
+def test_target_url_path_redaction_can_be_forced(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("X402_CONFORMANCE_REDACT_PATH", "1")
+    doc = json.loads(to_json([], "https://t.example/signed/SECRET"))
+    assert doc["targetUrl"] == "https://t.example"
+    assert "SECRET" not in json.dumps(doc)
+
+
+def test_target_url_redacts_overlong_segments() -> None:
+    doc = json.loads(to_json([], "https://t.example/" + "a" * 65 + "/x"))
+    assert doc["targetUrl"] == "https://t.example/<redacted>/x"
+
+
+def test_report_1_4_shape_still_validates() -> None:
+    # 1.5 is additive: a 1.4 document (no targetUrl) must still satisfy the schema.
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    doc = json.loads(to_json([_r("A", Status.PASS, Severity.MAJOR)], "https://t.example"))
+    doc.pop("targetUrl")
+    doc["reportVersion"] = "1.4"
+    jsonschema.validate(doc, schema)
 
 
 def test_json_report_validates_against_published_schema() -> None:
@@ -208,7 +244,7 @@ def test_markdown_sanitizes_backticks_in_target() -> None:
     # a backtick in the target would break out of the inline-code span
     md = to_markdown([_r("A", Status.PASS, Severity.MAJOR)], "http://x/`# pwn")
     assert "`# pwn" not in md
-    assert "**Target:** `http://x`" in md
+    assert "**Target:** `http://x/<redacted>`" in md
 
 
 # --- K1-6: machine-readable inconclusive reason -----------------------------

@@ -138,11 +138,11 @@ signature or adversarial trust anchor.
 
 ## Report and run-record contracts
 
-- JSON reports use `reportVersion: "1.4"` and are validated by the repository
+- JSON reports use `reportVersion: "1.5"` and are validated by the repository
   root `report.schema.json`. Consumers should pin the major version.
 - Every result carries `check_id`, `title`, `severity`, `spec_ref`, `status`, and
   sanitized `detail`, plus an optional `reason_code` (`deferred_pending_upstream`,
-  `endpoint_absent`, or `settlement_pending` since 1.4) qualifying a SKIP. Result ordering is deterministic.
+  `endpoint_absent`, or `settlement_pending` since 1.4) qualifying a SKIP, or `noncanonical_reason` (since 1.5) qualifying a PASS. 1.5 also adds the optional top-level `targetUrl`. Result ordering is deterministic.
 - An exit-2 report carries a top-level `inconclusiveReason` naming why the verdict
   is inconclusive (`endpoint_absent` / `deferred_pending_upstream` / `settlement_pending` / `not_x402_v2` /
   `no_checks_applicable` / `unreachable` / `invalid_input`); it is null otherwise.

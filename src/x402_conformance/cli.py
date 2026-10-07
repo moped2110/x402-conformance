@@ -13,9 +13,10 @@ import typer
 
 from . import SPEC_BASELINE, __version__
 from .checks import CheckResult, Status
+from .checks.base import NONCANONICAL_REASON
 from .diff import diff_reports, format_diff
 from .probe import facilitator_path_kind
-from .redaction import sanitize_text, sanitize_url
+from .redaction import sanitize_target_url, sanitize_text, sanitize_url
 from .report import (
     assessment_exit_code,
     explain_check,
@@ -230,7 +231,7 @@ def _emit(
 ) -> int:
     """Print results + write reports. Returns the CI exit code."""
     code = assessment_exit_code(results) if outcome_code is None else outcome_code
-    safe_target = sanitize_url(target) or "<redacted>"
+    safe_target = sanitize_target_url(target) or "<redacted>"
     if developer:
         # Failures-only punch-list for the endpoint owner: what's wrong + how to fix.
         typer.echo(to_developer_report(results, target, code))
@@ -244,7 +245,7 @@ def _emit(
             }
             for r in results:
                 line = f"{icon[r.status]}  {r.check_id:<10} [{r.severity.value:<8}] {r.title}"
-                if r.detail and r.status != Status.PASS:
+                if r.detail and (r.status != Status.PASS or r.reason_code is not None):
                     detail = sanitize_text(r.detail, sensitive_values=(target,)) or ""
                     line += f"\n      ↳ {detail}"
                 typer.echo(line)
@@ -260,6 +261,9 @@ def _emit(
             f"\n{verdict} — {s['passed']} passed, {s['failed']} failed, "
             f"{s['skipped']} skipped, {s['errors']} errors  ({safe_target})"
         )
+        noted = [r.check_id for r in results if r.reason_code == NONCANONICAL_REASON]
+        if noted:
+            typer.echo(f"Passed with a non-canonical reason: {', '.join(noted)}")
     if json_out is not None:
         _write_output(json_out, to_json(results, target, code), "JSON report")
         typer.echo(f"JSON report: {json_out}")

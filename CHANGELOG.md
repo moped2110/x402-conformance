@@ -5,7 +5,28 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+Validation findings (RS-NEG-012, RS-NEG-001/002, FA-VER-003, report target) come from
+the 2026-10-07 real-target validation against the upstream Python and Go example
+servers at x402@cb0ec5b and the x402.org facilitator on Base Sepolia.
+
 ### Changed
+- **RS-NEG-001/002 explain an upstream cause.** They still fail a 402 answer to a
+  malformed `PAYMENT-SIGNATURE` (the spec says 400) and stay MAJOR: the catalog defines
+  MAJOR as "spec violation / interop broken", and this is a spec violation. The detail
+  and `explain` hint now say that the upstream Python SDK answers 402 as of
+  x402@cb0ec5b, so the fix belongs upstream when an endpoint uses it.
+- **FA-VER-003 surfaces a non-canonical rejection reason.** A facilitator that
+  rejects the EOA asset with a reason other than `asset_not_deployed_contract` still
+  passes, but the result carries the new `reason_code` `noncanonical_reason`. The
+  console and Markdown report name such checks under the summary. The verdict is
+  unchanged.
+- **Reports name the full target.** JSON report **1.5** adds an optional top-level
+  `targetUrl` (origin plus path) and the `noncanonical_reason` per-check reason code;
+  SARIF gains a `targetUrl` property. The console summary and Markdown/`--fix`
+  reports show it too. `target` stays the origin, so 1.4 consumers are unaffected; a
+  test keeps a 1.4-shaped document valid. Path segments that look like secrets (20+
+  characters mixing letters and digits, longer than 64, or outside RFC 3986 `pchar`)
+  are `<redacted>`. Set `X402_CONFORMANCE_REDACT_PATH=1` to drop the path entirely.
 - **Supply chain: available lock updates are reported, not failed.** The weekly job's
   update check now writes the pending bumps to the job summary and emits a warning
   instead of failing on any newer release; `pip-audit --strict` remains the hard gate.
@@ -15,6 +36,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   moving to Ubuntu 26 on 2026-10-19.
 
 ### Fixed
+- **RS-NEG-012 failed a conformant server.** It accepted only 402 for an unknown
+  `x402Version`; the upstream Go SDK rejects it cleanly with 400, which
+  transports-v2/http.md's "Invalid Payment → 400" row covers. Both 400 and 402 now
+  pass; anything else (2xx, 404, 5xx, a leak) still fails.
 - **`x402-conformance version` and every report's `specBaseline` named the wrong upstream
   review.** v0.7.0 still said "upstream reviewed through f62a9fa (2026-08-13)", but the
   2026-10 review had moved the pin to `cb0ec5b` (2026-10-06). `SPEC_BASELINE` now says so,

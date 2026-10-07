@@ -130,6 +130,24 @@ def _build_payload(
 
 # --- malformed transport payloads (no signing needed) ---
 
+#: Observed 2026-10-07 against the upstream examples at x402@cb0ec5b: the Python SDK's
+#: middleware answers a malformed PAYMENT-SIGNATURE with a fresh 402 challenge, while
+#: the Go SDK answers 400. transports-v2/http.md §Error Handling maps "Invalid Payment —
+#: malformed payment payload" to 400, so the 402 stays a finding; the note tells an
+#: endpoint owner on the Python SDK that the cause is upstream, not their code.
+_MALFORMED_402_NOTE = (
+    " — note: the upstream x402 Python SDK (as of x402@cb0ec5b) answers a malformed "
+    "PAYMENT-SIGNATURE with 402; if this endpoint uses it, the fix belongs upstream"
+)
+
+
+def _with_malformed_note(verdict: tuple[Status, str]) -> tuple[Status, str]:
+    """Append the Python-SDK note to a malformed-payload FAIL that answered 402."""
+    status, detail = verdict
+    if status is Status.FAIL and "unexpected status 402" in detail:
+        return status, detail + _MALFORMED_402_NOTE
+    return verdict
+
 
 @_register(
     "RS-NEG-001",
@@ -139,7 +157,9 @@ def _build_payload(
 )
 def neg_001(ctx: ActiveContext) -> tuple[Status, str]:
     """Evaluate RS-NEG-001: Garbage base64 in PAYMENT-SIGNATURE is rejected."""
-    return _assert_rejected(ctx.send_header("!!!not-base64!!!"), allowed_statuses=frozenset({400}))
+    return _with_malformed_note(
+        _assert_rejected(ctx.send_header("!!!not-base64!!!"), allowed_statuses=frozenset({400}))
+    )
 
 
 @_register(
@@ -153,7 +173,9 @@ def neg_002(ctx: ActiveContext) -> tuple[Status, str]:
     import base64
 
     bad = base64.b64encode(b"{not valid json").decode()
-    return _assert_rejected(ctx.send_header(bad), allowed_statuses=frozenset({400}))
+    return _with_malformed_note(
+        _assert_rejected(ctx.send_header(bad), allowed_statuses=frozenset({400}))
+    )
 
 
 # --- signed-but-invalid payloads ---
@@ -502,10 +524,15 @@ def neg_012(ctx: ActiveContext) -> tuple[Status, str]:
     # A v2 endpoint must reject an unknown top-level x402Version (here 99) cleanly,
     # not mis-parse it. (1 may legitimately route to a V1 fallback; 99 is
     # unambiguously unsupported, so the verdict stays "must reject".)
+    # Either status is conformant: transports-v2/http.md maps a malformed or
+    # unsupported payload to 400 ("Invalid Payment") and a failed verification to
+    # 402, and an unknown version is reasonably either. Both upstream SDKs reject it
+    # cleanly — Python with 402, Go with 400 (x402@cb0ec5b) — so accepting only 402
+    # failed a conformant Go server.
     """Evaluate RS-NEG-012: Payment with x402Version != 2 is rejected."""
     payload = _build_payload(ctx)
     payload["x402Version"] = 99
-    return _assert_rejected(ctx.send(payload))
+    return _assert_rejected(ctx.send(payload), allowed_statuses=frozenset({400, 402}))
 
 
 #: The builder-code reason upstream's resource servers return (python

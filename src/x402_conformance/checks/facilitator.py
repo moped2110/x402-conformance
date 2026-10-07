@@ -43,6 +43,7 @@ from ..probe import build_probe
 from ..safety import DEFAULT_SAFETY_POLICY
 from .base import (
     ENDPOINT_ABSENT,
+    NONCANONICAL_REASON,
     SETTLEMENT_PENDING,
     CheckResult,
     Severity,
@@ -201,6 +202,9 @@ class FacilitatorContext:
     #: (404/405/501). Read back in `evaluate_facilitator` to tag the result as
     #: ``endpoint_absent`` — "not there", distinct from "not applicable".
     absent_checks: set[str] = field(default_factory=set)
+    #: Check IDs that passed with a non-canonical machine-readable answer; tagged
+    #: ``noncanonical_reason`` in `evaluate_facilitator` so the summary shows them.
+    noncanonical_checks: set[str] = field(default_factory=set)
     #: Raw EXTENSION-RESPONSES header values seen on /verify, in order (FA-EXT-001).
     extension_responses: list[str] = field(default_factory=list)
 
@@ -208,6 +212,11 @@ class FacilitatorContext:
         """Record one check as endpoint-absent and return its SKIP outcome."""
         self.absent_checks.add(check_id)
         return Status.SKIP, detail
+
+    def noncanonical(self, check_id: str, detail: str) -> tuple[Status, str]:
+        """Record one check as passed with a non-canonical reason and return its PASS."""
+        self.noncanonical_checks.add(check_id)
+        return Status.PASS, detail
 
 
 FaFunc = Callable[[FacilitatorContext], "tuple[Status, str]"]
@@ -497,12 +506,16 @@ def fa_ver_003(ctx: FacilitatorContext) -> tuple[Status, str]:
             "silent-no-op / payment-bypass risk"
         )
     reason = result.invalid_reason
-    note = (
-        ""
-        if reason == "asset_not_deployed_contract"
-        else (f" (reason {reason!r}; canonical is asset_not_deployed_contract)")
+    if reason == "asset_not_deployed_contract":
+        return Status.PASS, "correctly rejected EOA asset"
+    # The security property holds (no silent no-op), so this stays a PASS; the
+    # non-canonical reason is tagged so it reaches the summary, not just this row.
+    return ctx.noncanonical(
+        "FA-VER-003",
+        f"correctly rejected EOA asset, but with non-canonical reason {reason!r} "
+        "(canonical: asset_not_deployed_contract, x402#2554) — clients keying on the "
+        "canonical code will not recognise it",
     )
-    return Status.PASS, f"correctly rejected EOA asset{note}"
 
 
 @_register(
@@ -860,6 +873,10 @@ def evaluate_facilitator(ctx: FacilitatorContext | None) -> list[CheckResult]:
         reason_code: str | None = None
         if ctx is not None and check.check_id in ctx.absent_checks:
             reason_code = ENDPOINT_ABSENT
+        elif (
+            ctx is not None and check.check_id in ctx.noncanonical_checks and status is Status.PASS
+        ):
+            reason_code = NONCANONICAL_REASON
         results.append(
             CheckResult(
                 check.check_id,
