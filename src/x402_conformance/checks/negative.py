@@ -22,6 +22,7 @@ from ..payload_builder import (
     build_exact_eip3009_payload,
     signature_recovers_to_authorizer,
     tamper_from,
+    tamper_high_s,
     tamper_signature,
 )
 from .base import CheckResult, Severity, Status, append_unique_check
@@ -632,6 +633,72 @@ def neg_016(ctx: ActiveContext) -> tuple[Status, str]:
     return Status.PASS, (
         f"rejected (status {resp.status_code}) without a reason, so whether the echo check "
         f"ran is not visible; a conformant server reports {_ECHO_MISMATCH!r}"
+    )
+
+
+#: The JSON values that decode cleanly but are not an object. x402#4051 made the
+#: SDKs reject them explicitly instead of crashing on attribute access.
+_NON_OBJECT_JSON = (b"[]", b'"payment"', b"42", b"null")
+
+
+@_register(
+    "RS-NEG-017",
+    "A PAYMENT-SIGNATURE whose JSON is not an object is rejected",
+    Severity.MAJOR,
+    "transports-v2/http.md §Error Handling + x402#4051",
+)
+def neg_017(ctx: ActiveContext) -> tuple[Status, str]:
+    """Evaluate RS-NEG-017: valid base64 and valid JSON, but not a JSON object.
+
+    Distinct from RS-NEG-002 (not JSON at all): a parser that only catches decode
+    errors lets `[]`, a string, a number or `null` through to field access, which
+    crashes (5xx) or worse. Each value is sent once; the first that is not answered
+    with 400 decides the verdict.
+    """
+    import base64
+
+    for raw in _NON_OBJECT_JSON:
+        verdict = _with_malformed_note(
+            _assert_rejected(
+                ctx.send_header(base64.b64encode(raw).decode()), allowed_statuses=frozenset({400})
+            )
+        )
+        if verdict[0] is not Status.PASS:
+            status, detail = verdict
+            return status, f"JSON {raw.decode()}: {detail}"
+    shown = ", ".join(r.decode() for r in _NON_OBJECT_JSON)
+    return Status.PASS, f"all non-object JSON payloads ({shown}) rejected with 400"
+
+
+_NON_CANONICAL = "invalid_exact_evm_non_canonical_signature"
+
+
+@_register(
+    "RS-NEG-018",
+    "A high-s (non-canonical) EIP-3009 signature is rejected",
+    Severity.MAJOR,
+    "scheme_exact_evm.md + EIP-2 + x402#3912",
+)
+def neg_018(ctx: ActiveContext) -> tuple[Status, str]:
+    """Evaluate RS-NEG-018: the malleated twin of a valid signature is rejected.
+
+    The twin recovers to the same signer, so only the low-s rule catches it. The
+    probe signer is unfunded, so a rejection for another reason (typically the
+    facilitator's `insufficient_funds`) still passes, with a note that the low-s
+    check was not observable.
+    """
+    resp = ctx.send(tamper_high_s(_build_payload(ctx)))
+    status, detail = _assert_rejected(resp, allowed_statuses=frozenset({400, 402}))
+    if status is not Status.PASS:
+        return status, detail
+    reason = _rejection_reason(resp) or (
+        resp.settlement.error_reason if resp.settlement is not None else None
+    )
+    if reason == _NON_CANONICAL:
+        return Status.PASS, f"rejected with {_NON_CANONICAL}"
+    return Status.PASS, (
+        f"{detail}, reason {reason!r}: rejected, but not visibly as {_NON_CANONICAL!r}; "
+        "whether the low-s rule ran is not observable with an unfunded probe signer"
     )
 
 

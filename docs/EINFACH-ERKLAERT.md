@@ -12,7 +12,7 @@ dafür kein Kundenkonto und kein Abo.
 
 Das Prüfprogramm stellt sich gegenüber einem solchen Dienst wie ein Kunde von
 außen. Es prüft, ob der Dienst die Regeln des x402-Protokolls einhält. Aktuell
-umfasst sein Prüfkatalog 81 Einzelprüfungen.
+umfasst sein Prüfkatalog 84 Einzelprüfungen.
 
 ## Welches Problem löst es?
 

@@ -67,6 +67,18 @@ def _recovers_to_from(payload: dict) -> bool:
     return recovered == auth["from"]
 
 
+_SECP256K1_HALF_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141 // 2
+
+
+def _is_high_s(payload: dict) -> bool:
+    """EIP-2 low-s rule (x402#3912): s above n/2 is the non-canonical twin."""
+    try:
+        sig = bytes.fromhex(payload["payload"]["signature"].removeprefix("0x"))
+    except Exception:
+        return False
+    return len(sig) == 65 and int.from_bytes(sig[32:64], "big") > _SECP256K1_HALF_N
+
+
 def make_server(
     *,
     check_signature: bool = True,
@@ -76,6 +88,7 @@ def make_server(
     check_version: bool = True,
     check_accepts: bool = True,
     check_resource: bool = True,
+    check_low_s: bool = True,
 ) -> httpx.MockTransport:
     """A configurable x402 resource server. Defaults = fully correct."""
 
@@ -126,6 +139,8 @@ def make_server(
         now = int(time.time())
         if check_time and not (int(auth["validAfter"]) <= now <= int(auth["validBefore"])):
             return reject("invalid_exact_evm_payload_authorization_validity")
+        if check_low_s and _is_high_s(payload):
+            return reject("invalid_exact_evm_non_canonical_signature")
         if check_signature and not _recovers_to_from(payload):
             return reject("invalid_exact_evm_payload_signature")
 

@@ -11,7 +11,7 @@ extending. These are the codes current mechanisms declare and return directly.
 packages returns codes from *both* halves and failing it for that would be our
 bug, not its.
 
-Extracted from 29 declaring files in the upstream tree; see
+Extracted from 31 declaring files in the upstream tree; see
 ``tools/sync_error_registry.py`` for the declaration patterns, the role boundary
 (``/client/`` and ``/server/`` files are excluded), the excluded codes and the
 known gaps (inline literals, prefix concatenation).
@@ -20,7 +20,7 @@ known gaps (inline literals, prefix concatenation).
 from __future__ import annotations
 
 #: Every wire error code declared outside the legacy `ErrorReasons` enum.
-#: 493 codes from 29 files.
+#: 529 codes from 31 files.
 MECHANISM_ERROR_CODES = frozenset(
     {
         # go/errors.go
@@ -69,6 +69,7 @@ MECHANISM_ERROR_CODES = frozenset(
         "invalid_auth_capture_evm_capture_deadline_expired",
         "invalid_auth_capture_evm_collector",
         "invalid_auth_capture_evm_deadline_ordering",
+        "invalid_auth_capture_evm_delegated_auth_unavailable",
         "invalid_auth_capture_evm_erc6492_factory_not_allowed",
         "invalid_auth_capture_evm_extra",
         "invalid_auth_capture_evm_fee_bps",
@@ -101,6 +102,7 @@ MECHANISM_ERROR_CODES = frozenset(
         "invalid_auth_capture_evm_token_collector_mismatch",
         "invalid_auth_capture_evm_token_mismatch",
         "invalid_auth_capture_evm_transaction_reverted",
+        "invalid_auth_capture_evm_unauthenticated_authorizer_request",
         "invalid_auth_capture_evm_unexpected_payment_state",
         "invalid_auth_capture_evm_unsupported_asset_transfer_method",
         "invalid_auth_capture_evm_unsupported_operator_type",
@@ -119,11 +121,24 @@ MECHANISM_ERROR_CODES = frozenset(
         "invalid_batch_settlement_evm_charge_exceeds_signed_cumulative",
         "invalid_batch_settlement_evm_cumulative_amount_mismatch",
         "invalid_batch_settlement_evm_cumulative_below_claimed",
+        "invalid_batch_settlement_evm_cumulative_exceeds_balance",
         "invalid_batch_settlement_evm_missing_channel",
+        "invalid_batch_settlement_evm_pending_id_mismatch",
+        "invalid_batch_settlement_evm_receiver_authorizer_mismatch",
+        "invalid_batch_settlement_evm_receiver_mismatch",
         "invalid_batch_settlement_evm_refund_amount_exceeds_balance",
         "invalid_batch_settlement_evm_refund_amount_invalid",
+        "invalid_batch_settlement_evm_refund_authorizer_mismatch",
+        "invalid_batch_settlement_evm_refund_authorizer_signature",
         "invalid_batch_settlement_evm_refund_no_balance",
+        "invalid_batch_settlement_evm_token_mismatch",
+        "invalid_batch_settlement_evm_unexpected_cancel",
+        "invalid_batch_settlement_evm_unexpected_pending_id",
         "invalid_batch_settlement_evm_verification_state_unavailable",
+        "invalid_batch_settlement_evm_voucher_store_mode_mismatch",
+        "invalid_batch_settlement_evm_voucher_store_unavailable",
+        "invalid_batch_settlement_evm_withdraw_delay_mismatch",
+        "invalid_batch_settlement_evm_withdraw_delay_out_of_range",
         # go/mechanisms/evm/batch-settlement/facilitator/errors.go
         "invalid_batch_settlement_evm_authorizer_address_mismatch",
         "invalid_batch_settlement_evm_authorizer_not_configured",
@@ -132,7 +147,7 @@ MECHANISM_ERROR_CODES = frozenset(
         "invalid_batch_settlement_evm_claim_payload",
         "invalid_batch_settlement_evm_claim_simulation_failed",
         "invalid_batch_settlement_evm_claim_transaction_failed",
-        "invalid_batch_settlement_evm_cumulative_exceeds_balance",
+        "invalid_batch_settlement_evm_delegated_settle_unauthenticated",
         "invalid_batch_settlement_evm_deposit_payload",
         "invalid_batch_settlement_evm_deposit_simulation_failed",
         "invalid_batch_settlement_evm_deposit_transaction_failed",
@@ -165,25 +180,21 @@ MECHANISM_ERROR_CODES = frozenset(
         "invalid_batch_settlement_evm_permit2_invalid_signature",
         "invalid_batch_settlement_evm_permit2_invalid_spender",
         "invalid_batch_settlement_evm_receive_authorization_signature",
-        "invalid_batch_settlement_evm_receiver_authorizer_mismatch",
-        "invalid_batch_settlement_evm_receiver_mismatch",
         "invalid_batch_settlement_evm_refund_payload",
         "invalid_batch_settlement_evm_refund_simulation_failed",
         "invalid_batch_settlement_evm_refund_transaction_failed",
+        "invalid_batch_settlement_evm_refunded_event_mismatch",
         "invalid_batch_settlement_evm_rpc_read_failed",
         "invalid_batch_settlement_evm_scheme",
         "invalid_batch_settlement_evm_settle_payload",
         "invalid_batch_settlement_evm_settle_simulation_failed",
         "invalid_batch_settlement_evm_settle_transaction_failed",
         "invalid_batch_settlement_evm_smart_wallet_deployment_failed",
-        "invalid_batch_settlement_evm_token_mismatch",
         "invalid_batch_settlement_evm_transaction_reverted",
         "invalid_batch_settlement_evm_unknown_settle_action",
         "invalid_batch_settlement_evm_voucher_payload",
         "invalid_batch_settlement_evm_voucher_signature",
         "invalid_batch_settlement_evm_wait_for_receipt_failed",
-        "invalid_batch_settlement_evm_withdraw_delay_mismatch",
-        "invalid_batch_settlement_evm_withdraw_delay_out_of_range",
         # go/mechanisms/evm/constants.go
         "invalid_exact_evm_payload_undeployed_smart_wallet",
         # go/mechanisms/evm/errors.go
@@ -213,6 +224,7 @@ MECHANISM_ERROR_CODES = frozenset(
         "invalid_exact_evm_insufficient_balance",
         "invalid_exact_evm_missing_eip712_domain",
         "invalid_exact_evm_network_mismatch",
+        "invalid_exact_evm_non_canonical_signature",
         "invalid_exact_evm_nonce_already_used",
         "invalid_exact_evm_payload",
         "invalid_exact_evm_payload_authorization_valid_after",
@@ -282,6 +294,7 @@ MECHANISM_ERROR_CODES = frozenset(
         "invalid_exact_solana_network_mismatch",
         "invalid_exact_solana_payload_amount_mismatch",
         "invalid_exact_solana_payload_excessive_signers",
+        "invalid_exact_solana_payload_invalid_lighthouse_instruction",
         "invalid_exact_solana_payload_memo_count",
         "invalid_exact_solana_payload_memo_mismatch",
         "invalid_exact_solana_payload_mint_mismatch",
@@ -297,11 +310,21 @@ MECHANISM_ERROR_CODES = frozenset(
         "invalid_exact_solana_payload_transaction_instructions_compute_price_instruction",
         "invalid_exact_solana_payload_transaction_instructions_compute_price_instruction_too_high",
         "invalid_exact_solana_payload_transaction_instructions_length",
+        "invalid_exact_solana_payload_transaction_instructions_order",
+        "invalid_exact_solana_payload_transaction_loaded_accounts_data_size_limit_missing",
+        "invalid_exact_solana_payload_transaction_size_exceeded",
+        "invalid_exact_solana_payload_transaction_v1_compute_budget_instruction",
+        "invalid_exact_solana_payload_transaction_v1_heap_size",
         "invalid_exact_solana_payload_unknown_fifth_instruction",
         "invalid_exact_solana_payload_unknown_fourth_instruction",
+        "invalid_exact_solana_payload_unknown_instruction",
         "invalid_exact_solana_payload_unknown_optional_instruction",
         "invalid_exact_solana_payload_unknown_seventh_instruction",
         "invalid_exact_solana_payload_unknown_sixth_instruction",
+        "invalid_exact_solana_preflight_postflight_fee_payer_not_isolated",
+        "invalid_exact_solana_preflight_postflight_transfer_not_allowed",
+        "invalid_exact_solana_recipient_ata_missing",
+        "invalid_exact_solana_recipient_ata_wrong_program_owner",
         "invalid_exact_solana_smart_wallet_alt_resolution_failed",
         "invalid_exact_solana_smart_wallet_alt_resolution_not_available",
         "invalid_exact_solana_smart_wallet_cannot_derive_destination_ata",
@@ -325,6 +348,7 @@ MECHANISM_ERROR_CODES = frozenset(
         "invalid_exact_solana_unsupported_scheme",
         "invalid_exact_solana_verification_failed",
         "post_settlement_transfer_not_confirmed",
+        "unsupported_transaction_version",
         # go/mechanisms/svm/exact/v1/facilitator/errors.go
         "invalid_exact_solana_extra_field",
         "invalid_exact_solana_transaction_confirmation_failed",
@@ -365,6 +389,7 @@ MECHANISM_ERROR_CODES = frozenset(
         "fee_payer_not_managed_by_facilitator",
         "invalid_exact_svm_payload",
         "invalid_exact_svm_payload_amount_insufficient",
+        "invalid_exact_svm_payload_invalid_lighthouse_instruction",
         "invalid_exact_svm_payload_memo_count",
         "invalid_exact_svm_payload_memo_mismatch",
         "invalid_exact_svm_payload_mint_mismatch",
@@ -374,9 +399,16 @@ MECHANISM_ERROR_CODES = frozenset(
         "invalid_exact_svm_payload_transaction_could_not_be_decoded",
         "invalid_exact_svm_payload_transaction_fee_payer_transferring_funds",
         "invalid_exact_svm_payload_transaction_instructions_length",
+        "invalid_exact_svm_payload_transaction_instructions_order",
+        "invalid_exact_svm_payload_transaction_size_exceeded",
+        "invalid_exact_svm_payload_transaction_v1_heap_size",
         "invalid_exact_svm_payload_unknown_fifth_instruction",
         "invalid_exact_svm_payload_unknown_fourth_instruction",
+        "invalid_exact_svm_payload_unknown_instruction",
+        "invalid_exact_svm_payload_unknown_seventh_instruction",
         "invalid_exact_svm_payload_unknown_sixth_instruction",
+        "invalid_exact_svm_recipient_ata_missing",
+        "invalid_exact_svm_recipient_ata_wrong_program_owner",
         "transaction_simulation_failed",
         # python/x402/mechanisms/tvm/constants.py
         "account_frozen",
@@ -494,6 +526,8 @@ MECHANISM_ERROR_CODES = frozenset(
         "invalid_exact_casper_facilitator_settle_failed",
         "invalid_exact_casper_facilitator_speculative_execution_failed",
         "invalid_exact_casper_facilitator_unsupported_asset",
+        # typescript/packages/mechanisms/evm/src/auth-capture/errors.ts
+        "invalid_auth_capture_evm_operator_type_mismatch",
         # typescript/packages/mechanisms/evm/src/exact/facilitator/errors.ts
         "eip2612_asset_mismatch",
         "eip2612_deadline_expired",
@@ -515,8 +549,11 @@ MECHANISM_ERROR_CODES = frozenset(
         "invalid_exact_svm_payload_transaction_instructions_compute_limit_instruction_too_high",
         "invalid_exact_svm_payload_transaction_instructions_compute_price_instruction",
         "invalid_exact_svm_payload_transaction_instructions_compute_price_instruction_too_high",
+        "invalid_exact_svm_payload_transaction_loaded_accounts_data_size_limit_missing",
+        "invalid_exact_svm_payload_transaction_v1_compute_budget_instruction",
         "invalid_exact_svm_payload_unknown_optional_instruction",
-        "invalid_exact_svm_payload_unknown_seventh_instruction",
+        "invalid_exact_svm_preflight_postflight_fee_payer_not_isolated",
+        "invalid_exact_svm_preflight_postflight_transfer_not_allowed",
         "invalid_exact_svm_smart_wallet_alt_resolution_failed",
         "invalid_exact_svm_smart_wallet_alt_resolution_not_available",
         "invalid_exact_svm_smart_wallet_cannot_derive_destination_ata",

@@ -5,8 +5,8 @@ run is conformance for the rows marked **supported**, not a blanket certificate 
 every x402 transport, network, scheme, or transfer mechanism.
 
 **Tool spec baseline:** `x402-foundation/x402@d454eb9` (2026-06-08)
-**Latest upstream review:** `main@cb0ec5b` (2026-10-06)
-**Review notes:** [`docs/upstream-review-2026-10.md`](upstream-review-2026-10.md) (previous: [`2026-08`](upstream-review-2026-08.md))
+**Latest upstream review:** `main@e7cdc70` (2026-11-06)
+**Review notes:** [`docs/upstream-review-2026-11.md`](upstream-review-2026-11.md) (previous: [`2026-10`](upstream-review-2026-10.md), [`2026-08`](upstream-review-2026-08.md))
 **Review sources:** [upstream commits](https://github.com/x402-foundation/x402/commits/main/),
 [V2 core specification](https://github.com/x402-foundation/x402/blob/main/specs/x402-specification-v2.md),
 [scheme specifications](https://github.com/x402-foundation/x402/tree/main/specs/schemes), and
@@ -24,6 +24,11 @@ that fails a conformant endpoint costs the customer an afternoon and costs us th
 this document makes. Upstream shipped five fixes of one bug class in five weeks, so the
 matrix goes stale faster than a monthly rhythm can track. The supply-chain workflow
 already reports pin drift on a schedule; this row says what that report obliges.
+
+**Missed, recorded openly:** the 2026-11 review came **31 days** after the 2026-10
+review (2026-10-06 → 2026-11-06), 17 days past this commitment. Nothing in the
+window turned an active check into a false FAIL, but that was found by reading
+upstream afterwards, not guaranteed. The two-week cadence stays as it is.
 
 Status meanings:
 
@@ -76,14 +81,18 @@ operator's choice at start-up and is never a tool parameter.
 | `exact` / ERC-7710 | EVM | planned | No delegation, manager, gas-limit, or simulation semantics are claimed. |
 | `exact` | SVM (`solana`) | passive-only | CAIP-2 parsing, ATA derivation, a partial-transaction builder, and tamper primitives exist; no runnable conformance group or settlement verifier exists yet. Reviewed 2026-08-07 against the x402#2937 spec change: `extra.recentBlockhash` is a *construction hint* only, `extra.lastValidBlockHeight` is informational and may be ignored, and verification must **not** compare the transaction's blockhash with the hint. The FA-SVM tamper set contains no blockhash case, so nothing here would false-FAIL — checked rather than assumed. |
 | `exact` | Starknet (`starknet:SN_MAIN`, `starknet:SN_SEPOLIA`) | planned | Spec landed 2026-08 (x402#2849) and is detailed enough to implement against: SNIP-9 OutsideExecution, SNIP-12 typed-data hashing, SNIP-6 `is_valid_signature`, `Caller` bound to `extra.feePayer`, single-`transfer` calldata, and mandatory settlement simulation. Nothing is implemented; a clean run makes no Starknet claim. |
-| `exact` | Canton | planned | Spec landed 2026-08 (x402#2634). Nothing implemented; a clean run makes no Canton claim. |
+| `exact` | Canton | planned | Spec landed 2026-08 (x402#2634); the exact mechanism was specified in 2026-10 (x402#3242). Matrix row only: nothing implemented, no active checks; a clean run makes no Canton claim. |
 | `exact` | Lightning (`lnbtc:…`) | passive-only | Spec landed 2026-09 (x402#2861): asset `BTC`, method `bolt11`, flow `upfront` only, `extra.requestHash`. The challenge is graded (RS-PR-019 vocabulary, RS-PR-027 requires `upfront`); the server MUST NOT call `/verify`, so a Lightning facilitator is not FA-VER-gradeable, and nothing is paid. |
 | `exact` | Cardano (`cardano:mainnet`/`preprod`/`preview`) | passive-only | Spec and TS SDK landed (x402#2537); methods `default`, `masumi`, `script`. The challenge is graded (RS-PR-019 vocabulary, RS-PR-027 `authorization`); its `ERR_*` codes are in the error registry. No signing or chain proof. |
 | `exact` | Hedera (`hedera:…`) | passive-only | Shared V2 checks plus the RS-PR-019 vocabulary (`feePayer`, `executors`). The new `transferExecutor` method (x402#3205) next to `cryptoTransfer` is not assessed; Hedera returns inline error literals, a known registry gap. |
-| `exact` | XRPL, Near, Casper, Aptos, AVM, Stellar, TVM, Keeta, and other families | passive-only | Shared V2 HTTP/wire checks only; no family-specific payload or on-chain proof. Casper has a TS SDK (x402#2877) but no spec file, so it gets no row of its own. |
+| `exact` | SVM transaction v1 (x402#3473/#3474/#3971) | passive-only | Versioned (v0/v1) transactions and version negotiation, `unsupported_transaction_version`, the new compute-budget/heap/size/ATA and Lighthouse (x402#3615) rules. Matrix row only: the codes are in the error registry, no active check builds or tampers a v1 transaction. |
+| `exact` | AVM (canonical CAIP-2, x402#3894) | passive-only | Shared V2 HTTP/wire checks only. Matrix row only: no AVM payload, signature or chain proof is assessed. |
+| `exact` | XRPL, Near, Casper, Aptos, Stellar, TVM, Keeta, and other families | passive-only | Shared V2 HTTP/wire checks only; no family-specific payload or on-chain proof. Casper has a TS SDK (x402#2877) but no spec file, so it gets no row of its own. |
+| `upto` | XRPL (x402#3023) | planned | Spec landed 2026-10. Matrix row only: no XRPL `upto` payload, ceiling or settlement check; XRPL returns inline error literals (a known registry gap). |
 | `upto` | any | planned | No ceiling, metered-amount, replay, or actual-transfer checks. The *flow declaration* is graded (RS-PR-025/026/027) and `assetTransferMethod` is accepted on `upto` entries, but that is the challenge only. SVM `upto` defaults to the `escrow` flow (x402#3094/#3135) and settles twice around the resource; none of that ordering is verified. The SVM delegated `receiverAuthorizer` and its settle-only `payload.type` are not assessed. |
 | `auth-capture` | any | planned | Recognised as a protocol-named scheme (RS-PR-017). The v1.1 declaration rules are graded (RS-PR-027: `escrow`/`authorization`, `autoCapture: true` rejected, no `captureMode` under `authorization`), and its escrow default makes RS-PR-026 advise an explicit `paymentFlow`. No authorize/capture/void/refund/reclaim semantics are assessed; rvf is the right home for the lifecycle. |
 | `batch-settlement` | any | planned | No escrow, voucher, aggregation, or redemption checks. The `extra` vocabularies for EVM and SVM (x402#2698) are graded by RS-PR-019, and SVM's `authorization`-only flow by RS-PR-027. EVM `minDeposit` is server-enforced only, so its rejection code is kept out of the facilitator error registry. |
+| `batch-settlement` / managed voucher | EVM (x402#3725) | planned | Facilitator-custodied vouchers. Matrix row only: its nine new codes are in the error registry; no custody, voucher or redemption semantics are assessed. |
 
 ## Facilitator completeness
 
@@ -153,7 +162,10 @@ resource server's own errors (route config, money parsing, settlement hooks — 
 auth-capture `server/errors.go` alone declares 23) never reach a facilitator
 response. `invalid_batch_settlement_evm_deposit_below_min_deposit` is excluded by
 name: only the batch-settlement resource server returns it, and the facilitator
-MUST NOT enforce `minDeposit`. The TypeScript pattern also matches `ERR_*`
+MUST NOT enforce `minDeposit`. Since the 2026-11 review
+`invalid_auth_capture_evm_server_lifecycle_unavailable` is excluded by name too: it
+is declared in the shared auth-capture `errors.ts`, but upstream marks it "never
+sent on the wire" and only the resource server's lifecycle manager throws it. The TypeScript pattern also matches `ERR_*`
 constants (Cardano, SVM `upto`, TVM). Codes upstream stopped declaring stay
 accepted as **retired** until a recorded removal date (`RETIRED_UNTIL`, currently
 2027-04-06); the drift job fails after it. Known gaps, so not accepted: mechanisms

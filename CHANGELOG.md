@@ -5,6 +5,25 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+Upstream review 2026-11 (`cb0ec5b..e7cdc70`), see `docs/upstream-review-2026-11.md`.
+
+### Added
+- **RS-HS-010** (MINOR, advisory): browser/CORS readiness of the 402 and the preflight
+  (transports-v2/http.md §Browser clients, x402#3809).
+- **RS-NEG-017** (MAJOR): a `PAYMENT-SIGNATURE` whose JSON is not an object gets 400
+  (x402#4051). **RS-NEG-018** (MAJOR): a high-s signature twin is rejected (x402#3912).
+- Support-matrix rows for SVM transaction v1, AVM, XRPL `upto` and the EVM managed
+  voucher (matrix only).
+
+### Changed
+- **Error registry** regenerated at `e7cdc70`: 529 codes from 31 files (+36);
+  `invalid_auth_capture_evm_server_lifecycle_unavailable` excluded by name. Legacy
+  enum 41 → 42 (`invalid_exact_evm_payload`).
+- **RS-PR-019** tolerates `exact` `extra.splits` (x402#3221). **RS-PR-023** advises on
+  a facilitator-only builder-code `m` in a 402 (x402#3666).
+- CI lock `x402==2.27.0`. Upstream pin `e7cdc70` (2026-11-06); the missed 31-day
+  review interval is recorded in the support matrix.
+
 Validation findings (RS-NEG-012, RS-NEG-001/002, FA-VER-003, report target) come from
 the 2026-10-07 real-target validation against the upstream Python and Go example
 servers at x402@cb0ec5b and the x402.org facilitator on Base Sepolia.

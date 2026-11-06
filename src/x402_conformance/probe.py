@@ -104,6 +104,11 @@ class ProbeSession:
     path_variant_marker: dict[str, bool] | None = None
     pqc_tamper_response: dict[str, object] | None = None
     pqc_downgrade_response: dict[str, object] | None = None
+    #: RS-HS-010: the unpaid request repeated with an `Origin`, and a CORS
+    #: preflight for the paid retry. ``None`` when the stage did not run (no
+    #: paywall) or the request failed at the transport layer.
+    cors_402: Probe | None = None
+    preflight: Probe | None = None
 
 
 # A PaymentRequired challenge travels base64-encoded in an HTTP response header, so

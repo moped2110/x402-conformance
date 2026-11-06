@@ -5,7 +5,7 @@ FAIL), so a code missing from it makes us fail a facilitator that is behaving
 correctly. It has two vendored halves, and each needs its own guard:
 
   * `SPEC_ERROR_REASONS` — the legacy `ErrorReasons` Zod enum. Frozen upstream at
-    41 codes under `legacy/`; still enforced, no longer extended.
+    42 codes under `legacy/` (41 until the 2026-11 review); still enforced.
   * `MECHANISM_ERROR_CODES` — `src/x402_conformance/error_registry.py`, generated
     by `tools/sync_error_registry.py` from the per-mechanism declarations that
     upstream adds codes to now.
@@ -162,9 +162,9 @@ def _parse_error_reasons(text: str) -> set[str]:
 
 
 def test_spec_error_reasons_pinned():
-    """CI-safe: the vendored enum is exactly what we reviewed (41 unique codes),
+    """CI-safe: the vendored enum is exactly what we reviewed (42 unique codes since the 2026-11 review),
     and the local extensions stay out of the canonical half."""
-    assert len(SPEC_ERROR_REASONS) == 41
+    assert len(SPEC_ERROR_REASONS) == 42
     # canonical settle/verify reasons live in the spec half, short form
     assert {"unexpected_settle_error", "unexpected_verify_error"} <= SPEC_ERROR_REASONS
     # both the short spelling and *_value_mismatch are now first-class spec codes
@@ -178,8 +178,11 @@ def test_spec_error_reasons_pinned():
 
 def test_mechanism_error_codes_pinned():
     """CI-safe: the generated mechanism registry is the set we reviewed
-    (main@cb0ec5b, 2026-10 review: 493 codes from 29 declaring files)."""
-    assert len(MECHANISM_ERROR_CODES) == 493
+    (main@e7cdc70, 2026-11 review: 529 codes from 31 declaring files)."""
+    assert len(MECHANISM_ERROR_CODES) == 529
+    # 2026-11: SVM tx v1 negotiation and the EIP-3009 high-s rejection are in.
+    assert "unsupported_transaction_version" in MECHANISM_ERROR_CODES
+    assert "invalid_exact_evm_non_canonical_signature" in MECHANISM_ERROR_CODES
     # The two codes upstream added since the last reviewed pin, and the reason
     # this half exists at all: neither is in the legacy enum.
     assert "invalid_exact_evm_transfer_event_mismatch" in MECHANISM_ERROR_CODES
@@ -211,6 +214,11 @@ def test_registry_boundary_decisions_hold():
     assert "exact_cardano_facilitator_chain_lookup_failed" in MECHANISM_ERROR_CODES
     assert "invalid_batch_settlement_evm_deposit_below_min_deposit" in _EXCLUDED_CODES
     assert "invalid_batch_settlement_evm_deposit_below_min_deposit" not in KNOWN_ERROR_CODES
+    # 2026-11 decision 3: declared in the shared auth-capture errors.ts but
+    # thrown only by the resource server's lifecycle manager ("never sent on the
+    # wire"), so it is excluded by name like the minDeposit code.
+    assert "invalid_auth_capture_evm_server_lifecycle_unavailable" in _EXCLUDED_CODES
+    assert "invalid_auth_capture_evm_server_lifecycle_unavailable" not in KNOWN_ERROR_CODES
     # The two server-raised codes that are also documented wire codes stay.
     assert {"settlement_pending", "extension_echo_mismatch"} <= MECHANISM_ERROR_CODES
 
