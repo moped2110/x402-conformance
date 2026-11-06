@@ -254,6 +254,34 @@ def tamper_signature(payload: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+#: secp256k1 group order. EIP-2 / OpenZeppelin ECDSA accept only s <= n/2.
+_SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+
+
+def tamper_high_s(payload: dict[str, Any]) -> dict[str, Any]:
+    """RS-NEG-018: replace the signature with its malleated twin (s' = n - s, v flipped).
+
+    The twin still recovers to the same signer, so it is *not* a forged signature:
+    it is the non-canonical encoding EIP-2 forbids and upstream x402#3912 now
+    rejects as `invalid_exact_evm_non_canonical_signature`. A verifier that skips
+    the low-s rule accepts a second valid-looking encoding of one authorization.
+    """
+    out = copy.deepcopy(payload)
+    body = bytes.fromhex(out["payload"]["signature"].removeprefix("0x"))
+    if len(body) != 65:
+        raise ValueError(f"expected a 65-byte r||s||v signature, got {len(body)} bytes")
+    r, s, v = body[:32], int.from_bytes(body[32:64], "big"), body[64]
+    high_s = _SECP256K1_N - s
+    if v in (27, 28):
+        flipped = 55 - v
+    elif v in (0, 1):
+        flipped = 1 - v
+    else:
+        raise ValueError(f"unexpected recovery id v={v}")
+    out["payload"]["signature"] = "0x" + (r + high_s.to_bytes(32, "big") + bytes([flipped])).hex()
+    return out
+
+
 def tamper_value_lower(payload: dict[str, Any], factor: float = 0.5) -> dict[str, Any]:
     """RS-NEG-005: authorize less than required (underpayment)."""
     out = copy.deepcopy(payload)
