@@ -159,3 +159,67 @@ def _positive_max_age(cache_control: str) -> bool:
             if value.isdigit() and int(value) > 0:
                 return True
     return False
+
+
+def _header_tokens(value: str) -> set[str]:
+    """Lower-cased comma-separated tokens of a list-valued header."""
+    return {t.strip().lower() for t in value.split(",") if t.strip()}
+
+
+@register(
+    "RS-HS-010",
+    "402 and preflight are usable from a browser (CORS, advisory)",
+    Severity.MINOR,
+    "transports-v2/http.md §Browser clients (x402#3809)",
+)
+def hs_010(s: ProbeSession) -> tuple[Status, str]:
+    """Evaluate RS-HS-010: the browser-client SHOULDs of transports-v2/http.md.
+
+    Advisory only: a server MAY refuse browser origins on a paid route, and every
+    rule here is a SHOULD, so findings are a PASS detail starting `advisory:` and
+    never gate. Graded: the 402 seen with an `Origin` exposes `PAYMENT-REQUIRED`
+    and `PAYMENT-RESPONSE`, and the `OPTIONS` preflight for the paid retry is not
+    itself paywalled and allows `PAYMENT-SIGNATURE`.
+    """
+    if s.cors_402 is None and s.preflight is None:
+        return Status.SKIP, "no paywall, or the CORS probes could not be sent"
+    advisories: list[str] = []
+    cors = s.cors_402
+    if cors is not None:
+        if "access-control-allow-origin" not in cors.headers:
+            return Status.PASS, (
+                "advisory: the 402 sends no Access-Control-Allow-Origin, so a browser "
+                "hides it entirely; fine if browser origins are refused on purpose "
+                "(http.md MAY), otherwise the rest of §Browser clients has no effect"
+            )
+        exposed = _header_tokens(cors.headers.get("access-control-expose-headers", ""))
+        missing = [h for h in ("PAYMENT-REQUIRED", "PAYMENT-RESPONSE") if h.lower() not in exposed]
+        if missing and "*" in exposed:
+            advisories.append(
+                "Access-Control-Expose-Headers is `*`, which does not cover "
+                + " and ".join(missing)
+                + " on a credentialed request; name them"
+            )
+        elif missing:
+            advisories.append(
+                "Access-Control-Expose-Headers does not name "
+                + " and ".join(missing)
+                + ": a cross-origin fetch cannot read the price or the receipt"
+            )
+    pre = s.preflight
+    if pre is not None:
+        if pre.status_code == 402 or "payment-required" in pre.headers:
+            advisories.append(
+                f"the OPTIONS preflight is paywalled (HTTP {pre.status_code}); a browser "
+                "refuses the paid retry before it is sent"
+            )
+        elif pre.status_code < 400:
+            allowed = _header_tokens(pre.headers.get("access-control-allow-headers", ""))
+            if "payment-signature" not in allowed and "*" not in allowed:
+                advisories.append(
+                    "the preflight does not allow PAYMENT-SIGNATURE in "
+                    "Access-Control-Allow-Headers: the paid retry fails as a network error"
+                )
+    if advisories:
+        return Status.PASS, "advisory: " + "; ".join(advisories)
+    return Status.PASS, ""

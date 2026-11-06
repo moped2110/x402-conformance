@@ -132,6 +132,39 @@ def _probe_path_variants(
     return outcomes, marker_seen
 
 
+#: Origin sent by the RS-HS-010 probes. `.invalid` is reserved (RFC 6761), so no
+#: allow-list can contain it by accident; a server that reflects it reflects any.
+CORS_PROBE_ORIGIN = "https://x402-conformance.invalid"
+
+
+def _probe_cors(
+    client: httpx.Client, url: str, method: str, first: Probe
+) -> tuple[Probe | None, Probe | None]:
+    """Fetch what a browser would see, for RS-HS-010: the 402 with an ``Origin``,
+    and the preflight for the paid retry. Only on a paywall; transport failures
+    become ``None`` rather than sinking the run."""
+    if not _is_paywall(first):
+        return None, None
+    probes: list[Probe | None] = []
+    requests = (
+        (method, {"Origin": CORS_PROBE_ORIGIN}),
+        (
+            "OPTIONS",
+            {
+                "Origin": CORS_PROBE_ORIGIN,
+                "Access-Control-Request-Method": method,
+                "Access-Control-Request-Headers": "content-type,payment-signature",
+            },
+        ),
+    )
+    for verb, extra in requests:
+        try:
+            probes.append(build_probe(client.request(verb, url, headers=extra)))
+        except httpx.HTTPError:
+            probes.append(None)
+    return probes[0], probes[1]
+
+
 def run_checks(
     url: str,
     method: str = "GET",
@@ -168,6 +201,7 @@ def run_checks(
         path_variants, variant_marker = _probe_path_variants(
             client, url, effective, first, resource_marker
         )
+        cors_402, preflight = _probe_cors(client, url, effective, first)
         pqc_tamper_response: dict[str, object] | None = None
         pqc_downgrade_response: dict[str, object] | None = None
         if profile == "pqc":
@@ -184,6 +218,8 @@ def run_checks(
         path_variant_marker=variant_marker,
         pqc_tamper_response=pqc_tamper_response,
         pqc_downgrade_response=pqc_downgrade_response,
+        cors_402=cors_402,
+        preflight=preflight,
     )
 
     results: list[CheckResult] = []
