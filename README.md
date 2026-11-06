@@ -42,7 +42,7 @@ funds.
 
 ---
 
-**Spec baseline:** x402 Protocol v2, `x402-foundation/x402` @ `d454eb9` (2026-06-08); upstream changes reviewed through `cb0ec5b` (2026-10-06) — see [`docs/upstream-review-2026-10.md`](docs/upstream-review-2026-10.md) (previous: [`2026-08`](docs/upstream-review-2026-08.md)).
+**Spec baseline:** x402 Protocol v2, `x402-foundation/x402` @ `d454eb9` (2026-06-08); upstream changes reviewed through `e7cdc701` (2026-11-06) — see [`docs/upstream-review-2026-11.md`](docs/upstream-review-2026-11.md) (previous: [`2026-10`](docs/upstream-review-2026-10.md), [`2026-08`](docs/upstream-review-2026-08.md)).
 **Test catalog:** see [`docs/conformance-catalog.md`](docs/conformance-catalog.md) — every check carries an ID, severity, and spec reference.
 **Support boundary:** [`docs/support-matrix.md`](docs/support-matrix.md) — exact supported, passive-only, planned, and out-of-scope mechanisms.
 **Architecture:** [`docs/architecture.md`](docs/architecture.md) (how it works, with diagrams). Dated development logs (calibration, on-chain bring-up, report/robustness work) are archived under [`docs/history/`](docs/history/).

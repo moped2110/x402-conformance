@@ -27,7 +27,7 @@ check ID, a severity and a spec reference.
   `PQC-001..006` and the `[svm]` FA-SVM group are outside that count.
 - **JSON report 1.5** (unreleased; v0.7.0 ships 1.4).
 - **Spec baseline:** x402 v2 @ `d454eb9`.
-- **Upstream review:** through `cb0ec5b` (2026-10-06), recorded in
+- **Upstream review:** through `e7cdc701` (2026-11-06), recorded in
   `.github/upstream-reviewed-commit`.
 
 ## Module map
