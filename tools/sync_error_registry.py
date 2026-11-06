@@ -90,7 +90,17 @@ _ROLE_SCOPED = ("/client/", "/server/")
 #: `minDeposit`; scheme_batch_settlement_evm.md says the facilitator MUST NOT
 #: enforce `minDeposit`, so a facilitator returning it is wrong and FA-ERR-001
 #: should say so.
-_EXCLUDED_CODES = frozenset({"invalid_batch_settlement_evm_deposit_below_min_deposit"})
+#: `invalid_auth_capture_evm_server_lifecycle_unavailable` (2026-11 review) sits
+#: in the shared auth-capture `errors.ts`, but upstream marks it "never sent on
+#: the wire": only the resource server's lifecycle manager throws it
+#: (`auth-capture/server/lifecycleManager.ts`), and its Go twin is declared in
+#: `server/errors.go`, which the role boundary already excludes.
+_EXCLUDED_CODES = frozenset(
+    {
+        "invalid_batch_settlement_evm_deposit_below_min_deposit",
+        "invalid_auth_capture_evm_server_lifecycle_unavailable",
+    }
+)
 
 # Known gaps (not collected, so not accepted; a facilitator returning one fails
 # FA-ERR-001 until the gap is closed)
