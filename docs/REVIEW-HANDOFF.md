@@ -53,13 +53,13 @@ The canonical status inventory is
 [`conformance-catalog.md`](conformance-catalog.md), and it is the number to trust:
 a test compares the count stated there against what the code actually emits, so
 this table can go stale but the catalog cannot. The shipped catalog contains
-**81 implemented checks**:
+**84 implemented checks**:
 
 | Group | Invocation | Coverage |
 |---|---|---|
-| `RS-HS-001..008` | `check` | HTTP 402 handshake and caching |
+| `RS-HS-001..008`, `RS-HS-010` | `check` | HTTP 402 handshake, caching and browser/CORS readiness (`RS-HS-010`, advisory) |
 | `RS-PR-001..027` | `check` | strict PaymentRequired content, identity, JSON text hygiene, accepts overspecification, per-binding `extra` vocabulary, declared builder-code and payment-flow fields (incl. per-binding flow rules) |
-| `RS-NEG-*`, `RS-SEC-*` | `check --active` | signed semantic negatives (incl. the builder-code echo, `RS-NEG-016`), robustness, leak protection, paywall-bypass probing (`RS-SEC-012`, incl. absolute-form targets) |
+| `RS-NEG-*`, `RS-SEC-*` | `check --active` | signed semantic negatives (incl. the builder-code echo, `RS-NEG-016`, the non-object JSON header, `RS-NEG-017`, and the high-s signature, `RS-NEG-018`), robustness, leak protection, paywall-bypass probing (`RS-SEC-012`, incl. absolute-form targets) |
 | `RS-PAY-001..004`, `RS-SEC-001/002`, `RS-HS-008/009` | `check --pay` | positive settlement (a `settlement_pending` answer is inconclusive), exact Transfer proof, replay/race, paid-response caching and no forwarded `EXTENSION-RESPONSES` |
 | `PQC-001..006` | `check --profile pqc` | opt-in hybrid receipt structure, verification, downgrade and cross-signing |
 | `FA-SUP-*`, `FA-VER-*`, `FA-ERR-001`, `FA-EXT-001` | `facilitator` | supported and verify behavior, error registry, `EXTENSION-RESPONSES` shape |
