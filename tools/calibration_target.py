@@ -77,7 +77,6 @@ def _is_high_s(signature: str) -> bool:
     return len(sig) == 65 and int.from_bytes(sig[32:64], "big") > _SECP256K1_HALF_N
 
 
-
 def _break_checksum(addr: str) -> str:
     """Flip the case of the first hex *letter* (skipping '0x'): keeps the address
     well-formed and mixed-case but makes its EIP-55 checksum invalid. Robust
