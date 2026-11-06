@@ -69,7 +69,7 @@ _CORE = "x402-specification-v2.md"
 SPEC_ERROR_REASONS = frozenset(
     {
         "insufficient_funds",
-        # Added to the legacy enum between cb0ec5b and e7cdc701 (2026-11 review);
+        # Added to the legacy enum between cb0ec5b and e7cdc70 (2026-11 review);
         # already accepted through MECHANISM_ERROR_CODES, so no verdict changes.
         "invalid_exact_evm_payload",
         "invalid_exact_evm_payload_authorization_valid_after",
@@ -171,7 +171,7 @@ RETIRED_ERROR_CODES = frozenset(
 # The vocabulary FA-ERR-001 accepts: an invalidReason / errorReason outside it is a
 # FAIL. It is the *union* of both upstream halves deliberately. The legacy
 # `ErrorReasons` enum alone is no longer sufficient — upstream froze it at 42 codes
-# and current mechanisms declare their own (529 of them at main@e7cdc701,
+# and current mechanisms declare their own (529 of them at main@e7cdc70,
 # MECHANISM_ERROR_CODES), plus the retired codes above during their grace period.
 # Gating on the enum alone would fail a facilitator returning, say,
 # `invalid_exact_evm_authorization_value` — a real code from the current EVM

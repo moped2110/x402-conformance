@@ -178,7 +178,7 @@ def test_spec_error_reasons_pinned():
 
 def test_mechanism_error_codes_pinned():
     """CI-safe: the generated mechanism registry is the set we reviewed
-    (main@e7cdc701, 2026-11 review: 529 codes from 31 declaring files)."""
+    (main@e7cdc70, 2026-11 review: 529 codes from 31 declaring files)."""
     assert len(MECHANISM_ERROR_CODES) == 529
     # 2026-11: SVM tx v1 negotiation and the EIP-3009 high-s rejection are in.
     assert "unsupported_transaction_version" in MECHANISM_ERROR_CODES
