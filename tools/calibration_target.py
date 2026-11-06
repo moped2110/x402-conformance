@@ -15,6 +15,7 @@ Usage:
     python tools/calibration_target.py [port]                 # correct server (default 4500)
     python tools/calibration_target.py 4500 --bug-no-amount   # drops the amount check
     python tools/calibration_target.py 4500 --bug-no-signature
+    python tools/calibration_target.py 4500 --bug-no-low-s
 
 Bug modes for the 2026-06-12 features (each must be CAUGHT by one check):
     --bug-leak           # echoes the resource marker in the rejection body  -> RS-SEC-009 / --resource-marker
@@ -60,6 +61,21 @@ CHAIN_ID = 84532
 # A unique token that lives only in the paid resource. The correct server never
 # emits it on a rejection; `--bug-leak` does, so `--resource-marker` catches it.
 RESOURCE_MARKER = "x402-calib-marker-7f3a"
+
+# EIP-2 low-s rule (x402#3912 / RS-NEG-018). A high-s twin recovers to the same
+# signer, so only this check catches malleability. Mirrors the SDK facilitator's
+# non-canonical rejection and the unit-test make_server(check_low_s=True).
+_SECP256K1_HALF_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141 // 2
+
+
+def _is_high_s(signature: str) -> bool:
+    """True when the 65-byte EIP-3009 signature uses s above n/2 (non-canonical)."""
+    try:
+        sig = bytes.fromhex(signature.removeprefix("0x"))
+    except Exception:
+        return False
+    return len(sig) == 65 and int.from_bytes(sig[32:64], "big") > _SECP256K1_HALF_N
+
 
 
 def _break_checksum(addr: str) -> str:
@@ -109,6 +125,12 @@ def _verify_payload(payload: dict, bugs: set) -> dict:
         return {
             "isValid": False,
             "invalidReason": "invalid_exact_evm_payload_authorization_valid_before",
+            "payer": auth.get("from"),
+        }
+    if "low-s" not in bugs and _is_high_s(signature):
+        return {
+            "isValid": False,
+            "invalidReason": "invalid_exact_evm_non_canonical_signature",
             "payer": auth.get("from"),
         }
     if "signature" not in bugs and not _signature_recovers(auth, signature):
@@ -262,6 +284,10 @@ def make_handler(bugs: set[str], port: int) -> type[BaseHTTPRequestHandler]:
                     return self._reject("invalid_exact_evm_payload_authorization_valid_before")
                 if int(auth["validAfter"]) > now:
                     return self._reject("invalid_exact_evm_payload_authorization_valid_after")
+            # RS-NEG-018 / x402#3912: reject a high-s twin before recovery. Dropped by
+            # `--bug-no-low-s` so the live suite can prove the check fires.
+            if "low-s" not in bugs and _is_high_s(signature):
+                return self._reject("invalid_exact_evm_non_canonical_signature")
             if "signature" not in bugs and not _signature_recovers(auth, signature):
                 return self._reject("invalid_exact_evm_payload_signature")
 
