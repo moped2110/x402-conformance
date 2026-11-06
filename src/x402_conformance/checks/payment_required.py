@@ -57,7 +57,9 @@ _RESERVED_EXTRA_KEYS = frozenset({"assetTransferMethod", "paymentFlow"})
 #: The reserved keys above are in none of these sets and never graded.
 _BINDING_EXTRA_KEYS: dict[tuple[str, str], frozenset[str]] = {
     ("exact", "eip155"): frozenset({"name", "version"}),
-    ("exact", "solana"): frozenset({"feePayer", "recentBlockhash", "lastValidBlockHeight", "memo"}),
+    ("exact", "solana"): frozenset(
+        {"feePayer", "recentBlockhash", "lastValidBlockHeight", "memo", "splits"}
+    ),
     ("exact", "hedera"): frozenset({"feePayer", "executors"}),
     ("exact", "starknet"): frozenset({"feePayer"}),
     ("exact", "lnbtc"): frozenset(
@@ -140,6 +142,14 @@ _BINDING_EXTRA_KEYS: dict[tuple[str, str], frozenset[str]] = {
         }
     ),
 }
+
+#: Keys a scheme defines for every network family, so they are never a mismatch
+#: on any binding of that scheme. `exact` gained the optional multi-payee
+#: `extra.splits` extension (scheme_exact.md §Multi-Payee Splits, x402#3221):
+#: network-agnostic in shape, specified in full for SVM so far. The 2026-11 review
+#: decided to *tolerate* it only; its contents (positive amounts, remainder > 0)
+#: are not graded.
+_SCHEME_WIDE_EXTRA_KEYS: dict[str, frozenset[str]] = {"exact": frozenset({"splits"})}
 
 #: Every key some binding above defines. A key outside this union is not graded:
 #: it may belong to a binding this suite has no vocabulary for, and RS-PR-019 only
@@ -769,7 +779,7 @@ def pr_019(s: ProbeSession) -> tuple[Status, str]:
             continue
         assert binding is not None  # narrowed by the membership test above
         graded += 1
-        own = _BINDING_EXTRA_KEYS[binding]
+        own = _BINDING_EXTRA_KEYS[binding] | _SCHEME_WIDE_EXTRA_KEYS.get(binding[0], frozenset())
         # The protocol-reserved keys belong to no binding's vocabulary, so they can
         # never be a mismatch (CORE §6.1).
         foreign = sorted((set(raw_extra) - _RESERVED_EXTRA_KEYS - own) & _ALL_BINDING_EXTRA_KEYS)
@@ -897,6 +907,26 @@ def pr_023(s: ProbeSession) -> tuple[Status, str]:
     info = _builder_code_info(s)
     if info is None:
         return Status.SKIP, "no builder-code extension declared"
+    # x402#3666: `m` (settlement metadata) is written by the facilitator only, at
+    # settlement time, and "never appears in PaymentRequired or PaymentPayload".
+    # The facilitator MUST ignore one in a payload, so it costs nothing on the
+    # wire: advisory, not a FAIL.
+    advisory = (
+        "advisory: builder-code info carries `m`, which only the facilitator writes "
+        "at settlement (builder_code.md §Settlement Metadata); it never belongs in a "
+        "402 and is ignored downstream"
+        if "m" in info
+        else ""
+    )
+    verdict = _pr_023_app_code(info)
+    if advisory:
+        detail = f"{verdict[1]}; {advisory}" if verdict[1] else advisory
+        return verdict[0], detail
+    return verdict
+
+
+def _pr_023_app_code(info: dict[str, object]) -> tuple[Status, str]:
+    """Grade the `a` half of RS-PR-023."""
     if "a" not in info:
         # `a` is the application's own identifier; a builder-code block without it
         # attributes nothing. Not fatal to payment, hence MINOR.
